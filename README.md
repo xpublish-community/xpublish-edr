@@ -1,8 +1,8 @@
-## ioos_pkg_skeleton
+## xpublish-edr
 
-[![Build Status](https://travis-ci.com/ioos/ioos-python-package-skeleton.svg?branch=master)](https://travis-ci.com/ioos/ioos-python-package-skeleton)
+[![Tests](https://github.com/gulfofmaine/xpublish-edr/actions/workflows/tests.yml/badge.svg)](https://github.com/gulfofmaine/xpublish-edr/actions/workflows/tests.yml)
 
-Quick description
+[Xpublish](https://xpublish.readthedocs.io/en/latest/) routers for the [OGC EDR API](https://ogcapi.ogc.org/edr/).
 
 ### Documentation and code
 
@@ -13,32 +13,44 @@ URLs for the docs and code.
 For `conda` users you can
 
 ```shell
-conda install --channel conda-forge ioos_pkg_skeleton
+conda install --channel conda-forge xpublish_edr
 ```
 
 or, if you are a `pip` users
 
 ```shell
-pip install ioos_pkg_skeleton
+pip install xpublish_edr
 ```
 
 ### Example
 
 ```python
-from ioos_pkg_skeleton import ioos_pkg_skeleton
+import xarray as xr
+import xpublish
+from xpublish.routers import base_router, zarr_router
+from xpublish_edr.cf_edr_router import cf_edr_router
 
 
-ioos_pkg_skeleton.meaning_of_life_url()
+ds = xr.open_dataset("dataset.nc")
+
+rest = xpublish.Rest(
+    datasets,
+    routers=[
+        (base_router, {"tags": ["info"]}),
+        (cf_edr_router, {"tags": ["edr"], "prefix": "/edr"}),
+        (zarr_router, {"tags": ["zarr"], "prefix": "/zarr"}),
+    ],
+)
 ```
 
 
 ## Get in touch
 
-Report bugs, suggest features or view the source code on [GitHub](https://github.com/ioos/ioos_pkg_skeleton/issues).
+Report bugs, suggest features or view the source code on [GitHub](https://github.com/gulfofmaine/xpublish-edr/issues).
 
 
 ## License and copyright
 
-ioos_pkg_skeleton is licensed under BSD 3-Clause "New" or "Revised" License (BSD-3-Clause).
+xpublish-edr is licensed under BSD 3-Clause "New" or "Revised" License (BSD-3-Clause).
 
-Development occurs on GitHub at <https://github.com/ioos/ioos_pkg_skeleton>.
+Development occurs on GitHub at <https://github.com/gulfofmaine/xpublish-edr/issues>.

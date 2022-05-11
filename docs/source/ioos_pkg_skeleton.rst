@@ -1,7 +1,7 @@
-:mod:`ioos_pkg_skeleton API`
+:mod:`xpublish_edr API`
 ----------------------------
 
-.. automodule:: ioos_pkg_skeleton.ioos_pkg_skeleton
+.. automodule:: xpublish_edr.xpublish_edr
    :members:
    :undoc-members:
    :show-inheritance:

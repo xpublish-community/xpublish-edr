@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ioos_pkg_skeleton import meaning_of_life, meaning_of_life_url
+from xpublish_edr import meaning_of_life, meaning_of_life_url
 
 
 @pytest.mark.web

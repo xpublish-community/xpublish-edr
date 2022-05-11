@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# ioos_pkg_skeleton documentation build configuration file, created by
+# xpublish_edr documentation build configuration file, created by
 # sphinx-quickstart on Mon Oct  9 21:28:42 2017.
 #
 # This file is execfile()d with the current directory set to its
@@ -51,15 +51,15 @@ source_suffix = ".rst"
 master_doc = "index"
 
 # General information about the project.
-project = "ioos_pkg_skeleton"
-copyright = "2017, Filipe Fernandes"
-author = "Filipe Fernandes"
+project = "xpublish_edr"
+copyright = "2022, Gulf of Maine Research Institute"
+author = "Alex Kerney"
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
 # built documents.
 #
-from ioos_pkg_skeleton import __version__ as VERSION  # noqa
+from xpublish_edr import __version__ as VERSION  # noqa
 
 version = VERSION
 # The full version, including alpha/beta/rc tags.
@@ -97,9 +97,9 @@ html_theme = "alabaster"
 #
 html_theme_options = {
     "logo": "logo.png",
-    "logo_name": "ioos_pkg_skeleton",
-    "github_user": "ioos",
-    "github_repo": "ioos_pkg_skeleton",
+    "logo_name": "xpublish_edr",
+    "github_user": "gulfofmaine",
+    "github_repo": "xpublish_edr",
     "github_banner": True,
     "travis_button": True,
     "fixed_sidebar": True,
@@ -130,7 +130,7 @@ html_sidebars = {
 # -- Options for HTMLHelp output ------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "ioos_pkg_skeletondoc"
+htmlhelp_basename = "xpublish_edrdoc"
 
 
 # -- Options for LaTeX output ---------------------------------------------
@@ -156,8 +156,8 @@ latex_elements = {
 latex_documents = [
     (
         master_doc,
-        "ioos_pkg_skeleton.tex",
-        "ioos_pkg_skeleton Documentation",
+        "xpublish_edr.tex",
+        "xpublish_edr Documentation",
         "Filipe Fernandes",
         "manual",
     ),
@@ -168,9 +168,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [
-    (master_doc, "ioos_pkg_skeleton", "ioos_pkg_skeleton Documentation", [author], 1),
-]
+man_pages = [(master_doc, "xpublish_edr", "xpublish_edr Documentation", [author], 1)]
 
 
 # -- Options for Texinfo output -------------------------------------------
@@ -181,10 +179,10 @@ man_pages = [
 texinfo_documents = [
     (
         master_doc,
-        "ioos_pkg_skeleton",
-        "ioos_pkg_skeleton Documentation",
+        "xpublish_edr",
+        "xpublish_edr Documentation",
         author,
-        "ioos_pkg_skeleton",
+        "xpublish_edr",
         "One line description of project.",
         "Miscellaneous",
     ),

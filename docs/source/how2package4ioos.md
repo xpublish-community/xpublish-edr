@@ -21,7 +21,7 @@ Almost all python packages are structure as following:
 | | |-_static
 | |-build
 |-tests
-|-ioos_pkg_skeleton
+|-xpublish_edr
 |-notebooks
 |-README.md
 |-LICENSE.txt
@@ -86,7 +86,7 @@ from setuptools import setup
 
 setup(
     use_scm_version={
-        "write_to": "ioos_pkg_skeleton/_version.py",
+        "write_to": "xpublish_edr/_version.py",
         "write_to_template": '__version__ = "{version}"',
         "tag_regex": r"^(?P<prefix>v)?(?P<version>[^\+]+)(?P<suffix>.*)?$",
     }
@@ -112,7 +112,7 @@ The former will have the package metadata and tools configuration while the latt
 
 ```cfg
 [metadata]
-name = ioos_pkg_skeleton
+name = xpublish_edr
 description = My Awesome module
 author = AUTHOR NAME
 author_email = AUTHOR@EMAIL.COM
@@ -161,7 +161,7 @@ ignore =
 max-line-length = 105
 select = C,E,F,W,B,B950
 ignore = E203, E501, W503
-exclude = ioos_pkg_skeleton/_version.py
+exclude = xpublish_edr/_version.py
 ```
 
 The metadata and options fields are almost the same information that used to go in the `setup.py`.
@@ -184,7 +184,7 @@ include *.txt
 include LICENSE # Please consider the Windows users and use .txt
 include README.md
 
-recursive-include ioos_pkg_skeleton *.py
+recursive-include xpublish_edr *.py
 ```
 
 ## Do we still need a `requirements.txt` file?
@@ -285,7 +285,7 @@ install:
 script:
   - if [[ $TRAVIS_JOB_NAME == python-* ]]; then
       cp -r tests/ /tmp ;
-      pushd /tmp && pytest -n 2 -rxs --cov=ioos_pkg_skeleton tests && popd ;
+      pushd /tmp && pytest -n 2 -rxs --cov=xpublish_edr tests && popd ;
     fi
 
   - if [[ $TRAVIS_JOB_NAME == 'tarball' ]]; then
@@ -373,7 +373,7 @@ repos:
   hooks:
   - id: isort
     additional_dependencies: [toml]
-    args: [--project=ioos_pkg_skeleton, --multi-line=3, --lines-after-imports=2, --lines-between-types=1, --trailing-comma, --force-grid-wrap=0, --use-parentheses, --line-width=88]
+    args: [--project=xpublish_edr, --multi-line=3, --lines-after-imports=2, --lines-between-types=1, --trailing-comma, --force-grid-wrap=0, --use-parentheses, --line-width=88]
 
 - repo: https://github.com/asottile/seed-isort-config
   rev: v2.1.1
@@ -410,7 +410,7 @@ pre-commit run --all-files
 and ignoring it in a commit if you don't want it to run:
 
 ```
-git commit ioos_pkg_skeleton/some-dot-pwhy.py --no-verify
+git commit xpublish_edr/some-dot-pwhy.py --no-verify
 ```
 
 ## Github Actions

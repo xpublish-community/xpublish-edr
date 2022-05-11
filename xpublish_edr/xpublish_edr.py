@@ -1,7 +1,7 @@
 """
-ioos_pkg_skeleton
+xpublish_edr
 
-My awesome ioos_pkg_skeleton
+My awesome xpublish_edr
 """
 
 import numpy as np

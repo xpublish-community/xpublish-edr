@@ -1,73 +1,72 @@
 repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v3.4.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: tests/data
+      - id: check-ast
+      - id: debug-statements
+      - id: end-of-file-fixer
+      - id: check-docstring-first
+      - id: check-added-large-files
+      - id: requirements-txt-fixer
+      - id: file-contents-sorter
+        files: requirements-dev.txt
 
-- repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v3.4.0
-  hooks:
-    - id: trailing-whitespace
-      exclude: tests/data
-    - id: check-ast
-    - id: debug-statements
-    - id: end-of-file-fixer
-    - id: check-docstring-first
-    - id: check-added-large-files
-    - id: requirements-txt-fixer
-    - id: file-contents-sorter
-      files: requirements-dev.txt
+  - repo: https://github.com/econchick/interrogate
+    rev: 1.3.2
+    hooks:
+      - id: interrogate
+        exclude: ^(docs|setup.py|tests)
+        args: [--config=pyproject.toml]
 
-- repo: https://github.com/econchick/interrogate
-  rev: 1.3.2
-  hooks:
-    - id: interrogate
-      exclude: ^(docs|setup.py|tests)
-      args: [--config=pyproject.toml]
+  - repo: https://github.com/keewis/blackdoc
+    rev: v0.3.4
+    hooks:
+      - id: blackdoc
 
-- repo: https://github.com/keewis/blackdoc
-  rev: v0.3.3
-  hooks:
-    - id: blackdoc
+  - repo: https://gitlab.com/pycqa/flake8
+    rev: 3.9.0
+    hooks:
+      - id: flake8
+        exclude: docs/source/conf.py
+        args: [--max-line-length=105]
 
-- repo: https://gitlab.com/pycqa/flake8
-  rev: 3.9.0
-  hooks:
-    - id: flake8
-      exclude: docs/source/conf.py
-      args: [--max-line-length=105]
+  - repo: https://github.com/pycqa/isort
+    rev: 5.8.0
+    hooks:
+      - id: isort
+        additional_dependencies: [toml]
+        args: ["--profile", "black", "--filter-files"]
 
-- repo: https://github.com/pycqa/isort
-  rev: 5.8.0
-  hooks:
-    - id: isort
-      additional_dependencies: [toml]
-      args: ["--profile", "black", "--filter-files"]
+  - repo: https://github.com/psf/black
+    rev: 22.3.0
+    hooks:
+      - id: black
+        language_version: python3
 
-- repo: https://github.com/psf/black
-  rev: 20.8b1
-  hooks:
-  - id: black
-    language_version: python3
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v0.812
+    hooks:
+      - id: mypy
+        exclude: docs/source/conf.py
+        args: [--ignore-missing-imports]
 
-- repo: https://github.com/pre-commit/mirrors-mypy
-  rev: v0.812
-  hooks:
-  - id: mypy
-    exclude: docs/source/conf.py
-    args: [--ignore-missing-imports]
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.0.0
+    hooks:
+      - id: codespell
+        args:
+          - --quiet-level=2
 
-- repo: https://github.com/codespell-project/codespell
-  rev: v2.0.0
-  hooks:
-    - id: codespell
-      args:
-        - --quiet-level=2
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v2.11.0
+    hooks:
+      - id: pyupgrade
+        args:
+          - --py36-plus
 
-- repo: https://github.com/asottile/pyupgrade
-  rev: v2.11.0
-  hooks:
-    - id: pyupgrade
-      args:
-        - --py36-plus
-
-- repo: https://github.com/asottile/add-trailing-comma
-  rev: v2.1.0
-  hooks:
-    - id: add-trailing-comma
+  - repo: https://github.com/asottile/add-trailing-comma
+    rev: v2.1.0
+    hooks:
+      - id: add-trailing-comma
