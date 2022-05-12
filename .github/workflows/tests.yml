@@ -22,7 +22,6 @@ jobs:
           environment-file: false
           environment-name: TEST
           channels: conda-forge
-          cache-downloads: true
 
       - name: Python ${{ matrix.python-version }}
         shell: bash -l {0}
