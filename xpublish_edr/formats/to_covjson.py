@@ -1,7 +1,13 @@
 """
 Generate CoverageJSON responses for xarray Dataset for EDR queries
 """
-from typing import Dict, List, Literal, Optional, Union
+import sys
+from typing import Dict, List, Optional, Union
+
+if sys.version_info >= (3, 8):
+    from typing import Literal
+else:
+    from typing_extensions import Literal
 
 try:
     from typing import TypedDict
@@ -88,16 +94,21 @@ def to_cf_covjson(ds: xr.Dataset):
     for var in ds.data_vars:
         da = ds[var]
 
-        parameter: Parameter = {"type": "Parameter", "observedProperty": {}}
+        parameter: Parameter = {
+            "type": "Parameter",
+            "observedProperty": {},
+            "description": {},
+            "unit": {},
+        }
 
         try:
-            parameter["description"] = {"en": da.attrs["long_name"]}
+            parameter["description"]["en"] = da.attrs["long_name"]
             parameter["observedProperty"]["label"] = {"en": da.attrs["long_name"]}
         except KeyError:
             pass
 
         try:
-            parameter["unit"] = {"label": {"en": da.attrs["units"]}}
+            parameter["unit"]["label"] = {"en": da.attrs["units"]}
         except KeyError:
             pass
 

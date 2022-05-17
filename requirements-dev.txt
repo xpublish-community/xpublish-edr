@@ -1,4 +1,5 @@
 black
+cf_xarray
 check-manifest
 doctr
 flake8
@@ -9,6 +10,8 @@ flake8-print
 interrogate
 isort
 nbsphinx
+netCDF4
+pooch
 pre-commit
 pylint
 pytest
@@ -20,3 +23,5 @@ setuptools_scm
 sphinx
 twine
 wheel
+xarray
+xpublish
