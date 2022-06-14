@@ -127,3 +127,20 @@ def test_cf_position_nc(cf_client):
     assert (
         "position.nc" in response.headers["content-disposition"]
     ), "The file name should be position.nc"
+
+
+def test_percent_encoded_cf_position_nc(cf_client):
+    x = 204
+    y = 44
+    response = cf_client.get(f"/datasets/air/position?coords=POINT({x}%20{y})&f=nc")
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "application/netcdf" in response.headers["content-type"]
+    ), "The content type should be set as a NetCDF"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "position.nc" in response.headers["content-disposition"]
+    ), "The file name should be position.nc"

@@ -3,7 +3,7 @@ name: Tests
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [main]
 
 jobs:
   run:
@@ -16,23 +16,22 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Setup Conda
-        uses: s-weigand/setup-conda@v1
+      - name: Setup Micromamba
+        uses: mamba-org/provision-with-micromamba@main
         with:
-          activate-conda: false
-          conda-channels: conda-forge
+          environment-file: false
 
       - name: Python ${{ matrix.python-version }}
         shell: bash -l {0}
         run: |
-          conda create --name TEST python=${{ matrix.python-version }} --file requirements.txt --file requirements-dev.txt
-          source activate TEST
+          micromamba create --name TEST python=${{ matrix.python-version }} --file requirements.txt --file requirements-dev.txt --channel conda-forge
+          micromamba activate TEST
           pip install -e . --no-deps --force-reinstall
-          conda info --all
-          conda list
+          micromamba info --all
+          micromamba list
 
       - name: Tests
         shell: bash -l {0}
         run: |
-          source activate TEST
+          micromamba activate TEST
           pytest -rxs --cov=xpublish_edr tests
