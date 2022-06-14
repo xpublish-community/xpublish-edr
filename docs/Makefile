@@ -12,6 +12,10 @@ BUILDDIR      = build
 help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
+live:
+	sphinx-autobuild --ignore '_build/**/*' --ignore '**/.ipynb_checkpoints/*' --ignore 'jupyter_execute/**/*' -b dirhtml  "$(SOURCEDIR)" _build/dirhtml/
+
+
 .PHONY: help Makefile
 
 # Catch-all target: route all unknown targets to Sphinx using the new
