@@ -2,9 +2,9 @@
 xpublish_edr is not a real package, just a set of best practices examples.
 """
 
-from xpublish_edr.xpublish_edr import meaning_of_life, meaning_of_life_url
+from xpublish_edr.cf_edr_router import cf_edr_router
 
-__all__ = ["meaning_of_life", "meaning_of_life_url"]
+__all__ = ["cf_edr_router"]
 
 try:
     from ._version import __version__
