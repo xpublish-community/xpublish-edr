@@ -28,14 +28,20 @@ class Domain(TypedDict):
 
 
 class En(TypedDict):
+    """English language values"""
+
     en: str
 
 
 class Label(TypedDict):
+    """Label for publicly readable info"""
+
     label: NotRequired[En]
 
 
 class ObservedProperty(Label):
+    """Describing the real world"""
+
     id: NotRequired[str]
 
 
