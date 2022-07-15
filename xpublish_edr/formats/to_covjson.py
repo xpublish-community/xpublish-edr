@@ -2,17 +2,17 @@
 Generate CoverageJSON responses for xarray Dataset for EDR queries
 """
 import sys
-from typing import Dict, List, Optional, Union
+from typing import Dict, List
 
 if sys.version_info >= (3, 8):
     from typing import Literal
 else:
     from typing_extensions import Literal
 
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
+if sys.version_info >= (3, 11):
+    from typing import NotRequired, TypedDict
+else:
+    from typing_extensions import TypedDict, NotRequired
 
 import numpy as np
 import xarray as xr
@@ -27,13 +27,31 @@ class Domain(TypedDict):
     referencing: List
 
 
+class En(TypedDict):
+    """English language values"""
+
+    en: str
+
+
+class Label(TypedDict):
+    """Label for publicly readable info"""
+
+    label: NotRequired[En]
+
+
+class ObservedProperty(Label):
+    """Describing the real world"""
+
+    id: NotRequired[str]
+
+
 class Parameter(TypedDict):
     """CovJSON Parameter type"""
 
     type: Literal["Parameter"]
-    description: Dict[str, str]
-    unit: Optional[Dict[str, Dict[str, str]]]
-    observedProperty: Optional[Dict[str, Union[str, Dict[str, str]]]]
+    description: En
+    unit: NotRequired[Label]
+    observedProperty: ObservedProperty
 
 
 class CovJSON(TypedDict):
@@ -56,7 +74,7 @@ def invert_cf_dims(ds):
     return inverted
 
 
-def to_cf_covjson(ds: xr.Dataset):
+def to_cf_covjson(ds: xr.Dataset) -> CovJSON:
     """Transform an xarray dataset to CoverageJSON using CF conventions"""
 
     covjson: CovJSON = {
@@ -96,10 +114,17 @@ def to_cf_covjson(ds: xr.Dataset):
 
         parameter: Parameter = {
             "type": "Parameter",
-            "observedProperty": {},
-            "description": {},
-            "unit": {},
+            "observedProperty": {},  # type: ignore
+            "description": {},  # type: ignore
+            "unit": {},  # type: ignore
         }
+
+        try:
+            standard_name = str(da.attrs["standard_name"])
+        except KeyError:
+            pass
+        else:
+            parameter["observedProperty"]["id"] = standard_name
 
         try:
             parameter["description"]["en"] = da.attrs["long_name"]

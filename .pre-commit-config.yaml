@@ -40,17 +40,18 @@ repos:
         args: ["--profile", "black", "--filter-files"]
 
   - repo: https://github.com/psf/black
-    rev: 22.3.0
+    rev: 22.6.0
     hooks:
       - id: black
         language_version: python3
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v0.812
+    rev: v0.961
     hooks:
       - id: mypy
         exclude: docs/source/conf.py
         args: [--ignore-missing-imports]
+        additional_dependencies: [typing_extensions>=4.2.0, types-setuptools]
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.0.0
@@ -67,6 +68,6 @@ repos:
           - --py36-plus
 
   - repo: https://github.com/asottile/add-trailing-comma
-    rev: v2.1.0
+    rev: v2.2.3
     hooks:
       - id: add-trailing-comma
