@@ -46,11 +46,12 @@ repos:
         language_version: python3
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v0.812
+    rev: v0.961
     hooks:
       - id: mypy
         exclude: docs/source/conf.py
         args: [--ignore-missing-imports]
+        additional_dependencies: [typing_extensions>=4.2.0, types-setuptools]
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.0.0

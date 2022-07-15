@@ -32,12 +32,11 @@ class En(TypedDict):
 
 
 class Label(TypedDict):
-    label: En
+    label: NotRequired[En]
 
 
-class ObservedProperty(TypedDict):
+class ObservedProperty(Label):
     id: NotRequired[str]
-    label: NotRequired[Label]
 
 
 class Parameter(TypedDict):
@@ -46,7 +45,6 @@ class Parameter(TypedDict):
     type: Literal["Parameter"]
     description: En
     unit: NotRequired[Label]
-    # observedProperty: Optional[Dict[str, Union[str, Dict[str, str]]]]
     observedProperty: ObservedProperty
 
 
@@ -112,7 +110,7 @@ def to_cf_covjson(ds: xr.Dataset) -> CovJSON:
             "type": "Parameter",
             "observedProperty": {},  # type: ignore
             "description": {},  # type: ignore
-            "unit": {},
+            "unit": {},  # type: ignore
         }
 
         try:
