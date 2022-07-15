@@ -66,6 +66,9 @@ def test_cf_position_query(cf_client, cf_dataset):
         air_param["unit"]["label"]["en"] == cf_dataset["air"].attrs["units"]
     ), "DataArray units should be set as parameter units"
     assert (
+        air_param["observedProperty"]["id"] == cf_dataset["air"].attrs["standard_name"]
+    ), "DataArray standard_name should be set as the observed property id"
+    assert (
         air_param["observedProperty"]["label"]["en"]
         == cf_dataset["air"].attrs["long_name"]
     ), "DataArray long_name should be set as parameter observed property"
