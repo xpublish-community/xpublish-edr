@@ -17,5 +17,6 @@ setup(
             "nc4 = xpublish_edr.formats.to_netcdf:to_netcdf",
             "netcdf4 = xpublish_edr.formats.to_netcdf:to_netcdf",
         ],
+        "xpublish.plugin": ["cf_edr = xpublish_edr.plugin:CfEdrPlugin"],
     },
 )
