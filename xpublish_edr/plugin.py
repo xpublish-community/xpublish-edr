@@ -2,13 +2,12 @@
 OGC EDR router for datasets with CF convention metadata
 """
 import logging
-from dataclasses import dataclass, field
 from typing import List, Optional
 
 import pkg_resources
 import xarray as xr
-from fastapi import Depends, HTTPException, Request
-from xpublish.plugins import XpublishPluginFactory
+from fastapi import APIRouter, Depends, HTTPException, Request
+from xpublish import Plugin, hookimpl
 
 from .formats.to_covjson import to_cf_covjson
 from .query import EDRQuery, edr_query, edr_query_params
@@ -18,7 +17,8 @@ logger = logging.getLogger("cf_edr")
 
 def position_formats():
     """
-    Return response format functions from registered `xpublish_edr_position_formats` entry_points
+    Return response format functions from registered
+    `xpublish_edr_position_formats` entry_points
     """
     formats = {}
 
@@ -28,17 +28,25 @@ def position_formats():
     return formats
 
 
-@dataclass
-class CfEdrPlugin(XpublishPluginFactory):
-    """Provides access to data via a OGC EDR compatible API for datasets that are CF compliant"""
+class CfEdrPlugin(Plugin):
+    """
+    OGC EDR compatible endpoints for Xpublish datasets
+    """
+
+    name = "cf_edr"
+
+    app_router_prefix: str = "/edr"
+    app_router_tags: List[str] = ["edr"]
 
     dataset_router_prefix: str = "/edr"
-    dataset_router_tags: List[str] = field(default_factory=lambda: ["edr"])
+    dataset_router_tags: List[str] = ["edr"]
 
-    def register_routes(self):
-        """Register EDR dataset routes"""
+    @hookimpl
+    def app_router(self):
+        """Register an application level router for EDR format info"""
+        router = APIRouter(prefix=self.app_router_prefix, tags=self.app_router_tags)
 
-        @self.dataset_router.get(
+        @router.get(
             "/position/formats",
             summary="Position query response formats",
         )
@@ -50,11 +58,18 @@ class CfEdrPlugin(XpublishPluginFactory):
 
             return formats
 
-        @self.dataset_router.get("/position", summary="Position query")
+        return router
+
+    @hookimpl
+    def dataset_router(self):
+        """Register dataset level router for EDR endpoints"""
+        router = APIRouter(prefix=self.app_router_prefix, tags=self.dataset_router_tags)
+
+        @router.get("/position", summary="Position query")
         def get_position(
             request: Request,
             query: EDRQuery = Depends(edr_query),
-            dataset: xr.Dataset = Depends(self.dataset_dependency),
+            dataset: xr.Dataset = Depends(self.dependencies.dataset),
         ):
             """
             Returns position data based on WKT `Point(lon lat)` coordinates
@@ -128,9 +143,12 @@ class CfEdrPlugin(XpublishPluginFactory):
                 except KeyError:
                     raise HTTPException(
                         404,
-                        f"{query.format} is not a valid format for EDR position queries. Get `./formats` for valid formats",
+                        f"{query.format} is not a valid format for EDR position queries. "
+                        "Get `./formats` for valid formats",
                     )
 
                 return format_fn(ds)
 
             return to_cf_covjson(ds)
+
+        return router
