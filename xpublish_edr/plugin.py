@@ -7,7 +7,7 @@ from typing import List, Optional
 import pkg_resources
 import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Request
-from xpublish import Plugin, hookimpl
+from xpublish import Dependencies, Plugin, hookimpl
 
 from .formats.to_covjson import to_cf_covjson
 from .query import EDRQuery, edr_query, edr_query_params
@@ -61,7 +61,7 @@ class CfEdrPlugin(Plugin):
         return router
 
     @hookimpl
-    def dataset_router(self):
+    def dataset_router(self, deps: Dependencies):
         """Register dataset level router for EDR endpoints"""
         router = APIRouter(prefix=self.app_router_prefix, tags=self.dataset_router_tags)
 
@@ -69,7 +69,7 @@ class CfEdrPlugin(Plugin):
         def get_position(
             request: Request,
             query: EDRQuery = Depends(edr_query),
-            dataset: xr.Dataset = Depends(self.dependencies.dataset),
+            dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
             Returns position data based on WKT `Point(lon lat)` coordinates
