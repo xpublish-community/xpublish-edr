@@ -10,28 +10,31 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        python-version: ["3.9", "3.10", "3.11"]
         os: [windows-latest, ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v2
 
       - name: Setup Micromamba
-        uses: mamba-org/provision-with-micromamba@main
+        uses: mamba-org/provision-with-micromamba@v15
         with:
           environment-file: false
 
       - name: Python ${{ matrix.python-version }}
         shell: bash -l {0}
-        run: |
+        run: >
           micromamba create --name TEST python=${{ matrix.python-version }} --file requirements.txt --file requirements-dev.txt --channel conda-forge
-          micromamba activate TEST
-          pip install -e . --no-deps --force-reinstall
-          micromamba info --all
-          micromamba list
+          && micromamba activate TEST
+          && pip install -e . --no-deps --force-reinstall
+          && micromamba info
+          && micromamba list
 
       - name: Tests
         shell: bash -l {0}
-        run: |
+        run: >
           micromamba activate TEST
-          pytest -rxs --cov=xpublish_edr tests
+          && pytest -rxs --cov=xpublish_edr --cov-report=xml tests
+
+      - name: Upload coverage reports to Codecov with GitHub Action
+        uses: codecov/codecov-action@v3
