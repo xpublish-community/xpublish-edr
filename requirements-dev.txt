@@ -7,8 +7,7 @@ flake8-builtins
 flake8-comprehensions
 flake8-mutable
 flake8-print
-interrogate
-isort
+httpx
 nbsphinx
 netCDF4
 pooch
@@ -17,8 +16,10 @@ pylint
 pytest
 pytest-cov
 pytest-flake8
+pytest-github-actions-annotate-failures
 pytest-xdist
 recommonmark
+ruff
 setuptools_scm
 sphinx
 twine
