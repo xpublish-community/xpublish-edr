@@ -38,7 +38,7 @@ nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
 netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
 
 [tool.check-manifest]
-ignore = ["xpublish_opendap/_version.py"]
+ignore = ["xpublish_edr/_version.py"]
 
 [tool.setuptools]
 packages = ["xpublish_edr"]

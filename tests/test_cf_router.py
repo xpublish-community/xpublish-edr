@@ -2,7 +2,7 @@ import pytest
 import xpublish
 from fastapi.testclient import TestClient
 
-from xpublish_edr.cf_edr_router import cf_edr_router
+from xpublish_edr import CfEdrPlugin
 
 
 @pytest.fixture(scope="session")
@@ -14,7 +14,7 @@ def cf_dataset():
 
 @pytest.fixture(scope="session")
 def cf_xpublish(cf_dataset):
-    rest = xpublish.Rest({"air": cf_dataset}, routers=[cf_edr_router])
+    rest = xpublish.Rest({"air": cf_dataset}, plugins={"edr": CfEdrPlugin()})
 
     return rest
 
@@ -28,7 +28,7 @@ def cf_client(cf_xpublish):
 
 
 def test_cf_position_formats(cf_client):
-    response = cf_client.get("/datasets/air/position/formats")
+    response = cf_client.get("/edr/position/formats")
 
     assert response.status_code == 200, "Response did not return successfully"
 
@@ -42,7 +42,7 @@ def test_cf_position_formats(cf_client):
 def test_cf_position_query(cf_client, cf_dataset):
     x = 204
     y = 44
-    response = cf_client.get(f"/datasets/air/position?coords=POINT({x} {y})")
+    response = cf_client.get(f"/datasets/air/edr/position?coords=POINT({x} {y})")
 
     assert response.status_code == 200, "Response did not return successfully"
 
@@ -91,7 +91,7 @@ def test_cf_position_query(cf_client, cf_dataset):
 def test_cf_position_csv(cf_client):
     x = 204
     y = 44
-    response = cf_client.get(f"/datasets/air/position?coords=POINT({x} {y})&f=csv")
+    response = cf_client.get(f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv")
 
     assert response.status_code == 200, "Response did not return successfully"
     assert (
@@ -118,7 +118,7 @@ def test_cf_position_csv(cf_client):
 def test_cf_position_nc(cf_client):
     x = 204
     y = 44
-    response = cf_client.get(f"/datasets/air/position?coords=POINT({x} {y})&f=nc")
+    response = cf_client.get(f"/datasets/air/edr/position?coords=POINT({x} {y})&f=nc")
 
     assert response.status_code == 200, "Response did not return successfully"
     assert (
@@ -135,7 +135,7 @@ def test_cf_position_nc(cf_client):
 def test_percent_encoded_cf_position_nc(cf_client):
     x = 204
     y = 44
-    response = cf_client.get(f"/datasets/air/position?coords=POINT({x}%20{y})&f=nc")
+    response = cf_client.get(f"/datasets/air/edr/position?coords=POINT({x}%20{y})&f=nc")
 
     assert response.status_code == 200, "Response did not return successfully"
     assert (

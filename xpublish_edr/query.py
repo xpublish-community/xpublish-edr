@@ -44,7 +44,10 @@ def edr_query(
     datetime: Optional[str] = Query(
         None,
         title="Datetime or datetime range",
-        description="Query by a single ISO time or a range of ISO times. To query by a range, split the times with a slash",
+        description=(
+            "Query by a single ISO time or a range of ISO times. "
+            "To query by a range, split the times with a slash"
+        ),
     ),
     parameters: Optional[str] = Query(
         None,
@@ -59,7 +62,10 @@ def edr_query(
     f: Optional[str] = Query(
         None,
         title="Response format",
-        description="Data is returned as a CoverageJSON by default. Get `/formats` to discover what other formats are accessible",
+        description=(
+            "Data is returned as a CoverageJSON by default. "
+            "Get `/formats` to discover what other formats are accessible"
+        ),
     ),
 ):
     """Extract EDR query params from request query strings"""
