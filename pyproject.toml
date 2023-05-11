@@ -26,15 +26,6 @@ classifiers = [
 
 dynamic = ["version", "dependencies"]
 
-[tool.setuptools]
-packages = ["xpublish_edr"]
-
-[tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
-
-[tool.setuptools_scm]
-write_to = "xpublish_edr/_version.py"
-
 [project.entry-points."xpublish.plugin"]
 cf_edr = "xpublish_edr.plugin:CfEdrPlugin"
 
@@ -45,6 +36,18 @@ nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
 netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
 nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
 netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+
+[tool.check-manifest]
+ignore = ["xpublish_opendap/_version.py"]
+
+[tool.setuptools]
+packages = ["xpublish_edr"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools_scm]
+write_to = "xpublish_edr/_version.py"
 
 [tool.interrogate]
 ignore-init-method = true
