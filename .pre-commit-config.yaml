@@ -51,7 +51,8 @@ repos:
       - id: mypy
         exclude: docs/source/conf.py
         args: [--ignore-missing-imports]
-        additional_dependencies: [typing_extensions>=4.2.0, types-setuptools]
+        additional_dependencies:
+          [typing_extensions>=4.2.0, types-setuptools, types-PyYAML]
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.2.2

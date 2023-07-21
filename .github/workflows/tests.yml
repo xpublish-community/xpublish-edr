@@ -12,6 +12,7 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.11"]
         os: [windows-latest, ubuntu-latest, macos-latest]
+        pydantic-version: ["<2", ">=2"]
 
     steps:
       - uses: actions/checkout@v2
@@ -21,10 +22,10 @@ jobs:
         with:
           environment-file: false
 
-      - name: Python ${{ matrix.python-version }}
+      - name: Python ${{ matrix.python-version }} Pydantic ${{ matrix.pydantic-version }}
         shell: bash -l {0}
         run: >
-          micromamba create --name TEST python=${{ matrix.python-version }} --file requirements.txt --file requirements-dev.txt --channel conda-forge
+          micromamba create --name TEST python=${{ matrix.python-version }} --file requirements.txt --file requirements-dev.txt --channel conda-forge pydantic=${{ matrix.pydantic-version }}
           && micromamba activate TEST
           && pip install -e . --no-deps --force-reinstall
           && micromamba info

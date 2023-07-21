@@ -33,7 +33,7 @@ class CfEdrPlugin(Plugin):
     OGC EDR compatible endpoints for Xpublish datasets
     """
 
-    name = "cf_edr"
+    name: str = "cf_edr"
 
     app_router_prefix: str = "/edr"
     app_router_tags: List[str] = ["edr"]
