@@ -16,3 +16,4 @@ exclude *.enc
 exclude .gitignore
 exclude .isort.cfg
 exclude .pre-commit-config.yaml
+exclude noxfile.py
