@@ -17,25 +17,27 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Setup Micromamba
-        uses: mamba-org/provision-with-micromamba@v15
+      - name: Setup Micromamba ${{ matrix.python-version }} Pydantic ${{ matrix.pydantic-version }}
+        uses: mamba-org/setup-micromamba@v1
         with:
-          environment-file: false
+          environment-name: TEST
+          init-shell: bash
+          create-args: >-
+            python=${{ matrix.python-version }} pip
+            --file requirements.txt
+            --file requirements-dev.txt
+            --channel conda-forge
+            pydantic=${{ matrix.pydantic-version }}
 
-      - name: Python ${{ matrix.python-version }} Pydantic ${{ matrix.pydantic-version }}
+      - name: Install xpublish-edr
         shell: bash -l {0}
         run: >
-          micromamba create --name TEST python=${{ matrix.python-version }} --file requirements.txt --file requirements-dev.txt --channel conda-forge pydantic=${{ matrix.pydantic-version }}
-          && micromamba activate TEST
-          && pip install -e . --no-deps --force-reinstall
-          && micromamba info
-          && micromamba list
+          python -m pip install -e . --no-deps --force-reinstall
 
       - name: Tests
         shell: bash -l {0}
         run: >
-          micromamba activate TEST
-          && pytest -rxs --cov=xpublish_edr --cov-report=xml tests
+          python -m pytest -rxs --cov=xpublish_edr --cov-report=xml tests
 
       - name: Upload coverage reports to Codecov with GitHub Action
         uses: codecov/codecov-action@v3
