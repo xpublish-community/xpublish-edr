@@ -10,6 +10,7 @@ flake8-print
 httpx
 nbsphinx
 netCDF4
+nox
 pooch
 pre-commit
 pylint
