@@ -1,6 +1,7 @@
 """
 Generate CoverageJSON responses for xarray Dataset for EDR queries
 """
+
 import sys
 from typing import Dict, List
 

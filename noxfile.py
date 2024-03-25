@@ -1,4 +1,5 @@
 """Test against the same matrix as Github Actions"""
+
 import nox
 import yaml
 

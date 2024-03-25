@@ -1,6 +1,7 @@
 """
 Generate a NetCDF from an xarray Dataset for EDR queries
 """
+
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
