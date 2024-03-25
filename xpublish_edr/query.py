@@ -1,6 +1,7 @@
 """
 OGC EDR Query param parsing
 """
+
 from typing import Optional
 
 from fastapi import Query
