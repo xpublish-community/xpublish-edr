@@ -77,7 +77,7 @@ class CfEdrPlugin(Plugin):
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
             try:
-                ds = dataset.cf.sel(X=query.point.x, Y=query.point.y, method="nearest")
+                ds = dataset.cf.sel(longitude=query.point.x, latitude=query.point.y, method="nearest")
             except KeyError:
                 raise HTTPException(
                     status_code=404,
@@ -85,16 +85,16 @@ class CfEdrPlugin(Plugin):
                 )
 
             if query.z:
-                ds = dataset.cf.sel(Z=query.z, method="nearest")
+                ds = dataset.cf.sel(vertical=query.z, method="nearest")
 
             if query.datetime:
                 datetimes = query.datetime.split("/")
 
                 try:
                     if len(datetimes) == 1:
-                        ds = ds.cf.sel(T=datetimes[0], method="nearest")
+                        ds = ds.cf.sel(time=datetimes[0], method="nearest")
                     elif len(datetimes) == 2:
-                        ds = ds.cf.sel(T=slice(datetimes[0], datetimes[1]))
+                        ds = ds.cf.sel(time=slice(datetimes[0], datetimes[1]))
                     else:
                         raise HTTPException(
                             status_code=404,
