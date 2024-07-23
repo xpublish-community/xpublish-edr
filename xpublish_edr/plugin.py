@@ -77,7 +77,9 @@ class CfEdrPlugin(Plugin):
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
             try:
-                ds = dataset.cf.sel(longitude=query.point.x, latitude=query.point.y, method="nearest")
+                ds = dataset.cf.sel(
+                    longitude=query.point.x, latitude=query.point.y, method="nearest",
+                )
             except KeyError:
                 raise HTTPException(
                     status_code=404,
