@@ -25,6 +25,7 @@ setuptools_scm
 sphinx
 twine
 uvicorn[standard]
+uvloop
 watchfiles
 websockets
 wheel
