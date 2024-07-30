@@ -3,9 +3,10 @@ OGC EDR router for datasets with CF convention metadata
 """
 import logging
 from functools import cache
-from typing import List, Optional
+from typing import Hashable, List, Optional, Tuple
 
 import cachey
+import dask
 import pkg_resources
 import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -18,9 +19,14 @@ from .query import EDRQuery, edr_query, edr_query_params
 logger = logging.getLogger("cf_edr")
 
 
-def cache_key_from_request(request: Request, query: EDRQuery, dataset: xr.Dataset):
+def cache_key_from_request(
+    route: str,
+    request: Request,
+    query: EDRQuery,
+    dataset: xr.Dataset,
+) -> Tuple[Hashable, ...]:
     """Generate a cache key from the request and query parameters"""
-    return (request, query, str(dataset))
+    return (route, request, query, dask.base.tokenize(dataset))
 
 
 @cache
@@ -86,7 +92,7 @@ class CfEdrPlugin(Plugin):
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
-            cache_key = cache_key_from_request(request, query, dataset)
+            cache_key = cache_key_from_request("position", request, query, dataset)
             response: Optional[Response] = cache.get(cache_key)
 
             if response is not None:
@@ -175,7 +181,12 @@ class CfEdrPlugin(Plugin):
                     format_fn = to_cf_covjson
 
             response = format_fn(ds)
-            cache.put(cache_key, response, ct.time, int(response.headers["content-length"]))
+            cache.put(
+                cache_key,
+                response,
+                ct.time,
+                int(response.headers["content-length"]),
+            )
             return response
 
         return router

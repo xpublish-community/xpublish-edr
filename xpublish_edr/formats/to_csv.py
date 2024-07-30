@@ -5,7 +5,7 @@ import xarray as xr
 from fastapi import Response
 
 
-def to_csv(ds: xr.Dataset):
+def to_csv(ds: xr.Dataset) -> Response:
     """Return a CSV response from an xarray dataset"""
     ds = ds.squeeze()
     df = ds.to_pandas()
