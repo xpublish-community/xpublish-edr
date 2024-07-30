@@ -24,6 +24,8 @@ ruff
 setuptools_scm
 sphinx
 twine
+uvicorn[standard]
+websockets
 wheel
 xarray
 xpublish
