@@ -24,7 +24,7 @@ ruff
 setuptools_scm
 sphinx
 twine
-uvicorn [standard]
+uvicorn-standard
 wheel
 xarray
 xpublish
