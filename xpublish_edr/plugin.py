@@ -22,9 +22,8 @@ def position_formats():
     """
     formats = {}
 
-    for entry_point in importlib.metadata.entry_points(
-        group="xpublish_edr_position_formats",
-    ):
+    entry_points = importlib.metadata.entry_points()
+    for entry_point in entry_points.get("xpublish_edr_position_formats", []):
         formats[entry_point.name] = entry_point.load()
 
     return formats
