@@ -26,7 +26,9 @@ def cache_key_from_request(
     dataset: xr.Dataset,
 ) -> Tuple[Hashable, ...]:
     """Generate a cache key from the request and query parameters"""
-    return (route, request, query, dask.base.tokenize(dataset))
+    with dask.config.set({"tokenize.ensure-deterministic": True}):
+        ds_token = dask.base.tokenize(dataset)
+    return (route, request, query, ds_token)
 
 
 @cache
