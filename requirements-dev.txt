@@ -19,16 +19,12 @@ pytest-cov
 pytest-flake8
 pytest-github-actions-annotate-failures
 pytest-xdist
-python-dotenv
 recommonmark
 ruff
 setuptools_scm
 sphinx
 twine
-uvicorn[standard]
-uvloop; platform_system != "Windows"
-watchfiles
-websockets
+uvicorn [standard]
 wheel
 xarray
 xpublish
