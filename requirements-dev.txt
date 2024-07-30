@@ -19,6 +19,7 @@ pytest-cov
 pytest-flake8
 pytest-github-actions-annotate-failures
 pytest-xdist
+python-dotenv
 recommonmark
 ruff
 setuptools_scm
