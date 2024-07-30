@@ -29,6 +29,18 @@ class EDRQuery(BaseModel):
         """Shapely point from WKT query params"""
         return wkt.loads(self.coords)
 
+    def __hash__(self):
+        return hash(
+            (
+                self.coords,
+                self.z,
+                self.datetime,
+                self.parameters,
+                self.crs,
+                self.format,
+            ),
+        )
+
 
 def edr_query(
     coords: str = Query(

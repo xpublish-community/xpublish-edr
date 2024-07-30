@@ -2,12 +2,15 @@
 OGC EDR router for datasets with CF convention metadata
 """
 import logging
+from functools import cache
 from typing import List, Optional
 
+import cachey
 import pkg_resources
 import xarray as xr
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from xpublish import Dependencies, Plugin, hookimpl
+from xpublish.utils.cache import CostTimer
 
 from .formats.to_covjson import to_cf_covjson
 from .query import EDRQuery, edr_query, edr_query_params
@@ -15,6 +18,12 @@ from .query import EDRQuery, edr_query, edr_query_params
 logger = logging.getLogger("cf_edr")
 
 
+def cache_key_from_request(request: Request, query: EDRQuery, dataset: xr.Dataset):
+    """Generate a cache key from the request and query parameters"""
+    return (request, query, str(dataset))
+
+
+@cache
 def position_formats():
     """
     Return response format functions from registered
@@ -70,85 +79,103 @@ class CfEdrPlugin(Plugin):
             request: Request,
             query: EDRQuery = Depends(edr_query),
             dataset: xr.Dataset = Depends(deps.dataset),
+            cache: cachey.Cache = Depends(deps.cache),
         ):
             """
             Returns position data based on WKT `Point(lon lat)` coordinates
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
-            try:
-                ds = dataset.cf.sel(X=query.point.x, Y=query.point.y, method="nearest")
-            except KeyError:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Dataset does not have CF Convention compliant metadata",
-                )
+            cache_key = cache_key_from_request(request, query, dataset)
+            response: Optional[Response] = cache.get(cache_key)
 
-            if query.z:
-                ds = dataset.cf.sel(Z=query.z, method="nearest")
+            if response is not None:
+                logger.debug(f"Cache hit for {cache_key}")
+                return response
 
-            if query.datetime:
-                datetimes = query.datetime.split("/")
-
+            with CostTimer() as ct:
                 try:
-                    if len(datetimes) == 1:
-                        ds = ds.cf.sel(T=datetimes[0], method="nearest")
-                    elif len(datetimes) == 2:
-                        ds = ds.cf.sel(T=slice(datetimes[0], datetimes[1]))
-                    else:
-                        raise HTTPException(
-                            status_code=404,
-                            detail="Invalid datetimes submitted",
-                        )
-                except ValueError as e:
-                    logger.error("Error with datetime", exc_info=True)
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Invalid datetime ({e})",
-                    ) from e
-
-            if query.parameters:
-                try:
-                    ds = ds.cf[query.parameters.split(",")]
-                except KeyError as e:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Invalid variable: {e}",
+                    ds = dataset.cf.sel(
+                        X=query.point.x,
+                        Y=query.point.y,
+                        method="nearest",
                     )
-
-                logger.debug(f"Dataset filtered by query params {ds}")
-
-            query_params = dict(request.query_params)
-            for query_param in request.query_params:
-                if query_param in edr_query_params:
-                    del query_params[query_param]
-
-            method: Optional[str] = "nearest"
-
-            for key, value in query_params.items():
-                split_value = value.split("/")
-                if len(split_value) == 1:
-                    continue
-                elif len(split_value) == 2:
-                    query_params[key] = slice(split_value[0], split_value[1])
-                    method = None
-                else:
-                    raise HTTPException(404, f"Too many values for selecting {key}")
-
-            ds = ds.sel(query_params, method=method)
-
-            if query.format:
-                try:
-                    format_fn = position_formats()[query.format]
                 except KeyError:
                     raise HTTPException(
-                        404,
-                        f"{query.format} is not a valid format for EDR position queries. "
-                        "Get `./formats` for valid formats",
+                        status_code=404,
+                        detail="Dataset does not have CF Convention compliant metadata",
                     )
 
-                return format_fn(ds)
+                if query.z:
+                    ds = dataset.cf.sel(Z=query.z, method="nearest")
 
-            return to_cf_covjson(ds)
+                if query.datetime:
+                    datetimes = query.datetime.split("/")
+
+                    try:
+                        if len(datetimes) == 1:
+                            ds = ds.cf.sel(T=datetimes[0], method="nearest")
+                        elif len(datetimes) == 2:
+                            ds = ds.cf.sel(T=slice(datetimes[0], datetimes[1]))
+                        else:
+                            raise HTTPException(
+                                status_code=404,
+                                detail="Invalid datetimes submitted",
+                            )
+                    except ValueError as e:
+                        logger.error("Error with datetime", exc_info=True)
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Invalid datetime ({e})",
+                        ) from e
+
+                if query.parameters:
+                    try:
+                        ds = ds.cf[query.parameters.split(",")]
+                    except KeyError as e:
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Invalid variable: {e}",
+                        )
+
+                    logger.debug(f"Dataset filtered by query params {ds}")
+
+                query_params = dict(request.query_params)
+                for query_param in request.query_params:
+                    if query_param in edr_query_params:
+                        del query_params[query_param]
+
+                method: Optional[str] = "nearest"
+
+                for key, value in query_params.items():
+                    split_value = value.split("/")
+                    if len(split_value) == 1:
+                        continue
+                    elif len(split_value) == 2:
+                        query_params[key] = slice(split_value[0], split_value[1])
+                        method = None
+                    else:
+                        raise HTTPException(
+                            404,
+                            f"Too many values for selecting {key}",
+                        )
+
+                ds = ds.sel(query_params, method=method)
+
+                if query.format:
+                    try:
+                        format_fn = position_formats()[query.format]
+                    except KeyError:
+                        raise HTTPException(
+                            404,
+                            f"{query.format} is not a valid format for EDR position queries. "
+                            "Get `./formats` for valid formats",
+                        )
+                else:
+                    format_fn = to_cf_covjson
+
+            response = format_fn(ds)
+            cache.put(cache_key, response, ct.time, int(response.headers["content-length"]))
+            return response
 
         return router
