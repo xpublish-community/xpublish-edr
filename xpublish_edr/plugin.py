@@ -1,10 +1,10 @@
 """
 OGC EDR router for datasets with CF convention metadata
 """
+import importlib
 import logging
 from typing import List, Optional
 
-import pkg_resources
 import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Request
 from xpublish import Dependencies, Plugin, hookimpl
@@ -22,7 +22,8 @@ def position_formats():
     """
     formats = {}
 
-    for entry_point in pkg_resources.iter_entry_points("xpublish_edr_position_formats"):
+    entry_points = importlib.metadata.entry_points()
+    for entry_point in entry_points.get("xpublish_edr_position_formats", []):
         formats[entry_point.name] = entry_point.load()
 
     return formats
