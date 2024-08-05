@@ -1,6 +1,7 @@
 """
 OGC EDR router for datasets with CF convention metadata
 """
+
 import importlib
 import logging
 from typing import List, Optional
