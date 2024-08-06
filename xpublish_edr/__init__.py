@@ -1,5 +1,5 @@
 """
-xpublish_edr is not a real package, just a set of best practices examples.
+Xpublish routers for the OGC EDR API.
 """
 
 from xpublish_edr.plugin import CfEdrPlugin

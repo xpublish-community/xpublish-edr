@@ -17,6 +17,14 @@ else:
 
 import numpy as np
 import xarray as xr
+from fastapi.responses import JSONResponse
+
+
+class CovJSONResponse(JSONResponse):
+    """CovJSON response type"""
+
+    # https://docs.ogc.org/cs/21-069r2/21-069r2.html#_b8b17e78-0147-4b58-8ade-a19465b57abc
+    media_type = "application/vnd.cov+json"
 
 
 class Domain(TypedDict):
@@ -75,7 +83,7 @@ def invert_cf_dims(ds):
     return inverted
 
 
-def to_cf_covjson(ds: xr.Dataset) -> CovJSON:
+def to_cf_covjson(ds: xr.Dataset) -> CovJSONResponse:
     """Transform an xarray dataset to CoverageJSON using CF conventions"""
 
     covjson: CovJSON = {
@@ -165,4 +173,4 @@ def to_cf_covjson(ds: xr.Dataset) -> CovJSON:
 
         covjson["ranges"][var] = cov_range
 
-    return covjson
+    return CovJSONResponse(content=covjson)
