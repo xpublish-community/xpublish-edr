@@ -20,6 +20,8 @@ from fastapi.responses import JSONResponse
 
 
 class CovJSONResponse(JSONResponse):
+    """CovJSON response type"""
+
     # https://docs.ogc.org/cs/21-069r2/21-069r2.html#_b8b17e78-0147-4b58-8ade-a19465b57abc
     media_type = "application/vnd.cov+json"
 

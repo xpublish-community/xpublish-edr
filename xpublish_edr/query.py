@@ -30,6 +30,7 @@ class EDRQuery(BaseModel):
         return wkt.loads(self.coords)
 
     def __hash__(self):
+        """Hash based on query parameters"""
         return hash(
             (
                 self.coords,
