@@ -4,10 +4,15 @@ OGC EDR router for datasets with CF convention metadata
 
 import importlib
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import List, Optional
 
 import xarray as xr
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastapi_cache.decorator import cache
 from xpublish import Dependencies, Plugin, hookimpl
 
 from .formats.to_covjson import to_cf_covjson
@@ -65,8 +70,21 @@ class CfEdrPlugin(Plugin):
     @hookimpl
     def dataset_router(self, deps: Dependencies):
         """Register dataset level router for EDR endpoints"""
-        router = APIRouter(prefix=self.app_router_prefix, tags=self.dataset_router_tags)
 
+        @asynccontextmanager
+        async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+            """Lifespan for the application level router"""
+            # TODO: support other backends
+            FastAPICache.init(InMemoryBackend())
+            yield
+
+        router = APIRouter(
+            prefix=self.app_router_prefix,
+            tags=self.dataset_router_tags,
+            lifespan=lifespan,
+        )
+
+        @cache()
         @router.get("/position", summary="Position query")
         def get_position(
             request: Request,
