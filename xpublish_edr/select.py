@@ -8,7 +8,7 @@ def select_postition(ds: xr.Dataset, point: Point) -> xr.Dataset:
     Return a dataset with the position nearest to the given coordinates
     """
     if _is_regular_xy_coords(ds):
-        return ds.cf.sel(X=point.x, Y=point.y, method="nearest")
+        return _select_position_regular_xy_grid(ds, point)
     else:
         # TODO: Handle 2D coordinates
         raise NotImplementedError("Only 1D coordinates are supported")
@@ -37,6 +37,14 @@ def _is_regular_xy_coords(ds: xr.Dataset) -> bool:
     Check if the dataset has 2D coordinates
     """
     return _coord_is_regular(ds.cf["X"]) and _coord_is_regular(ds.cf["Y"])
+
+
+def _select_position_regular_xy_grid(ds: xr.Dataset, point: Point) -> xr.Dataset:
+    """
+    Return a dataset with the position nearest to the given coordinates
+    """
+    # Find the nearest X and Y coordinates to the point
+    return ds.cf.sel(X=point.x, Y=point.y, method="nearest")
 
 
 def _select_area_regular_xy_grid(ds: xr.Dataset, polygon: Polygon) -> xr.Dataset:
