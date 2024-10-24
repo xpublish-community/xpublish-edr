@@ -108,7 +108,8 @@ def _select_position_regular_xy_grid(
 
 
 def _select_area_regular_xy_grid(
-    ds: xr.Dataset, polygon: shapely.Polygon,
+    ds: xr.Dataset,
+    polygon: shapely.Polygon,
 ) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
