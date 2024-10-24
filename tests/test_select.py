@@ -104,7 +104,7 @@ def test_select_area_regular_xy(regular_xy_dataset):
 
 def test_select_area_regular_xy_boundary(regular_xy_dataset):
     polygon = from_wkt("POLYGON((200 40, 200 50, 210 50, 210 40, 200 40))").buffer(
-        0.0001
+        0.0001,
     )
     ds = select_area(regular_xy_dataset, polygon)
 

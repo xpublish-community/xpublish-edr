@@ -69,7 +69,7 @@ def select_postition(ds: xr.Dataset, point: shapely.Point) -> xr.Dataset:
 
 
 def select_area(
-    ds: xr.Dataset, polygon: shapely.Polygon, buffer: float = 0.0001
+    ds: xr.Dataset, polygon: shapely.Polygon, buffer: float = 0.0001,
 ) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
