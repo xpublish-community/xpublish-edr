@@ -26,7 +26,7 @@ class EDRQuery(BaseModel):
     format: Optional[str] = None
 
     @property
-    def point(self):
+    def geometry(self):
         """Shapely point from WKT query params"""
         return wkt.loads(self.coords)
 
