@@ -2,7 +2,6 @@ import logging
 from typing import Optional
 
 import numpy as np
-import pandas as pd
 import xarray as xr
 from shapely import Point, Polygon
 
@@ -25,7 +24,7 @@ def select_query(ds: xr.Dataset, query: EDRQuery, query_params: dict) -> xr.Data
                 ds = ds.cf.sel(T=slice(datetimes[0], datetimes[1]))
             else:
                 raise ValueError(
-                    f"Invalid datetimes submitted - {datetimes}. Submit one or two datetimes to select a single timestep or a range",
+                    f"Invalid datetimes submitted - {datetimes}",
                 )
         except ValueError as e:
             logger.error("Error with datetime", exc_info=True)
