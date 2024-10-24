@@ -94,7 +94,8 @@ def _is_regular_xy_coords(ds: xr.Dataset) -> bool:
 
 
 def _select_position_regular_xy_grid(
-    ds: xr.Dataset, point: shapely.Point,
+    ds: xr.Dataset,
+    point: shapely.Point,
 ) -> xr.Dataset:
     """
     Return a dataset with the position nearest to the given coordinates
@@ -104,7 +105,8 @@ def _select_position_regular_xy_grid(
 
 
 def _select_area_regular_xy_grid(
-    ds: xr.Dataset, polygon: shapely.Polygon,
+    ds: xr.Dataset,
+    polygon: shapely.Polygon,
 ) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
