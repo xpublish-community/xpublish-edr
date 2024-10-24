@@ -71,13 +71,12 @@ def select_postition(ds: xr.Dataset, point: shapely.Point) -> xr.Dataset:
 def select_area(
     ds: xr.Dataset,
     polygon: shapely.Polygon,
-    buffer: float = 0.0001,
 ) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
     """
     if _is_regular_xy_coords(ds):
-        return _select_area_regular_xy_grid(ds, polygon, buffer)
+        return _select_area_regular_xy_grid(ds, polygon)
     else:
         # TODO: Handle 2D coordinates
         raise NotImplementedError("Only 1D coordinates are supported")
@@ -109,15 +108,12 @@ def _select_position_regular_xy_grid(
 
 
 def _select_area_regular_xy_grid(
-    ds: xr.Dataset,
-    polygon: shapely.Polygon,
-    buffer: float = 0.0001,
+    ds: xr.Dataset, polygon: shapely.Polygon
 ) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
     """
     # To minimize performance impact, we first subset the dataset to the bounding box of the polygon
-    polygon = polygon.buffer(buffer)
     (minx, miny, maxx, maxy) = polygon.bounds
     ds = ds.cf.sel(X=slice(minx, maxx), Y=slice(maxy, miny))
 
@@ -125,7 +121,7 @@ def _select_area_regular_xy_grid(
     pts = np.meshgrid(ds.cf["X"], ds.cf["Y"])
 
     # Create a mask of the points within the polygon
-    mask = shapely.contains_xy(polygon, pts[0], pts[1])
+    mask = shapely.intersects_xy(polygon, pts[0], pts[1])
 
     # Find the x and y indices that have any points within the polygon
     x_inds, y_inds = np.nonzero(mask)
