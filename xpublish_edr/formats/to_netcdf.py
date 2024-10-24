@@ -9,7 +9,7 @@ import xarray as xr
 from fastapi import Response
 
 
-def to_netcdf(ds: xr.Dataset):
+def to_netcdf(ds: xr.Dataset) -> Response:
     """Return a NetCDF response from a dataset"""
     with TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "position.nc"
