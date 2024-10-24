@@ -174,36 +174,38 @@ def test_cf_area_query(cf_client, cf_dataset):
 
     axes = data["domain"]["axes"]
 
-    # assert axes["x"] == {"values": [205.0]}, "Did not select nearby x coordinate"
-    # assert axes["y"] == {"values": [45.0]}, "Did not select a nearby y coordinate"
+    assert axes["x"] == {"values": [202.5, 205.0, 207.5]}, "Did not select nearby x coordinates within the polygon"
+    assert axes["y"] == {"values": [47.5, 45.0, 42.5]}, "Did not select a nearby y coordinates within the polygon"
 
-    # assert (
-    #     len(axes["t"]["values"]) == 4
-    # ), "There should be a time value for each time step"
+    assert (
+        len(axes["t"]["values"]) == 4
+    ), "There should be a time value for each time step"
 
-    # air_param = data["parameters"]["air"]
+    air_param = data["parameters"]["air"]
 
-    # assert (
-    #     air_param["unit"]["label"]["en"] == cf_dataset["air"].attrs["units"]
-    # ), "DataArray units should be set as parameter units"
-    # assert (
-    #     air_param["observedProperty"]["id"] == cf_dataset["air"].attrs["standard_name"]
-    # ), "DataArray standard_name should be set as the observed property id"
-    # assert (
-    #     air_param["observedProperty"]["label"]["en"]
-    #     == cf_dataset["air"].attrs["long_name"]
-    # ), "DataArray long_name should be set as parameter observed property"
-    # assert (
-    #     air_param["description"]["en"] == cf_dataset["air"].attrs["long_name"]
-    # ), "DataArray long_name should be set as parameter description"
+    assert (
+        air_param["unit"]["label"]["en"] == cf_dataset["air"].attrs["units"]
+    ), "DataArray units should be set as parameter units"
+    assert (
+        air_param["observedProperty"]["id"] == cf_dataset["air"].attrs["standard_name"]
+    ), "DataArray standard_name should be set as the observed property id"
+    assert (
+        air_param["observedProperty"]["label"]["en"]
+        == cf_dataset["air"].attrs["long_name"]
+    ), "DataArray long_name should be set as parameter observed property"
+    assert (
+        air_param["description"]["en"] == cf_dataset["air"].attrs["long_name"]
+    ), "DataArray long_name should be set as parameter description"
 
-    # air_range = data["ranges"]["air"]
+    air_range = data["ranges"]["air"]
 
-    # assert air_range["type"] == "NdArray", "Response range should be a NdArray"
-    # assert air_range["dataType"] == "float", "Air dataType should be floats"
-    # assert air_range["axisNames"] == ["t"], "Time should be the only remaining axes"
-    # assert len(air_range["shape"]) == 1, "There should only one axes"
-    # assert air_range["shape"][0] == len(axes["t"]["values"]), "The shape of the "
-    # assert (
-    #     len(air_range["values"]) == 4
-    # ), "There should be 4 values, one for each time step"
+    assert air_range["type"] == "NdArray", "Response range should be a NdArray"
+    assert air_range["dataType"] == "float", "Air dataType should be floats"
+    assert air_range["axisNames"] == ["t", "y", "x"], "Time should be the only remaining axes"
+    assert len(air_range["shape"]) == 3, "There should only one axes"
+    assert air_range["shape"][0] == len(axes["t"]["values"]), "The shape of the "
+    assert air_range["shape"][1] == len(axes["y"]["values"]), "The shape of the "
+    assert air_range["shape"][2] == len(axes["x"]["values"]), "The shape of the "
+    assert (
+        len(air_range["values"]) == 36
+    ), "There should be 4 values, one for each time step"
