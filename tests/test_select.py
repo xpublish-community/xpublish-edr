@@ -4,7 +4,7 @@ import numpy.testing as npt
 import pandas as pd
 import pytest
 import xarray as xr
-from shapely import Point
+from shapely import Point, from_wkt
 
 from xpublish_edr.query import EDRQuery
 from xpublish_edr.select import select_area, select_postition, select_query
@@ -100,3 +100,15 @@ def test_select_area_regular_xy(regular_xy_dataset):
         ),
         "Temperature is incorrect",
     )
+
+
+def test_select_area_regular_xy_boundary(regular_xy_dataset):
+    polygon = from_wkt("POLYGON((200 40, 200 50, 210 50, 210 40, 200 40))").buffer(
+        0.0001
+    )
+    ds = select_area(regular_xy_dataset, polygon)
+
+    assert ds["lat"].min() == 40.0, "Latitude is incorrect"
+    assert ds["lat"].max() == 50.0, "Latitude is incorrect"
+    assert ds["lon"].min() == 200.0, "Longitude is incorrect"
+    assert ds["lon"].max() == 210.0, "Longitude is incorrect"

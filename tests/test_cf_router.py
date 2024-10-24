@@ -162,13 +162,12 @@ def test_percent_encoded_cf_position_nc(cf_client):
 
 
 def test_cf_area_query(cf_client, cf_dataset):
-    coords = "POLYGON((200 40, 200 50, 210 50, 210 40, 200 40))"
+    coords = "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))"
     response = cf_client.get(f"/datasets/air/edr/area?coords={coords}")
 
     assert response.status_code == 200, "Response did not return successfully"
 
     data = response.json()
-    print(data)
 
     for key in ("type", "domain", "parameters", "ranges"):
         assert key in data, f"Key {key} is not a top level key in the CovJSON response"

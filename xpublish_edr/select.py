@@ -68,12 +68,14 @@ def select_postition(ds: xr.Dataset, point: shapely.Point) -> xr.Dataset:
         raise NotImplementedError("Only 1D coordinates are supported")
 
 
-def select_area(ds: xr.Dataset, polygon: shapely.Polygon) -> xr.Dataset:
+def select_area(
+    ds: xr.Dataset, polygon: shapely.Polygon, buffer: float = 0.0001
+) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
     """
     if _is_regular_xy_coords(ds):
-        return _select_area_regular_xy_grid(ds, polygon)
+        return _select_area_regular_xy_grid(ds, polygon, buffer)
     else:
         # TODO: Handle 2D coordinates
         raise NotImplementedError("Only 1D coordinates are supported")
@@ -107,11 +109,13 @@ def _select_position_regular_xy_grid(
 def _select_area_regular_xy_grid(
     ds: xr.Dataset,
     polygon: shapely.Polygon,
+    buffer: float = 0.0001,
 ) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
     """
     # To minimize performance impact, we first subset the dataset to the bounding box of the polygon
+    polygon = polygon.buffer(buffer)
     (minx, miny, maxx, maxy) = polygon.bounds
     ds = ds.cf.sel(X=slice(minx, maxx), Y=slice(maxy, miny))
 
