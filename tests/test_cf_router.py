@@ -174,8 +174,12 @@ def test_cf_area_query(cf_client, cf_dataset):
 
     axes = data["domain"]["axes"]
 
-    assert axes["x"] == {"values": [202.5, 205.0, 207.5]}, "Did not select nearby x coordinates within the polygon"
-    assert axes["y"] == {"values": [47.5, 45.0, 42.5]}, "Did not select a nearby y coordinates within the polygon"
+    assert axes["x"] == {
+        "values": [202.5, 205.0, 207.5],
+    }, "Did not select nearby x coordinates within the polygon"
+    assert axes["y"] == {
+        "values": [47.5, 45.0, 42.5],
+    }, "Did not select a nearby y coordinates within the polygon"
 
     assert (
         len(axes["t"]["values"]) == 4
@@ -201,7 +205,11 @@ def test_cf_area_query(cf_client, cf_dataset):
 
     assert air_range["type"] == "NdArray", "Response range should be a NdArray"
     assert air_range["dataType"] == "float", "Air dataType should be floats"
-    assert air_range["axisNames"] == ["t", "y", "x"], "Time should be the only remaining axes"
+    assert air_range["axisNames"] == [
+        "t",
+        "y",
+        "x",
+    ], "Time should be the only remaining axes"
     assert len(air_range["shape"]) == 3, "There should only one axes"
     assert air_range["shape"][0] == len(axes["t"]["values"]), "The shape of the "
     assert air_range["shape"][1] == len(axes["y"]["values"]), "The shape of the "

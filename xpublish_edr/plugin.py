@@ -10,7 +10,7 @@ import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Request
 from xpublish import Dependencies, Plugin, hookimpl
 
-from xpublish_edr.select import select_area, select_query, select_postition
+from xpublish_edr.select import select_area, select_postition, select_query
 
 from .formats.to_covjson import to_cf_covjson
 from .query import EDRQuery, edr_query
@@ -101,7 +101,7 @@ class CfEdrPlugin(Plugin):
                 )
 
             logger.debug(
-                f"Dataset filtered by position ({query.geometry.x}, {query.geometry.y}): {ds}"
+                f"Dataset filtered by position ({query.geometry.x}, {query.geometry.y}): {ds}",
             )
 
             try:

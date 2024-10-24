@@ -11,9 +11,7 @@ from xpublish_edr.query import EDRQuery, edr_query_params
 logger = logging.getLogger("cf_edr")
 
 
-def select_query(
-    ds: xr.Dataset, query: EDRQuery, query_params: dict
-) -> xr.Dataset:
+def select_query(ds: xr.Dataset, query: EDRQuery, query_params: dict) -> xr.Dataset:
     """Select data from a dataset based on the query"""
     if query.z:
         ds = ds.cf.sel(Z=query.z, method="nearest")
@@ -27,7 +25,7 @@ def select_query(
                 ds = ds.cf.sel(T=slice(datetimes[0], datetimes[1]))
             else:
                 raise ValueError(
-                    f"Invalid datetimes submitted - {datetimes}. Submit one or two datetimes to select a single timestep or a range"
+                    f"Invalid datetimes submitted - {datetimes}. Submit one or two datetimes to select a single timestep or a range",
                 )
         except ValueError as e:
             logger.error("Error with datetime", exc_info=True)

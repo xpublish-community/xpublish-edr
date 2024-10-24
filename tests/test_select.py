@@ -1,10 +1,10 @@
 import cf_xarray  # noqa
 import numpy as np
 import numpy.testing as npt
-import pytest
-from shapely import Point
 import pandas as pd
+import pytest
 import xarray as xr
+from shapely import Point
 
 from xpublish_edr.query import EDRQuery
 from xpublish_edr.select import select_area, select_postition, select_query
@@ -17,7 +17,9 @@ def regular_xy_dataset():
 
 
 def test_select_query(regular_xy_dataset):
-    query = EDRQuery(coords="POINT(200 45)", datetime="2013-01-01T06:00:00", parameters="air,time")
+    query = EDRQuery(
+        coords="POINT(200 45)", datetime="2013-01-01T06:00:00", parameters="air,time",
+    )
     query_params = {}
 
     ds = select_query(regular_xy_dataset, query, query_params)
@@ -28,7 +30,9 @@ def test_select_query(regular_xy_dataset):
     assert "lon" in ds, "Dataset does not contain the lon variable"
     assert "time" in ds, "Dataset does not contain the time variable"
 
-    assert ds["time"] == pd.to_datetime("2013-01-01T06:00:00"), "Dataset shape is incorrect"
+    assert ds["time"] == pd.to_datetime(
+        "2013-01-01T06:00:00",
+    ), "Dataset shape is incorrect"
     assert ds["air"].shape == (25, 53), "Dataset shape is incorrect"
 
 
@@ -75,7 +79,7 @@ def test_select_area_regular_xy(regular_xy_dataset):
                     [280.0, 280.7, 280.2, 279.6],
                     [282.79, 283.2, 282.6, 281.9],
                     [np.nan, 284.9, 284.2, np.nan],
-                ]
+                ],
             ),
         ),
         "Temperature is incorrect",
