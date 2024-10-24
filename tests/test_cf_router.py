@@ -168,6 +168,7 @@ def test_cf_area_query(cf_client, cf_dataset):
     assert response.status_code == 200, "Response did not return successfully"
 
     data = response.json()
+    print(data)
 
     for key in ("type", "domain", "parameters", "ranges"):
         assert key in data, f"Key {key} is not a top level key in the CovJSON response"
@@ -175,10 +176,10 @@ def test_cf_area_query(cf_client, cf_dataset):
     axes = data["domain"]["axes"]
 
     assert axes["x"] == {
-        "values": [202.5, 205.0, 207.5],
+        "values": [202.5, 202.5, 202.5, 205.0, 205.0, 205.0, 207.5, 207.5, 207.5],
     }, "Did not select nearby x coordinates within the polygon"
     assert axes["y"] == {
-        "values": [47.5, 45.0, 42.5],
+        "values": [47.5, 45.0, 42.5, 47.5, 45.0, 42.5, 47.5, 45.0, 42.5],
     }, "Did not select a nearby y coordinates within the polygon"
 
     assert (
@@ -207,13 +208,11 @@ def test_cf_area_query(cf_client, cf_dataset):
     assert air_range["dataType"] == "float", "Air dataType should be floats"
     assert air_range["axisNames"] == [
         "t",
-        "y",
-        "x",
+        "pts",
     ], "Time should be the only remaining axes"
-    assert len(air_range["shape"]) == 3, "There should only one axes"
+    assert len(air_range["shape"]) == 2, "There should be 2 axes"
     assert air_range["shape"][0] == len(axes["t"]["values"]), "The shape of the "
-    assert air_range["shape"][1] == len(axes["y"]["values"]), "The shape of the "
-    assert air_range["shape"][2] == len(axes["x"]["values"]), "The shape of the "
+    assert air_range["shape"][1] == len(axes["x"]["values"]), "The shape of the pts axis"
     assert (
         len(air_range["values"]) == 36
-    ), "There should be 4 values, one for each time step"
+    ), "There should be 26 values, 9 for each time step"

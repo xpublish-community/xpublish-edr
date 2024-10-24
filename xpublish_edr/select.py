@@ -3,7 +3,7 @@ from typing import Optional
 
 import numpy as np
 import xarray as xr
-from shapely import Point, Polygon
+import shapely
 
 from xpublish_edr.query import EDRQuery, edr_query_params
 
@@ -57,7 +57,7 @@ def select_query(ds: xr.Dataset, query: EDRQuery, query_params: dict) -> xr.Data
     return ds
 
 
-def select_postition(ds: xr.Dataset, point: Point) -> xr.Dataset:
+def select_postition(ds: xr.Dataset, point: shapely.Point) -> xr.Dataset:
     """
     Return a dataset with the position nearest to the given coordinates
     """
@@ -68,7 +68,7 @@ def select_postition(ds: xr.Dataset, point: Point) -> xr.Dataset:
         raise NotImplementedError("Only 1D coordinates are supported")
 
 
-def select_area(ds: xr.Dataset, polygon: Polygon) -> xr.Dataset:
+def select_area(ds: xr.Dataset, polygon: shapely.Polygon) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
     """
@@ -93,7 +93,7 @@ def _is_regular_xy_coords(ds: xr.Dataset) -> bool:
     return _coord_is_regular(ds.cf["X"]) and _coord_is_regular(ds.cf["Y"])
 
 
-def _select_position_regular_xy_grid(ds: xr.Dataset, point: Point) -> xr.Dataset:
+def _select_position_regular_xy_grid(ds: xr.Dataset, point: shapely.Point) -> xr.Dataset:
     """
     Return a dataset with the position nearest to the given coordinates
     """
@@ -101,25 +101,25 @@ def _select_position_regular_xy_grid(ds: xr.Dataset, point: Point) -> xr.Dataset
     return ds.cf.sel(X=point.x, Y=point.y, method="nearest")
 
 
-def _select_area_regular_xy_grid(ds: xr.Dataset, polygon: Polygon) -> xr.Dataset:
+def _select_area_regular_xy_grid(ds: xr.Dataset, polygon: shapely.Polygon) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
     """
+    # To minimize performance impact, we first subset the dataset to the bounding box of the polygon
+    (minx, miny, maxx, maxy) = polygon.bounds
+    ds = ds.cf.sel(X=slice(minx, maxx), Y=slice(maxy, miny))
+
     # For a regular grid, we can create a meshgrid of the X and Y coordinates to create a spatial mask
     pts = np.meshgrid(ds.cf["X"], ds.cf["Y"])
 
     # Create a mask of the points within the polygon
-    contains = np.vectorize(lambda p: polygon.contains(Point(p)), signature="(n)->()")
-    mask = contains(np.stack(pts, axis=-1))
+    mask = shapely.contains_xy(polygon, pts[0], pts[1])
 
     # Find the x and y indices that have any points within the polygon
-    x_mask = mask.any(axis=0)
-    y_mask = mask.any(axis=1)
+    x_inds, y_inds = np.nonzero(mask)
+    x_sel = xr.Variable(data=x_inds, dims="pts")
+    y_sel = xr.Variable(data=y_inds, dims="pts")
 
-    # Create a new DataArray with the mask matching the dataset dimensions
-    dims = ds.cf["Y"].dims + ds.cf["X"].dims
-    da_mask = xr.DataArray(mask, dims=dims)
-
-    # Apply the mask and subset out any data that does not fall within the polygon bounds
-    ds_subset = ds.where(da_mask).cf.isel(X=x_mask, Y=y_mask)
-    return ds_subset
+    # Apply the mask and vectorize to a 1d collection of points
+    ds_sub = ds.cf.isel(X=x_sel, Y=y_sel)
+    return ds_sub
