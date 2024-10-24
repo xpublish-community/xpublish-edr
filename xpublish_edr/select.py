@@ -7,18 +7,44 @@ def select_postition(ds: xr.Dataset, point: Point) -> xr.Dataset:
     """
     Return a dataset with the position nearest to the given coordinates
     """
-    # TODO: Handle 2D coordinates
-    return ds.cf.sel(X=point.x, Y=point.y, method="nearest")
+    if _is_regular_xy_coords(ds):
+        return ds.cf.sel(X=point.x, Y=point.y, method="nearest")
+    else:
+        # TODO: Handle 2D coordinates
+        raise NotImplementedError("Only 1D coordinates are supported")
 
 
 def select_area(ds: xr.Dataset, polygon: Polygon) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
     """
-    contains = np.vectorize(lambda p: polygon.contains(Point(p)), signature="(n)->()")
+    if _is_regular_xy_coords(ds):
+        return _select_area_regular_xy_grid(ds, polygon)
+    else:
+        # TODO: Handle 2D coordinates
+        raise NotImplementedError("Only 1D coordinates are supported")
 
-    # TODO: Handle 2D coordinates
-    pts = np.meshgrid(ds.cf['X'], ds.cf['Y'])
+
+def _coord_is_regular(da: xr.DataArray) -> bool:
+    """
+    Check if the DataArray has a regular grid
+    """
+    return len(da.shape) == 1 and da.name in da.dims
+
+
+def _is_regular_xy_coords(ds: xr.Dataset) -> bool:
+    """
+    Check if the dataset has 2D coordinates
+    """
+    return _coord_is_regular(ds.cf["X"]) and _coord_is_regular(ds.cf["Y"])
+
+
+def _select_area_regular_xy_grid(ds: xr.Dataset, polygon: Polygon) -> xr.Dataset:
+    """
+    Return a dataset with the area within the given polygon
+    """
+    # For a regular grid, we can create a meshgrid of the X and Y coordinates to create a spatial mask
+    pts = np.meshgrid(ds.cf["X"], ds.cf["Y"])
 
     # Create a mask of the points within the polygon
     contains = np.vectorize(lambda p: polygon.contains(Point(p)), signature="(n)->()")
@@ -29,7 +55,7 @@ def select_area(ds: xr.Dataset, polygon: Polygon) -> xr.Dataset:
     y_mask = mask.any(axis=1)
 
     # Create a new DataArray with the mask matching the dataset dimensions
-    dims = ds.cf['Y'].dims + ds.cf['X'].dims
+    dims = ds.cf["Y"].dims + ds.cf["X"].dims
     da_mask = xr.DataArray(mask, dims=dims)
 
     # Apply the mask and subset out any data that does not fall within the polygon bounds
