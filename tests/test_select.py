@@ -37,6 +37,56 @@ def test_select_query(regular_xy_dataset):
     ), "Dataset shape is incorrect"
     assert ds["air"].shape == (25, 53), "Dataset shape is incorrect"
 
+    query = EDRQuery(
+        coords="POINT(200 45)",
+        datetime="2013-01-01T06:00:00/2013-01-01T12:00:00",
+        parameters="air,time",
+    )
+
+    ds = select_query(regular_xy_dataset, query, query_params)
+    (
+        npt.assert_array_equal(
+            ds["time"],
+            np.array(
+                ["2013-01-01T06:00:00.000000000", "2013-01-01T12:00:00.000000000"],
+                dtype="datetime64[ns]",
+            ),
+        ),
+        "Dataset shape is incorrect",
+    )
+    assert ds["air"].shape == (2, 25, 53), "Dataset shape is incorrect"
+
+
+def test_select_query_error(regular_xy_dataset):
+    query = EDRQuery(
+        coords="POINT(200 45)",
+        datetime="2013-01-01T06:00:00",
+        parameters="water",
+    )
+    query_params = {"foo": "bar"}
+
+    with pytest.raises(ValueError):
+        select_query(regular_xy_dataset, query, query_params)
+
+    query = EDRQuery(
+        coords="POINT(200 45)",
+        datetime="2013-01-0 06:00",
+        parameters="air",
+    )
+
+    with pytest.raises(TypeError):
+        select_query(regular_xy_dataset, query, {})
+
+    query = EDRQuery(
+        coords="POINT(200 45)",
+        datetime="2013-01-01T06:00:00",
+        parameters="air",
+        z="100",
+    )
+
+    with pytest.raises(KeyError):
+        select_query(regular_xy_dataset, query, {})
+
 
 def test_select_position_regular_xy(regular_xy_dataset):
     point = Point((204, 44))

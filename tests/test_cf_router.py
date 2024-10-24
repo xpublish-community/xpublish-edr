@@ -162,7 +162,7 @@ def test_percent_encoded_cf_position_nc(cf_client):
 
 
 def test_cf_area_query(cf_client, cf_dataset):
-    coords = "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))"
+    coords = "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))&f=cf_covjson"
     response = cf_client.get(f"/datasets/air/edr/area?coords={coords}")
 
     assert response.status_code == 200, "Response did not return successfully"
