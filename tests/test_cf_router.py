@@ -212,7 +212,9 @@ def test_cf_area_query(cf_client, cf_dataset):
     ], "Time should be the only remaining axes"
     assert len(air_range["shape"]) == 2, "There should be 2 axes"
     assert air_range["shape"][0] == len(axes["t"]["values"]), "The shape of the "
-    assert air_range["shape"][1] == len(axes["x"]["values"]), "The shape of the pts axis"
+    assert air_range["shape"][1] == len(
+        axes["x"]["values"],
+    ), "The shape of the pts axis"
     assert (
         len(air_range["values"]) == 36
     ), "There should be 26 values, 9 for each time step"

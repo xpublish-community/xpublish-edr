@@ -95,7 +95,7 @@ def test_select_area_regular_xy(regular_xy_dataset):
                     284.2,
                     279.6,
                     281.9,
-                ]
+                ],
             ),
         ),
         "Temperature is incorrect",

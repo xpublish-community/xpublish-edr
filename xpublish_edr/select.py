@@ -2,8 +2,8 @@ import logging
 from typing import Optional
 
 import numpy as np
-import xarray as xr
 import shapely
+import xarray as xr
 
 from xpublish_edr.query import EDRQuery, edr_query_params
 
@@ -93,7 +93,9 @@ def _is_regular_xy_coords(ds: xr.Dataset) -> bool:
     return _coord_is_regular(ds.cf["X"]) and _coord_is_regular(ds.cf["Y"])
 
 
-def _select_position_regular_xy_grid(ds: xr.Dataset, point: shapely.Point) -> xr.Dataset:
+def _select_position_regular_xy_grid(
+    ds: xr.Dataset, point: shapely.Point,
+) -> xr.Dataset:
     """
     Return a dataset with the position nearest to the given coordinates
     """
@@ -101,7 +103,9 @@ def _select_position_regular_xy_grid(ds: xr.Dataset, point: shapely.Point) -> xr
     return ds.cf.sel(X=point.x, Y=point.y, method="nearest")
 
 
-def _select_area_regular_xy_grid(ds: xr.Dataset, polygon: shapely.Polygon) -> xr.Dataset:
+def _select_area_regular_xy_grid(
+    ds: xr.Dataset, polygon: shapely.Polygon,
+) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
     """
