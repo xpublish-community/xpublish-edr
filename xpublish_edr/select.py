@@ -1,6 +1,63 @@
+import logging
+from typing import Optional
+
 import numpy as np
+import pandas as pd
 import xarray as xr
 from shapely import Point, Polygon
+
+from xpublish_edr.query import EDRQuery, edr_query_params
+
+logger = logging.getLogger("cf_edr")
+
+
+def select_query(
+    ds: xr.Dataset, query: EDRQuery, query_params: dict
+) -> xr.Dataset:
+    """Select data from a dataset based on the query"""
+    if query.z:
+        ds = ds.cf.sel(Z=query.z, method="nearest")
+
+    if query.datetime:
+        try:
+            datetimes = query.datetime.split("/")
+            if len(datetimes) == 1:
+                ds = ds.cf.sel(T=datetimes[0], method="nearest")
+            elif len(datetimes) == 2:
+                ds = ds.cf.sel(T=slice(datetimes[0], datetimes[1]))
+            else:
+                raise ValueError(
+                    f"Invalid datetimes submitted - {datetimes}. Submit one or two datetimes to select a single timestep or a range"
+                )
+        except ValueError as e:
+            logger.error("Error with datetime", exc_info=True)
+            raise ValueError(f"Invalid datetime ({e})") from e
+
+    if query.parameters:
+        try:
+            ds = ds.cf[query.parameters.split(",")]
+        except KeyError as e:
+            raise ValueError(f"Invalid variable: {e}") from e
+
+    query_param_keys = list(query_params.keys())
+    for query_param in query_param_keys:
+        if query_param in edr_query_params:
+            del query_params[query_param]
+
+    method: Optional[str] = "nearest"
+
+    for key, value in query_params.items():
+        split_value = value.split("/")
+        if len(split_value) == 1:
+            continue
+        elif len(split_value) == 2:
+            query_params[key] = slice(split_value[0], split_value[1])
+            method = None
+        else:
+            raise ValueError(f"Too many values for selecting {key}")
+
+    ds = ds.sel(query_params, method=method)
+    return ds
 
 
 def select_postition(ds: xr.Dataset, point: Point) -> xr.Dataset:
