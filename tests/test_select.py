@@ -18,7 +18,9 @@ def regular_xy_dataset():
 
 def test_select_query(regular_xy_dataset):
     query = EDRQuery(
-        coords="POINT(200 45)", datetime="2013-01-01T06:00:00", parameters="air,time",
+        coords="POINT(200 45)",
+        datetime="2013-01-01T06:00:00",
+        parameters="air,time",
     )
     query_params = {}
 
