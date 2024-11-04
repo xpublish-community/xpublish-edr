@@ -3,19 +3,17 @@ OGC EDR router for datasets with CF convention metadata
 """
 
 import importlib
-import logging
 from typing import List
 
 import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Request
 from xpublish import Dependencies, Plugin, hookimpl
 
-from xpublish_edr.select import select_area, select_postition, select_query
-
-from .formats.to_covjson import to_cf_covjson
-from .query import EDRQuery, edr_query
-
-logger = logging.getLogger("cf_edr")
+from xpublish_edr.formats.to_covjson import to_cf_covjson
+from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.geometry.position import select_by_postition
+from xpublish_edr.logging import logger
+from xpublish_edr.query import EDRQuery, edr_query
 
 
 def position_formats():
@@ -93,7 +91,7 @@ class CfEdrPlugin(Plugin):
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
             try:
-                ds = select_postition(dataset, query.geometry)
+                ds = select_by_postition(dataset, query.geometry)
             except KeyError:
                 raise HTTPException(
                     status_code=404,
@@ -105,7 +103,7 @@ class CfEdrPlugin(Plugin):
             )
 
             try:
-                ds = select_query(ds, query, dict(request.query_params))
+                ds = query.select(ds, dict(request.query_params))
             except ValueError as e:
                 raise HTTPException(
                     status_code=404,
@@ -140,7 +138,7 @@ class CfEdrPlugin(Plugin):
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
             try:
-                ds = select_area(dataset, query.geometry)
+                ds = select_by_area(dataset, query.geometry)
             except KeyError:
                 raise HTTPException(
                     status_code=404,
@@ -150,7 +148,7 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by polygon {query.geometry.boundary}: {ds}")
 
             try:
-                ds = select_query(ds, query, dict(request.query_params))
+                ds = query.select(ds, dict(request.query_params))
             except ValueError as e:
                 raise HTTPException(
                     status_code=404,

@@ -7,7 +7,8 @@ import xarray as xr
 from shapely import Point, from_wkt
 
 from xpublish_edr.query import EDRQuery
-from xpublish_edr.select import select_area, select_postition, select_query
+from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.geometry.position import select_by_postition
 
 
 @pytest.fixture(scope="function")
@@ -24,7 +25,7 @@ def test_select_query(regular_xy_dataset):
     )
     query_params = {}
 
-    ds = select_query(regular_xy_dataset, query, query_params)
+    ds = query.select(regular_xy_dataset, query_params)
 
     assert ds is not None, "Dataset was not returned"
     assert "air" in ds, "Dataset does not contain the air variable"
@@ -43,7 +44,7 @@ def test_select_query(regular_xy_dataset):
         parameters="air,time",
     )
 
-    ds = select_query(regular_xy_dataset, query, query_params)
+    ds = query.select(regular_xy_dataset, query_params)
     (
         npt.assert_array_equal(
             ds["time"],
@@ -66,7 +67,7 @@ def test_select_query_error(regular_xy_dataset):
     query_params = {"foo": "bar"}
 
     with pytest.raises(ValueError):
-        select_query(regular_xy_dataset, query, query_params)
+        query.select(regular_xy_dataset, query_params)
 
     query = EDRQuery(
         coords="POINT(200 45)",
@@ -75,7 +76,7 @@ def test_select_query_error(regular_xy_dataset):
     )
 
     with pytest.raises(TypeError):
-        select_query(regular_xy_dataset, query, {})
+        query.select(regular_xy_dataset, {})
 
     query = EDRQuery(
         coords="POINT(200 45)",
@@ -85,12 +86,12 @@ def test_select_query_error(regular_xy_dataset):
     )
 
     with pytest.raises(KeyError):
-        select_query(regular_xy_dataset, query, {})
+        query.select(regular_xy_dataset, {})
 
 
 def test_select_position_regular_xy(regular_xy_dataset):
     point = Point((204, 44))
-    ds = select_postition(regular_xy_dataset, point)
+    ds = select_by_postition(regular_xy_dataset, point)
 
     assert ds is not None, "Dataset was not returned"
     assert "air" in ds, "Dataset does not contain the air variable"
@@ -106,7 +107,7 @@ def test_select_position_regular_xy(regular_xy_dataset):
 
 def test_select_area_regular_xy(regular_xy_dataset):
     polygon = Point(204, 44).buffer(5)
-    ds = select_area(regular_xy_dataset, polygon)
+    ds = select_by_area(regular_xy_dataset, polygon)
 
     assert ds is not None, "Dataset was not returned"
     assert "air" in ds, "Dataset does not contain the air variable"
@@ -156,7 +157,7 @@ def test_select_area_regular_xy_boundary(regular_xy_dataset):
     polygon = from_wkt("POLYGON((200 40, 200 50, 210 50, 210 40, 200 40))").buffer(
         0.0001,
     )
-    ds = select_area(regular_xy_dataset, polygon)
+    ds = select_by_area(regular_xy_dataset, polygon)
 
     assert ds["lat"].min() == 40.0, "Latitude is incorrect"
     assert ds["lat"].max() == 50.0, "Latitude is incorrect"
