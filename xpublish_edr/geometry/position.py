@@ -2,6 +2,8 @@
 Handle selection and formatting for position queries
 """
 
+from __future__ import annotations
+
 import numpy as np
 import shapely
 import xarray as xr
