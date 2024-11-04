@@ -6,9 +6,9 @@ import pytest
 import xarray as xr
 from shapely import Point, from_wkt
 
-from xpublish_edr.query import EDRQuery
 from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.position import select_by_postition
+from xpublish_edr.query import EDRQuery
 
 
 @pytest.fixture(scope="function")

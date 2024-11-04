@@ -12,7 +12,7 @@ from xpublish import Dependencies, Plugin, hookimpl
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.position import select_by_postition
-from xpublish_edr.logging import logger
+from xpublish_edr.logger import logger
 from xpublish_edr.query import EDRQuery, edr_query
 
 

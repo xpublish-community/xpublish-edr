@@ -9,7 +9,7 @@ from fastapi import Query
 from pydantic import BaseModel, Field
 from shapely import wkt
 
-from xpublish_edr.logging import logger
+from xpublish_edr.logger import logger
 
 
 class EDRQuery(BaseModel):
