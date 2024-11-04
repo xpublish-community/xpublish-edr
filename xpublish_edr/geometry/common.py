@@ -1,3 +1,7 @@
+"""
+Common geometry handling functions
+"""
+
 import xarray as xr
 
 

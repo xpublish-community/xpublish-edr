@@ -1,3 +1,7 @@
+"""
+Handle selection and formatting for position queries
+"""
+
 import shapely
 import xarray as xr
 

@@ -1,3 +1,7 @@
+"""
+Handle selection and formatting for area queries
+"""
+
 import numpy as np
 import shapely
 import xarray as xr
