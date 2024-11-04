@@ -2,9 +2,7 @@
 Common geometry handling functions
 """
 
-import shapely
 import xarray as xr
-
 
 VECTORIZED_DIM = "pts"
 

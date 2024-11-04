@@ -10,7 +10,8 @@ from xpublish_edr.geometry.common import VECTORIZED_DIM, is_regular_xy_coords
 
 
 def select_by_position(
-    ds: xr.Dataset, point: shapely.Point | shapely.MultiPoint
+    ds: xr.Dataset,
+    point: shapely.Point | shapely.MultiPoint,
 ) -> xr.Dataset:
     """
     Return a dataset with the position nearest to the given coordinates
@@ -25,7 +26,7 @@ def select_by_position(
         return _select_by_multiple_positions_regular_xy_grid(ds, point)
     else:
         raise ValueError(
-            f"Invalid point type {point.geom_type}, must be Point or MultiPoint"
+            f"Invalid point type {point.geom_type}, must be Point or MultiPoint",
         )
 
 

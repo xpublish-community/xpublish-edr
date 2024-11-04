@@ -116,7 +116,10 @@ def test_select_position_regular_xy_multi(regular_xy_dataset):
 
     npt.assert_array_equal(ds["lat"], [45.0, 47.5]), "Latitude is incorrect"
     npt.assert_array_equal(ds["lon"], [202.5, 205.0]), "Longitude is incorrect"
-    npt.assert_array_equal(ds["air"].isel(time=2).values, [279.1, 278.6]), "Temperature is incorrect"
+    npt.assert_array_equal(
+        ds["air"].isel(time=2).values,
+        [279.1, 278.6],
+    ), "Temperature is incorrect"
 
 
 def test_select_area_regular_xy(regular_xy_dataset):
