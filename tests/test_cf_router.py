@@ -39,6 +39,18 @@ def test_cf_position_formats(cf_client):
     assert "csv" in data, "csv is not a valid format"
 
 
+def test_cf_area_formats(cf_client):
+    response = cf_client.get("/edr/area/formats")
+
+    assert response.status_code == 200, "Response did not return successfully"
+
+    data = response.json()
+
+    assert "cf_covjson" in data, "cf_covjson is not a valid format"
+    assert "nc" in data, "nc is not a valid format"
+    assert "csv" in data, "csv is not a valid format"
+
+
 def test_cf_position_query(cf_client, cf_dataset):
     x = 204
     y = 44
@@ -147,3 +159,61 @@ def test_percent_encoded_cf_position_nc(cf_client):
     assert (
         "position.nc" in response.headers["content-disposition"]
     ), "The file name should be position.nc"
+
+
+def test_cf_area_query(cf_client, cf_dataset):
+    coords = "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))&f=cf_covjson"
+    response = cf_client.get(f"/datasets/air/edr/area?coords={coords}")
+
+    assert response.status_code == 200, "Response did not return successfully"
+
+    data = response.json()
+
+    for key in ("type", "domain", "parameters", "ranges"):
+        assert key in data, f"Key {key} is not a top level key in the CovJSON response"
+
+    axes = data["domain"]["axes"]
+
+    assert axes["x"] == {
+        "values": [202.5, 202.5, 202.5, 205.0, 205.0, 205.0, 207.5, 207.5, 207.5],
+    }, "Did not select nearby x coordinates within the polygon"
+    assert axes["y"] == {
+        "values": [47.5, 45.0, 42.5, 47.5, 45.0, 42.5, 47.5, 45.0, 42.5],
+    }, "Did not select a nearby y coordinates within the polygon"
+
+    assert (
+        len(axes["t"]["values"]) == 4
+    ), "There should be a time value for each time step"
+
+    air_param = data["parameters"]["air"]
+
+    assert (
+        air_param["unit"]["label"]["en"] == cf_dataset["air"].attrs["units"]
+    ), "DataArray units should be set as parameter units"
+    assert (
+        air_param["observedProperty"]["id"] == cf_dataset["air"].attrs["standard_name"]
+    ), "DataArray standard_name should be set as the observed property id"
+    assert (
+        air_param["observedProperty"]["label"]["en"]
+        == cf_dataset["air"].attrs["long_name"]
+    ), "DataArray long_name should be set as parameter observed property"
+    assert (
+        air_param["description"]["en"] == cf_dataset["air"].attrs["long_name"]
+    ), "DataArray long_name should be set as parameter description"
+
+    air_range = data["ranges"]["air"]
+
+    assert air_range["type"] == "NdArray", "Response range should be a NdArray"
+    assert air_range["dataType"] == "float", "Air dataType should be floats"
+    assert air_range["axisNames"] == [
+        "t",
+        "pts",
+    ], "Time should be the only remaining axes"
+    assert len(air_range["shape"]) == 2, "There should be 2 axes"
+    assert air_range["shape"][0] == len(axes["t"]["values"]), "The shape of the "
+    assert air_range["shape"][1] == len(
+        axes["x"]["values"],
+    ), "The shape of the pts axis"
+    assert (
+        len(air_range["values"]) == 36
+    ), "There should be 26 values, 9 for each time step"

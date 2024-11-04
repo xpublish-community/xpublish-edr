@@ -4,9 +4,12 @@ OGC EDR Query param parsing
 
 from typing import Optional
 
+import xarray as xr
 from fastapi import Query
 from pydantic import BaseModel, Field
 from shapely import wkt
+
+from xpublish_edr.logger import logger
 
 
 class EDRQuery(BaseModel):
@@ -26,9 +29,56 @@ class EDRQuery(BaseModel):
     format: Optional[str] = None
 
     @property
-    def point(self):
+    def geometry(self):
         """Shapely point from WKT query params"""
         return wkt.loads(self.coords)
+
+    def select(self, ds: xr.Dataset, query_params: dict) -> xr.Dataset:
+        """Select data from a dataset based on the query"""
+        if self.z:
+            ds = ds.cf.sel(Z=self.z, method="nearest")
+
+        if self.datetime:
+            try:
+                datetimes = self.datetime.split("/")
+                if len(datetimes) == 1:
+                    ds = ds.cf.sel(T=datetimes[0], method="nearest")
+                elif len(datetimes) == 2:
+                    ds = ds.cf.sel(T=slice(datetimes[0], datetimes[1]))
+                else:
+                    raise ValueError(
+                        f"Invalid datetimes submitted - {datetimes}",
+                    )
+            except ValueError as e:
+                logger.error("Error with datetime", exc_info=True)
+                raise ValueError(f"Invalid datetime ({e})") from e
+
+        if self.parameters:
+            try:
+                ds = ds.cf[self.parameters.split(",")]
+            except KeyError as e:
+                raise ValueError(f"Invalid variable: {e}") from e
+
+        query_param_keys = list(query_params.keys())
+        for query_param in query_param_keys:
+            if query_param in edr_query_params:
+                del query_params[query_param]
+
+        # TODO: allow for controlling selection method
+        method: Optional[str] = "nearest"
+
+        for key, value in query_params.items():
+            split_value = value.split("/")
+            if len(split_value) == 1:
+                continue
+            elif len(split_value) == 2:
+                query_params[key] = slice(split_value[0], split_value[1])
+                method = None
+            else:
+                raise ValueError(f"Too many values for selecting {key}")
+
+        ds = ds.sel(query_params, method=method)
+        return ds
 
 
 def edr_query(
