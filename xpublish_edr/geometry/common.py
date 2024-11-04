@@ -4,6 +4,8 @@ Common geometry handling functions
 
 import xarray as xr
 
+VECTORIZED_DIM = "pts"
+
 
 def coord_is_regular(da: xr.DataArray) -> bool:
     """

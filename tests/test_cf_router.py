@@ -161,12 +161,78 @@ def test_percent_encoded_cf_position_nc(cf_client):
     ), "The file name should be position.nc"
 
 
-def test_cf_area_query(cf_client, cf_dataset):
-    coords = "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))&f=cf_covjson"
-    response = cf_client.get(f"/datasets/air/edr/area?coords={coords}")
+def test_cf_multiple_position(cf_client):
+    points = "MULTIPOINT((202 43),(205 45))"
+    response = cf_client.get(f"/datasets/air/edr/position?coords={points}")
 
     assert response.status_code == 200, "Response did not return successfully"
+    data = response.json()
 
+    for key in ("type", "domain", "parameters", "ranges"):
+        assert key in data, f"Key {key} is not a top level key in the CovJSON response"
+
+    axes = data["domain"]["axes"]
+
+    assert axes["x"] == {
+        "values": [202.5, 205.0],
+    }, "Did not select nearby x coordinates within the polygon"
+    assert axes["y"] == {
+        "values": [42.5, 45.0],
+    }, "Did not select a nearby y coordinates within the polygon"
+
+    assert (
+        len(axes["t"]["values"]) == 4
+    ), "There should be a time value for each time step"
+
+    air_range = data["ranges"]["air"]
+
+    assert air_range["type"] == "NdArray", "Response range should be a NdArray"
+    assert air_range["dataType"] == "float", "Air dataType should be floats"
+    assert air_range["axisNames"] == [
+        "t",
+        "pts",
+    ], "Time should be the only remaining axes"
+    assert len(air_range["shape"]) == 2, "There should be 2 axes"
+    assert air_range["shape"][0] == len(axes["t"]["values"]), "The shape of the "
+    assert air_range["shape"][1] == len(
+        axes["x"]["values"],
+    ), "The shape of the pts axis"
+    assert (
+        len(air_range["values"]) == 8
+    ), "There should be 8 values, 2 for each time step"
+
+
+def test_cf_multiple_position_csv(cf_client):
+    points = "MULTIPOINT((202 43),(205 45))"
+    response = cf_client.get(f"/datasets/air/edr/position?coords={points}&f=csv")
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "text/csv" in response.headers["content-type"]
+    ), "The content type should be set as a CSV"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "position.csv" in response.headers["content-disposition"]
+    ), "The file name should be position.csv"
+
+    csv_data = [
+        line.split(",") for line in response.content.decode("utf-8").splitlines()
+    ]
+
+    assert (
+        len(csv_data) == 9
+    ), "There should be 4 data rows (one for each time step), and one header row"
+    for key in ("time", "lat", "lon", "air", "cell_area"):
+        assert key in csv_data[0], f"column {key} should be in the header"
+
+
+def test_cf_area_query(cf_client, cf_dataset):
+    coords = "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))"
+    response = cf_client.get(f"/datasets/air/edr/area?coords={coords}&f=cf_covjson")
+
+    assert response.status_code == 200, "Response did not return successfully"
     data = response.json()
 
     for key in ("type", "domain", "parameters", "ranges"):
@@ -217,3 +283,45 @@ def test_cf_area_query(cf_client, cf_dataset):
     assert (
         len(air_range["values"]) == 36
     ), "There should be 26 values, 9 for each time step"
+
+
+def test_cf_area_csv_query(cf_client, cf_dataset):
+    coords = "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))"
+    response = cf_client.get(f"/datasets/air/edr/area?coords={coords}&f=csv")
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "text/csv" in response.headers["content-type"]
+    ), "The content type should be set as a CSV"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "position.csv" in response.headers["content-disposition"]
+    ), "The file name should be position.csv"
+
+    csv_data = [
+        line.split(",") for line in response.content.decode("utf-8").splitlines()
+    ]
+
+    assert (
+        len(csv_data) == 37
+    ), "There should be 37 data rows (one for each time step), and one header row"
+    for key in ("time", "lat", "lon", "air", "cell_area"):
+        assert key in csv_data[0], f"column {key} should be in the header"
+
+
+def test_cf_area_nc_query(cf_client, cf_dataset):
+    coords = "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))"
+    response = cf_client.get(f"/datasets/air/edr/area?coords={coords}&f=nc")
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "application/netcdf" in response.headers["content-type"]
+    ), "The content type should be set as a NetCDF"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "position.nc" in response.headers["content-disposition"]
+    ), "The file name should be position.nc"

@@ -4,10 +4,10 @@ import numpy.testing as npt
 import pandas as pd
 import pytest
 import xarray as xr
-from shapely import Point, from_wkt
+from shapely import MultiPoint, Point, from_wkt
 
 from xpublish_edr.geometry.area import select_by_area
-from xpublish_edr.geometry.position import select_by_postition
+from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.query import EDRQuery
 
 
@@ -91,7 +91,7 @@ def test_select_query_error(regular_xy_dataset):
 
 def test_select_position_regular_xy(regular_xy_dataset):
     point = Point((204, 44))
-    ds = select_by_postition(regular_xy_dataset, point)
+    ds = select_by_position(regular_xy_dataset, point)
 
     assert ds is not None, "Dataset was not returned"
     assert "air" in ds, "Dataset does not contain the air variable"
@@ -103,6 +103,23 @@ def test_select_position_regular_xy(regular_xy_dataset):
     npt.assert_array_equal(ds["lon"], 205.0), "Longitude is incorrect"
     npt.assert_approx_equal(ds["air"][0], 280.2), "Temperature is incorrect"
     npt.assert_approx_equal(ds["air"][-1], 279.19), "Temperature is incorrect"
+
+
+def test_select_position_regular_xy_multi(regular_xy_dataset):
+    points = MultiPoint([(202, 45), (205, 48)])
+    ds = select_by_position(regular_xy_dataset, points)
+
+    assert ds is not None, "Dataset was not returned"
+    assert "air" in ds, "Dataset does not contain the air variable"
+    assert "lat" in ds, "Dataset does not contain the lat variable"
+    assert "lon" in ds, "Dataset does not contain the lon variable"
+
+    npt.assert_array_equal(ds["lat"], [45.0, 47.5]), "Latitude is incorrect"
+    npt.assert_array_equal(ds["lon"], [202.5, 205.0]), "Longitude is incorrect"
+    npt.assert_array_equal(
+        ds["air"].isel(time=2).values,
+        [279.1, 278.6],
+    ), "Temperature is incorrect"
 
 
 def test_select_area_regular_xy(regular_xy_dataset):
