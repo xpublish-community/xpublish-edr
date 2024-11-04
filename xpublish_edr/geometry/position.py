@@ -6,7 +6,7 @@ import numpy as np
 import shapely
 import xarray as xr
 
-from xpublish_edr.geometry.common import is_regular_xy_coords
+from xpublish_edr.geometry.common import VECTORIZED_DIM, is_regular_xy_coords
 
 
 def select_by_position(
@@ -49,6 +49,6 @@ def _select_by_multiple_positions_regular_xy_grid(
     """
     # Find the nearest X and Y coordinates to the point using vectorized indexing
     x, y = np.array(list(zip(*[(point.x, point.y) for point in points.geoms])))
-    sel_x = xr.Variable(data=x, dims="points")
-    sel_y = xr.Variable(data=y, dims="points")
+    sel_x = xr.Variable(data=x, dims=VECTORIZED_DIM)
+    sel_y = xr.Variable(data=y, dims=VECTORIZED_DIM)
     return ds.cf.sel(X=sel_x, Y=sel_y, method="nearest")

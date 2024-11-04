@@ -161,6 +161,47 @@ def test_percent_encoded_cf_position_nc(cf_client):
     ), "The file name should be position.nc"
 
 
+def test_cf_multiple_position(cf_client):
+    points = "MULTIPOINT((202 43),(205 45))"
+    response = cf_client.get(f"/datasets/air/edr/position?coords={points}")
+
+    assert response.status_code == 200, "Response did not return successfully"
+    data = response.json()
+
+    for key in ("type", "domain", "parameters", "ranges"):
+        assert key in data, f"Key {key} is not a top level key in the CovJSON response"
+
+    axes = data["domain"]["axes"]
+
+    assert axes["x"] == {
+        "values": [202.5, 205.0],
+    }, "Did not select nearby x coordinates within the polygon"
+    assert axes["y"] == {
+        "values": [42.5, 45.0],
+    }, "Did not select a nearby y coordinates within the polygon"
+
+    assert (
+        len(axes["t"]["values"]) == 4
+    ), "There should be a time value for each time step"
+
+    air_range = data["ranges"]["air"]
+
+    assert air_range["type"] == "NdArray", "Response range should be a NdArray"
+    assert air_range["dataType"] == "float", "Air dataType should be floats"
+    assert air_range["axisNames"] == [
+        "t",
+        "pts",
+    ], "Time should be the only remaining axes"
+    assert len(air_range["shape"]) == 2, "There should be 2 axes"
+    assert air_range["shape"][0] == len(axes["t"]["values"]), "The shape of the "
+    assert air_range["shape"][1] == len(
+        axes["x"]["values"],
+    ), "The shape of the pts axis"
+    assert (
+        len(air_range["values"]) == 8
+    ), "There should be 8 values, 2 for each time step"
+
+
 def test_cf_multiple_position_csv(cf_client):
     points = "MULTIPOINT((202 43),(205 45))"
     response = cf_client.get(f"/datasets/air/edr/position?coords={points}&f=csv")
@@ -192,7 +233,6 @@ def test_cf_area_query(cf_client, cf_dataset):
     response = cf_client.get(f"/datasets/air/edr/area?coords={coords}&f=cf_covjson")
 
     assert response.status_code == 200, "Response did not return successfully"
-
     data = response.json()
 
     for key in ("type", "domain", "parameters", "ranges"):

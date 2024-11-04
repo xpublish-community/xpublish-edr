@@ -6,7 +6,7 @@ import numpy as np
 import shapely
 import xarray as xr
 
-from xpublish_edr.geometry.common import is_regular_xy_coords
+from xpublish_edr.geometry.common import VECTORIZED_DIM, is_regular_xy_coords
 
 
 def select_by_area(
@@ -41,8 +41,8 @@ def _select_area_regular_xy_grid(
 
     # Find the x and y indices that have any points within the polygon
     x_inds, y_inds = np.nonzero(mask)
-    x_sel = xr.Variable(data=x_inds, dims="pts")
-    y_sel = xr.Variable(data=y_inds, dims="pts")
+    x_sel = xr.Variable(data=x_inds, dims=VECTORIZED_DIM)
+    y_sel = xr.Variable(data=y_inds, dims=VECTORIZED_DIM)
 
     # Apply the mask and vectorize to a 1d collection of points
     ds_sub = ds.cf.isel(X=x_sel, Y=y_sel)

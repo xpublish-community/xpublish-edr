@@ -6,6 +6,9 @@ import shapely
 import xarray as xr
 
 
+VECTORIZED_DIM = "pts"
+
+
 def coord_is_regular(da: xr.DataArray) -> bool:
     """
     Check if the DataArray has a regular grid

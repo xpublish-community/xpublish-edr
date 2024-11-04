@@ -9,7 +9,7 @@ from fastapi import Response
 def to_csv(ds: xr.Dataset):
     """Return a CSV response from an xarray dataset"""
     ds = ds.squeeze()
-    df = ds.to_pandas()
+    df = ds.to_dataframe()
 
     csv = df.to_csv()
 
