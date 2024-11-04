@@ -2,6 +2,7 @@
 Common geometry handling functions
 """
 
+import shapely
 import xarray as xr
 
 
