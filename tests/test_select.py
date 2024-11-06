@@ -170,6 +170,26 @@ def test_select_position_regular_xy_multi(regular_xy_dataset):
     )
 
 
+def test_select_position_regular_xy_multi_interpolate(regular_xy_dataset):
+    points = MultiPoint([(202, 45), (205, 48)])
+    ds = select_by_position(regular_xy_dataset, points, method="linear")
+
+    assert ds is not None, "Dataset was not returned"
+    assert "air" in ds, "Dataset does not contain the air variable"
+    assert "lat" in ds, "Dataset does not contain the lat variable"
+    assert "lon" in ds, "Dataset does not contain the lon variable"
+
+    npt.assert_array_equal(ds["lat"], [45.0, 48.0]), "Latitude is incorrect"
+    npt.assert_array_equal(ds["lon"], [202.0, 205.0]), "Longitude is incorrect"
+    (
+        npt.assert_array_almost_equal(
+            ds["air"].isel(time=2).values,
+            [279.0, 278.2],
+        ),
+        "Temperature is incorrect",
+    )
+
+
 def test_select_area_regular_xy(regular_xy_dataset):
     polygon = Point(204, 44).buffer(5)
     ds = select_by_area(regular_xy_dataset, polygon)
