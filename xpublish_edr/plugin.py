@@ -91,7 +91,7 @@ class CfEdrPlugin(Plugin):
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
             try:
-                ds = select_by_position(dataset, query.geometry)
+                ds = select_by_position(dataset, query.geometry, query.method)
             except KeyError:
                 raise HTTPException(
                     status_code=404,
