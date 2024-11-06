@@ -10,10 +10,10 @@ from fastapi import Response
 def to_geojson(ds: xr.Dataset):
     """Return a GeoJSON response from an xarray dataset"""
     ds = ds.squeeze()
-    coordinates = ds.cf.coordinates
-    (x_col,) = coordinates["X"]
-    (y_col,) = coordinates["Y"]
-    time_col = coordinates.get("T")
+    axes = ds.cf.axes
+    (x_col,) = axes["X"]
+    (y_col,) = axes["Y"]
+    time_col = axes.get("T")
 
     df = ds.to_dataframe().reset_index()
     gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df[x_col], df[y_col]))
