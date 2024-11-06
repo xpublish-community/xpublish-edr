@@ -161,6 +161,47 @@ def test_percent_encoded_cf_position_nc(cf_client):
     ), "The file name should be position.nc"
 
 
+def test_cf_position_geojson(cf_client):
+    x = 204
+    y = 44
+    response = cf_client.get(
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=geojson",
+    )
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "application/json" in response.headers["content-type"]
+    ), "The content type should be set as a JSON"
+
+    data = response.json()
+
+    assert "type" in data, "GeoJSON response should have a type key"
+
+    features = data["features"]
+    assert len(features) == 4, "There should be 4 features, one for each time step"
+
+    first_feature = features[0]
+    assert "geometry" in first_feature, "Each feature should have a geometry key"
+    assert "properties" in first_feature, "Each feature should have a properties key"
+    assert (
+        "time" in first_feature["properties"]
+    ), "Each feature should have a time property"
+    assert (
+        "air" in first_feature["properties"]
+    ), "Each feature should have an air property"
+
+    assert first_feature["geometry"]["type"] == "Point", "Geometry should be a Point"
+    assert first_feature["geometry"]["coordinates"] == [
+        205.0,
+        45.0,
+    ], "Geometry should be at the requested point"
+
+    assert (
+        first_feature["properties"]["time"] == "2013-01-01T00:00:00"
+    ), "Time should be set in isoformat"
+    assert first_feature["properties"]["air"] == 280.2, "Air should be set"
+
+
 def test_cf_multiple_position(cf_client):
     points = "MULTIPOINT((202 43),(205 45))"
     response = cf_client.get(f"/datasets/air/edr/position?coords={points}")
@@ -304,11 +345,28 @@ def test_cf_area_csv_query(cf_client, cf_dataset):
         line.split(",") for line in response.content.decode("utf-8").splitlines()
     ]
 
-    assert (
-        len(csv_data) == 37
-    ), "There should be 37 data rows (one for each time step), and one header row"
+    assert len(csv_data) == 37, "There should be 37 data rows, and one header row"
     for key in ("time", "lat", "lon", "air", "cell_area"):
         assert key in csv_data[0], f"column {key} should be in the header"
+
+
+def test_cf_area_geojson_query(cf_client, cf_dataset):
+    coords = "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))"
+    response = cf_client.get(f"/datasets/air/edr/area?coords={coords}&f=geojson")
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "application/json" in response.headers["content-type"]
+    ), "The content type should be set as a JSON"
+
+    data = response.json()
+
+    assert "type" in data, "GeoJSON response should have a type key"
+    assert "features" in data, "GeoJSON response should have a features key"
+
+    features = data["features"]
+
+    assert len(features) == 36, "There should be 36 data points"
 
 
 def test_cf_area_nc_query(cf_client, cf_dataset):
