@@ -31,6 +31,7 @@ cf_edr = "xpublish_edr.plugin:CfEdrPlugin"
 [project.entry-points.xpublish_edr_position_formats]
 cf_covjson = "xpublish_edr.formats.to_covjson:to_cf_covjson"
 csv = "xpublish_edr.formats.to_csv:to_csv"
+geojson = "xpublish_edr.formats.to_geojson:to_geojson"
 nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
 netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
 nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
