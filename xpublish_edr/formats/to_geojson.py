@@ -11,8 +11,8 @@ def to_geojson(ds: xr.Dataset):
     """Return a GeoJSON response from an xarray dataset"""
     ds = ds.squeeze()
     coordinates = ds.cf.coordinates
-    x_col,  = coordinates["X"]
-    y_col, = coordinates["Y"]
+    (x_col,) = coordinates["X"]
+    (y_col,) = coordinates["Y"]
     time_col = coordinates.get("T")
 
     df = ds.to_dataframe().reset_index()
