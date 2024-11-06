@@ -1,3 +1,4 @@
+import numpy.testing as npt
 import pytest
 import xpublish
 from fastapi.testclient import TestClient
@@ -125,6 +126,55 @@ def test_cf_position_csv(cf_client):
     ), "There should be 4 data rows (one for each time step), and one header row"
     for key in ("time", "lat", "lon", "air", "cell_area"):
         assert key in csv_data[0], f"column {key} should be in the header"
+
+
+def test_cf_position_csv_interpolate(cf_client):
+    x = 204
+    y = 44
+    response = cf_client.get(
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv&method=linear",
+    )
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "text/csv" in response.headers["content-type"]
+    ), "The content type should be set as a CSV"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "position.csv" in response.headers["content-disposition"]
+    ), "The file name should be position.csv"
+
+    csv_data = [
+        line.split(",") for line in response.content.decode("utf-8").splitlines()
+    ]
+
+    assert (
+        len(csv_data) == 5
+    ), "There should be 4 data rows (one for each time step), and one header row"
+    for key in ("time", "lat", "lon", "air", "cell_area"):
+        assert key in csv_data[0], f"column {key} should be in the header"
+
+    lon_index = csv_data[0].index("lon")
+    lons = [float(row[lon_index]) for row in csv_data[1:]]
+    (
+        npt.assert_array_equal(
+            lons,
+            [204.0, 204.0, 204.0, 204.0],
+        ),
+        "Longitude should be interpolated as 204.0",
+    )
+
+    lat_index = csv_data[0].index("lat")
+    lats = [float(row[lat_index]) for row in csv_data[1:]]
+    (
+        npt.assert_array_almost_equal(
+            lats,
+            [44.0, 44.0, 44.0, 44.0],
+        ),
+        "Latitude should be interpolated as 44.0",
+    )
 
 
 def test_cf_position_nc(cf_client):
