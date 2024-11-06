@@ -26,9 +26,9 @@ def select_by_position(
         raise NotImplementedError("Only 1D coordinates are supported")
 
     if isinstance(point, shapely.Point):
-        return _select_by_position_regular_xy_grid(ds, point)
+        return _select_by_position_regular_xy_grid(ds, point, method)
     elif isinstance(point, shapely.MultiPoint):
-        return _select_by_multiple_positions_regular_xy_grid(ds, point)
+        return _select_by_multiple_positions_regular_xy_grid(ds, point, method)
     else:
         raise ValueError(
             f"Invalid point type {point.geom_type}, must be Point or MultiPoint",
