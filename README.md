@@ -91,6 +91,8 @@ In the future, when `xpublish` supports [`DataTree`](https://docs.xarray.dev/en/
 
 > `method` is not applicable for the coordinates of area queries, only for selecting datetime, z, or additional dimensions.
 
+For `POLYGON` coordinates, points that are located within **OR** on the polygons boundary are included in the response.
+
 ## Get in touch
 
 Report bugs, suggest features or view the source code on [GitHub](https://github.com/gulfofmaine/xpublish-edr/issues).
