@@ -61,7 +61,7 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 | `z`  | ✅ | |
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅   | |
-| `crs`  | ❌ | Not currently supported |
+| `crs`  | ❌ | Not currently supported, all coordinates should be in the reference system of the queried dataset |
 | `parameter-name`  | ✅ | |
 | `f`  | ✅ | |
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
@@ -76,7 +76,7 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 | `z`  | ✅   | |
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅   | |
-| `crs`  | ❌ | Not currently supported |
+| `crs`  | ❌ | Not currently supported, all coordinates should be in the reference system of the queried dataset |
 | `parameter-name`  | ✅   | |
 | `f`  | ✅   | |
 
