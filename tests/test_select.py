@@ -42,6 +42,7 @@ def test_select_query(regular_xy_dataset):
         coords="POINT(200 45)",
         datetime="2013-01-01T06:00:00/2013-01-01T12:00:00",
         parameters="air,time",
+        method="nearest",
     )
 
     ds = query.select(regular_xy_dataset, query_params)
@@ -56,6 +57,25 @@ def test_select_query(regular_xy_dataset):
         "Dataset shape is incorrect",
     )
     assert ds["air"].shape == (2, 25, 53), "Dataset shape is incorrect"
+
+    query = EDRQuery(
+        coords="POINT(203 46)",
+        datetime="2013-01-01T08:00:00",
+        parameters="air,time",
+        method="linear",
+    )
+
+    ds = query.select(regular_xy_dataset, query_params)
+    (
+        npt.assert_array_equal(
+            ds["time"],
+            np.array(
+                ["2013-01-01T08:00:00"],
+                dtype="datetime64[ns]",
+            ),
+        ),
+        "Time is incorrect",
+    )
 
 
 def test_select_query_error(regular_xy_dataset):
@@ -88,6 +108,15 @@ def test_select_query_error(regular_xy_dataset):
     with pytest.raises(KeyError):
         query.select(regular_xy_dataset, {})
 
+    with pytest.raises(ValueError):
+        query = EDRQuery(
+            coords="POINT(200 45)",
+            datetime="2013-01-01T06:00:00",
+            parameters="air",
+            z="100",
+            method="foo",
+        )
+
 
 def test_select_position_regular_xy(regular_xy_dataset):
     point = Point((204, 44))
@@ -105,6 +134,22 @@ def test_select_position_regular_xy(regular_xy_dataset):
     npt.assert_approx_equal(ds["air"][-1], 279.19), "Temperature is incorrect"
 
 
+def test_select_position_regular_xy_interpolate(regular_xy_dataset):
+    point = Point((204, 44))
+    ds = select_by_position(regular_xy_dataset, point, method="linear")
+
+    assert ds is not None, "Dataset was not returned"
+    assert "air" in ds, "Dataset does not contain the air variable"
+    assert "lat" in ds, "Dataset does not contain the lat variable"
+    assert "lon" in ds, "Dataset does not contain the lon variable"
+
+    assert ds["air"].shape == ds["time"].shape, "Dataset shape is incorrect"
+    npt.assert_array_equal(ds["lat"], 44.0), "Latitude is incorrect"
+    npt.assert_array_equal(ds["lon"], 204.0), "Longitude is incorrect"
+    npt.assert_approx_equal(ds["air"][0], 281.376), "Temperature is incorrect"
+    npt.assert_approx_equal(ds["air"][-1], 279.87), "Temperature is incorrect"
+
+
 def test_select_position_regular_xy_multi(regular_xy_dataset):
     points = MultiPoint([(202, 45), (205, 48)])
     ds = select_by_position(regular_xy_dataset, points)
@@ -116,10 +161,33 @@ def test_select_position_regular_xy_multi(regular_xy_dataset):
 
     npt.assert_array_equal(ds["lat"], [45.0, 47.5]), "Latitude is incorrect"
     npt.assert_array_equal(ds["lon"], [202.5, 205.0]), "Longitude is incorrect"
-    npt.assert_array_equal(
-        ds["air"].isel(time=2).values,
-        [279.1, 278.6],
-    ), "Temperature is incorrect"
+    (
+        npt.assert_array_equal(
+            ds["air"].isel(time=2).values,
+            [279.1, 278.6],
+        ),
+        "Temperature is incorrect",
+    )
+
+
+def test_select_position_regular_xy_multi_interpolate(regular_xy_dataset):
+    points = MultiPoint([(202, 45), (205, 48)])
+    ds = select_by_position(regular_xy_dataset, points, method="linear")
+
+    assert ds is not None, "Dataset was not returned"
+    assert "air" in ds, "Dataset does not contain the air variable"
+    assert "lat" in ds, "Dataset does not contain the lat variable"
+    assert "lon" in ds, "Dataset does not contain the lon variable"
+
+    npt.assert_array_equal(ds["lat"], [45.0, 48.0]), "Latitude is incorrect"
+    npt.assert_array_equal(ds["lon"], [202.0, 205.0]), "Longitude is incorrect"
+    (
+        npt.assert_array_almost_equal(
+            ds["air"].isel(time=2).values,
+            [279.0, 278.2],
+        ),
+        "Temperature is incorrect",
+    )
 
 
 def test_select_area_regular_xy(regular_xy_dataset):
