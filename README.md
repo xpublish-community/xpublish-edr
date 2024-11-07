@@ -51,11 +51,11 @@ rest = xpublish.Rest(
 
 ## OGC EDR Spec Compliance
 
-This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-086r6.html) where reasonable, adding functionality where the value is demonstrable. 
+This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-086r6.html) where reasonable, adding functionality where the value is demonstrable.
 
 ### [collections](https://docs.ogc.org/is/19-086r6/19-086r6.html#_e55ba0f5-8f24-4f1b-a7e3-45775e39ef2e) and Resource Paths Support
 
-`xpublish-edr` does not currently support the `/collections/{collectionId}/query` path template described in the spec. Instead the path resource appears as `/{dataset_id}/query`. This is because of the path structure of xpublish. 
+`xpublish-edr` does not currently support the `/collections/{collectionId}/query` path template described in the spec. Instead the path resource appears as `/{dataset_id}/query`. This is because of the path structure of xpublish.
 
 In the future, when `xpublish` supports [`DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html) it will provide a path to supporting the spec compliant `collections` resource path.
 
