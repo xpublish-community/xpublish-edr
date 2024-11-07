@@ -56,7 +56,7 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 [8.2.1 Position query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_bbda46d4-04c5-426b-bea3-230d592fe1c2)
 
 | Query  | Compliant | Comments
-| ------------- | ------------- | ------------- | 
+| ------------- | ------------- | ------------- |
 | `coords`  | ✅ | |
 | `z`  | ✅ | |
 | `datetime`  | ✅ | |
@@ -66,12 +66,12 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 | `f`  | ✅ | |
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
 
-> Any additional query parameters are assumed to be additional selections to make on the dimensions/coordinates. These queries will use the specfied selections `method`.
+> Any additional query parameters are assumed to be additional selections to make on the dimensions/coordinates. These queries will use the specified selections `method`.
 
 [8.2.3 Area query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_c92d1888-dc80-454f-8452-e2f070b90dcd)
 
 | Query  | Compliant | Comments
-| ------------- | ------------- | ------------- | 
+| ------------- | ------------- | ------------- |
 | `coords`  | ✅ | Only `POLYGON` supported currently |
 | `z`  | ✅   | |
 | `datetime`  | ✅ | |
