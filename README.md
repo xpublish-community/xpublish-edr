@@ -51,7 +51,7 @@ rest = xpublish.Rest(
 
 ## OGC EDR Spec Compliance
 
-This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-086r6.html) as closely as possible, adding functionality where the value is demonstrable. Below are the implementations and a listing of spec compliance:
+This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-086r6.html) where reasonable, adding functionality where the value is demonstrable. Below are the implementations and a listing of spec compliance:
 
 [8.2.1 Position query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_bbda46d4-04c5-426b-bea3-230d592fe1c2)
 
