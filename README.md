@@ -49,6 +49,37 @@ rest = xpublish.Rest(
 ```
 
 
+## OGC EDR Spec Compliance
+
+This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-086r6.html) as closely as possible, adding functionality where the value is demonstrable. Below are the implementations and a listing of spec compliance:
+
+[8.2.1 Position query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_bbda46d4-04c5-426b-bea3-230d592fe1c2)
+
+| Query  | Compliant | Comments
+| ------------- | ------------- | ------------- | 
+| `coords`  | ✅ | |
+| `z`  | ✅ | |
+| `datetime`  | ✅ | |
+| `parameter-name`  | ✅   | |
+| `crs`  | ❌ | Not currently supported |
+| `parameter-name`  | ✅ | |
+| `f`  | ✅ | |
+| `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
+
+> Any additional query parameters are assumed to be additional selections to make on the dimensions/coordinates. These queries will use the specfied selections `method`.
+
+[8.2.3 Area query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_c92d1888-dc80-454f-8452-e2f070b90dcd)
+
+| Query  | Compliant | Comments
+| ------------- | ------------- | ------------- | 
+| `coords`  | ✅ | Only `POLYGON` supported currently |
+| `z`  | ✅   | |
+| `datetime`  | ✅ | |
+| `parameter-name`  | ✅   | |
+| `crs`  | ❌ | Not currently supported |
+| `parameter-name`  | ✅   | |
+| `f`  | ✅   | |
+
 ## Get in touch
 
 Report bugs, suggest features or view the source code on [GitHub](https://github.com/gulfofmaine/xpublish-edr/issues).
