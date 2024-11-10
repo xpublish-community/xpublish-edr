@@ -104,7 +104,9 @@ def test_cf_position_query(cf_client, cf_dataset):
 def test_cf_position_csv(cf_client):
     x = 204
     y = 44
-    response = cf_client.get(f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv")
+    response = cf_client.get(
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv&parameter-name=air"
+    )
 
     assert response.status_code == 200, "Response did not return successfully"
     assert (
@@ -215,7 +217,7 @@ def test_cf_position_geojson(cf_client):
     x = 204
     y = 44
     response = cf_client.get(
-        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=geojson",
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=geojson&parameter-name=air",
     )
 
     assert response.status_code == 200, "Response did not return successfully"
