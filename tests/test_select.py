@@ -203,10 +203,6 @@ def test_select_area_regular_xy(regular_xy_dataset):
     assert ds["lat"].shape == (13,), "Latitude shape is incorrect"
     assert ds["lon"].shape == (13,), "Longitude shape is incorrect"
 
-    print(ds["lat"].values)
-    print(ds["lon"].values)
-    print(ds["air"].isel(time=0).values)
-
     (
         npt.assert_array_equal(np.unique(ds["lat"]), [40.0, 42.5, 45.0, 47.5]),
         "Latitude is incorrect",

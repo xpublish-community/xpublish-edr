@@ -361,7 +361,6 @@ def test_cf_area_query(cf_client, cf_dataset):
     ), "DataArray long_name should be set as parameter description"
 
     air_range = data["ranges"]["air"]
-    print(air_range)
 
     assert air_range["type"] == "NdArray", "Response range should be a NdArray"
     assert air_range["dataType"] == "float", "Air dataType should be floats"
