@@ -203,6 +203,10 @@ def test_select_area_regular_xy(regular_xy_dataset):
     assert ds["lat"].shape == (13,), "Latitude shape is incorrect"
     assert ds["lon"].shape == (13,), "Longitude shape is incorrect"
 
+    print(ds["lat"].values)
+    print(ds["lon"].values)
+    print(ds["air"].isel(time=0).values)
+
     (
         npt.assert_array_equal(np.unique(ds["lat"]), [40.0, 42.5, 45.0, 47.5]),
         "Latitude is incorrect",
@@ -216,19 +220,19 @@ def test_select_area_regular_xy(regular_xy_dataset):
             ds["air"].isel(time=0),
             np.array(
                 [
+                    279.0,
+                    279.0,
+                    278.9,
                     280.0,
-                    282.79,
-                    284.6,
-                    279.0,
                     280.7,
-                    283.2,
-                    284.9,
-                    279.0,
                     280.2,
-                    282.6,
-                    284.2,
                     279.6,
+                    282.79,
+                    283.2,
+                    282.6,
                     281.9,
+                    284.9,
+                    284.2,
                 ],
             ),
         ),

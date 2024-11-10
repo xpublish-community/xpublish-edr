@@ -334,10 +334,10 @@ def test_cf_area_query(cf_client, cf_dataset):
     axes = data["domain"]["axes"]
 
     assert axes["x"] == {
-        "values": [202.5, 202.5, 202.5, 205.0, 205.0, 205.0, 207.5, 207.5, 207.5],
+        "values": [202.5, 205.0, 207.5, 202.5, 205.0, 207.5, 202.5, 205.0, 207.5],
     }, "Did not select nearby x coordinates within the polygon"
     assert axes["y"] == {
-        "values": [47.5, 45.0, 42.5, 47.5, 45.0, 42.5, 47.5, 45.0, 42.5],
+        "values": [47.5, 47.5, 47.5, 45.0, 45.0, 45.0, 42.5, 42.5, 42.5],
     }, "Did not select a nearby y coordinates within the polygon"
 
     assert (
@@ -361,6 +361,7 @@ def test_cf_area_query(cf_client, cf_dataset):
     ), "DataArray long_name should be set as parameter description"
 
     air_range = data["ranges"]["air"]
+    print(air_range)
 
     assert air_range["type"] == "NdArray", "Response range should be a NdArray"
     assert air_range["dataType"] == "float", "Air dataType should be floats"

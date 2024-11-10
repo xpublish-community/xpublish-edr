@@ -148,7 +148,7 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by query params {ds}")
 
             try:
-                ds = select_by_area(dataset, query.geometry)
+                ds = select_by_area(ds, query.geometry)
             except KeyError:
                 raise HTTPException(
                     status_code=404,
