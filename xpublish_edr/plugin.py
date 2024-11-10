@@ -91,7 +91,17 @@ class CfEdrPlugin(Plugin):
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
             try:
-                ds = select_by_position(dataset, query.geometry, query.method)
+                ds = query.select(dataset, dict(request.query_params))
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Error selecting from query: {e.args[0]}",
+                )
+
+            logger.debug(f"Dataset filtered by query params {ds}")
+
+            try:
+                ds = select_by_position(ds, query.geometry, query.method)
             except KeyError:
                 raise HTTPException(
                     status_code=404,
@@ -101,16 +111,6 @@ class CfEdrPlugin(Plugin):
             logger.debug(
                 f"Dataset filtered by position ({query.geometry}): {ds}",
             )
-
-            try:
-                ds = query.select(ds, dict(request.query_params))
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Error selecting from query: {e.args[0]}",
-                )
-
-            logger.debug(f"Dataset filtered by query params {ds}")
 
             if query.format:
                 try:
@@ -138,17 +138,7 @@ class CfEdrPlugin(Plugin):
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
             try:
-                ds = select_by_area(dataset, query.geometry)
-            except KeyError:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Dataset does not have CF Convention compliant metadata",
-                )
-
-            logger.debug(f"Dataset filtered by polygon {query.geometry.boundary}: {ds}")
-
-            try:
-                ds = query.select(ds, dict(request.query_params))
+                ds = query.select(dataset, dict(request.query_params))
             except ValueError as e:
                 raise HTTPException(
                     status_code=404,
@@ -156,6 +146,16 @@ class CfEdrPlugin(Plugin):
                 )
 
             logger.debug(f"Dataset filtered by query params {ds}")
+
+            try:
+                ds = select_by_area(ds, query.geometry)
+            except KeyError:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Dataset does not have CF Convention compliant metadata",
+                )
+
+            logger.debug(f"Dataset filtered by polygon {query.geometry.boundary}: {ds}")
 
             if query.format:
                 try:

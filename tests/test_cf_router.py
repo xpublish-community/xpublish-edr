@@ -104,7 +104,9 @@ def test_cf_position_query(cf_client, cf_dataset):
 def test_cf_position_csv(cf_client):
     x = 204
     y = 44
-    response = cf_client.get(f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv")
+    response = cf_client.get(
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv&parameter-name=air",
+    )
 
     assert response.status_code == 200, "Response did not return successfully"
     assert (
@@ -215,7 +217,7 @@ def test_cf_position_geojson(cf_client):
     x = 204
     y = 44
     response = cf_client.get(
-        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=geojson",
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=geojson&parameter-name=air",
     )
 
     assert response.status_code == 200, "Response did not return successfully"
@@ -332,10 +334,10 @@ def test_cf_area_query(cf_client, cf_dataset):
     axes = data["domain"]["axes"]
 
     assert axes["x"] == {
-        "values": [202.5, 202.5, 202.5, 205.0, 205.0, 205.0, 207.5, 207.5, 207.5],
+        "values": [202.5, 205.0, 207.5, 202.5, 205.0, 207.5, 202.5, 205.0, 207.5],
     }, "Did not select nearby x coordinates within the polygon"
     assert axes["y"] == {
-        "values": [47.5, 45.0, 42.5, 47.5, 45.0, 42.5, 47.5, 45.0, 42.5],
+        "values": [47.5, 47.5, 47.5, 45.0, 45.0, 45.0, 42.5, 42.5, 42.5],
     }, "Did not select a nearby y coordinates within the polygon"
 
     assert (

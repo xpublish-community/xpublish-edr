@@ -40,10 +40,11 @@ def _select_area_regular_xy_grid(
     mask = shapely.intersects_xy(polygon, pts[0], pts[1])
 
     # Find the x and y indices that have any points within the polygon
-    x_inds, y_inds = np.nonzero(mask)
+    y_inds, x_inds = np.nonzero(mask)
     x_sel = xr.Variable(data=x_inds, dims=VECTORIZED_DIM)
     y_sel = xr.Variable(data=y_inds, dims=VECTORIZED_DIM)
 
     # Apply the mask and vectorize to a 1d collection of points
     ds_sub = ds.cf.isel(X=x_sel, Y=y_sel)
+
     return ds_sub
