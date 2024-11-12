@@ -101,7 +101,7 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by query params {ds}")
 
             try:
-                ds = select_by_position(ds, query.geometry, query.method)
+                ds = select_by_position(ds, query.project_geometry(ds), query.method)
             except KeyError:
                 raise HTTPException(
                     status_code=404,
@@ -148,7 +148,7 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by query params {ds}")
 
             try:
-                ds = select_by_area(ds, query.geometry)
+                ds = select_by_area(ds, query.project_geometry(ds))
             except KeyError:
                 raise HTTPException(
                     status_code=404,

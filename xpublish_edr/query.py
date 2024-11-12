@@ -7,8 +7,9 @@ from typing import Literal, Optional
 import xarray as xr
 from fastapi import Query
 from pydantic import BaseModel, Field
-from shapely import wkt
+from shapely import Geometry, wkt
 
+from xpublish_edr.geometry.common import project_geometry
 from xpublish_edr.logger import logger
 
 
@@ -25,14 +26,23 @@ class EDRQuery(BaseModel):
     z: Optional[str] = None
     datetime: Optional[str] = None
     parameters: Optional[str] = None
-    crs: Optional[str] = None
+    crs: str = Field(
+        "EPSG:4326",
+        title="Coordinate Reference System",
+        description="Coordinate Reference System for the query. Default is EPSG:4326",
+    )
     format: Optional[str] = None
     method: Literal["nearest", "linear"] = "nearest"
 
     @property
-    def geometry(self):
+    def geometry(self) -> Geometry:
         """Shapely point from WKT query params"""
         return wkt.loads(self.coords)
+
+    def project_geometry(self, ds: xr.Dataset) -> Geometry:
+        """Project the geometry to the dataset's CRS"""
+        geometry = self.geometry
+        return project_geometry(ds, self.crs, geometry)
 
     def select(self, ds: xr.Dataset, query_params: dict) -> xr.Dataset:
         """Select data from a dataset based on the query"""
@@ -117,8 +127,8 @@ def edr_query(
         alias="parameter-name",
         description="xarray variables to query",
     ),
-    crs: Optional[str] = Query(
-        None,
+    crs: str = Query(
+        "EPSG:4326",
         deprecated=True,
         description="CRS is not yet implemented",
     ),
