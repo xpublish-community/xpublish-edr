@@ -69,7 +69,7 @@ In the future, when `xpublish` supports [`DataTree`](https://docs.xarray.dev/en/
 | `z`  | ✅ | |
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅   | |
-| `crs`  | ❌ | Not currently supported, all coordinates should be in the reference system of the queried dataset |
+| `crs`  | ✅  | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326` |
 | `parameter-name`  | ✅ | |
 | `f`  | ✅ | |
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
@@ -84,7 +84,7 @@ In the future, when `xpublish` supports [`DataTree`](https://docs.xarray.dev/en/
 | `z`  | ✅   | |
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅   | |
-| `crs`  | ❌ | Not currently supported, all coordinates should be in the reference system of the queried dataset |
+| `crs`  | ✅  | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326` |
 | `parameter-name`  | ✅   | |
 | `f`  | ✅   | |
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
