@@ -4,6 +4,7 @@ import numpy.testing as npt
 import pandas as pd
 import pytest
 import xarray as xr
+import xarray.testing as xrt
 from shapely import MultiPoint, Point, from_wkt
 
 from xpublish_edr.geometry.area import select_by_area
@@ -151,9 +152,7 @@ def test_select_position_projected_xy(projected_xy_dataset):
     npt.assert_approx_equal(projected_point.y, 21.725), "Latitude is incorrect"
 
     ds = select_by_position(projected_xy_dataset, projected_point)
-    npt.assert_approx_equal(ds.rlon.values, 18.045), "Longitude is incorrect"
-    npt.assert_approx_equal(ds.rlat.values, 21.725), "Latitude is incorrect"
-    npt.assert_approx_equal(ds.temp.values, 0.89959461), "Temperature is incorrect"
+    xrt.assert_equal(ds, projected_xy_dataset.sel(rlon=[18.045], rlat=[21.725], method="nearest"))
 
 
 def test_select_position_regular_xy_interpolate(regular_xy_dataset):
