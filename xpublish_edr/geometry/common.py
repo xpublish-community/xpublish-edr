@@ -79,20 +79,32 @@ def project_dataset(ds: xr.Dataset, query_crs: str) -> xr.Dataset:
     target_y_coord = next(coord for coord in cf_coords if coord["axis"] == "Y")
     target_x_coord = next(coord for coord in cf_coords if coord["axis"] == "X")
 
+    X = ds.cf["X"]
+    Y = ds.cf["Y"]
+
     # Transform the coordinates
     # If the data is vectorized, we just transform the points in full
     # TODO: Handle 2D coordinates
-    if not is_regular_xy_coords(ds):
+    if len(X.dims) > 1 or len(Y.dims) > 1:
         raise NotImplementedError("Only 1D coordinates are supported")
 
-    x_dim = ds.cf["X"].dims[0]
-    y_dim = ds.cf["Y"].dims[0]
-    if x_dim == [VECTORIZED_DIM]:
-        x = ds.cf["X"]
-        y = ds.cf["Y"]
+    x_dim = X.dims[0]
+    y_dim = Y.dims[0]
+    if x_dim == VECTORIZED_DIM and y_dim == VECTORIZED_DIM:
+        x = X
+        y = Y
+        target_dims: tuple = (VECTORIZED_DIM,)
     else:
         # Otherwise we need to transform the full grid
-        x, y = xr.broadcast(ds.cf["X"], ds.cf["Y"])
+        # TODO: Is there a better way to handle this? this is quite hacky
+        var = [d for d in ds.data_vars if x_dim and y_dim in ds[d].dims][0]
+        var_dims = ds[var].dims
+        if var_dims.index(x_dim) < var_dims.index(y_dim):
+            x, y = xr.broadcast(X, Y)
+            target_dims = (x_dim, y_dim)
+        else:
+            x, y = xr.broadcast(Y, X)
+            target_dims = (y_dim, x_dim)
 
     x, y = transformer.transform(x, y)
 
@@ -111,11 +123,11 @@ def project_dataset(ds: xr.Dataset, query_crs: str) -> xr.Dataset:
     # Create the new dataset with vectorized coordinates
     ds = ds.assign_coords(
         {
-            target_x_coord_name: ((x_dim, y_dim), x),
-            target_y_coord_name: ((x_dim, y_dim), y),
+            target_x_coord_name: (target_dims, x),
+            target_y_coord_name: (target_dims, y),
         },
     )
 
-    ds = ds.drop(coords_to_drop)
+    ds = ds.drop_vars(coords_to_drop)
 
     return ds

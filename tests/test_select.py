@@ -8,6 +8,7 @@ import xarray.testing as xrt
 from shapely import MultiPoint, Point, from_wkt
 
 from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.query import EDRQuery
 
@@ -144,10 +145,12 @@ def test_select_position_regular_xy(regular_xy_dataset):
 
 
 def test_select_position_projected_xy(projected_xy_dataset):
-    from xpublish_edr.geometry.common import project_dataset, project_geometry
+    query = EDRQuery(
+        coords="POINT(64.59063409 66.66454929)",
+        crs="EPSG:4326",
+    )
 
-    point = Point((64.59063409, 66.66454929))
-    projected_point = project_geometry(projected_xy_dataset, "EPSG:4326", point)
+    projected_point = query.project_geometry(projected_xy_dataset)
     npt.assert_approx_equal(projected_point.x, 18.045), "Longitude is incorrect"
     npt.assert_approx_equal(projected_point.y, 21.725), "Latitude is incorrect"
 
@@ -157,7 +160,7 @@ def test_select_position_projected_xy(projected_xy_dataset):
         projected_xy_dataset.sel(rlon=[18.045], rlat=[21.725], method="nearest"),
     )
 
-    projected_ds = project_dataset(ds, "EPSG:4326")
+    projected_ds = project_dataset(ds, query.crs)
     (
         npt.assert_approx_equal(projected_ds.longitude.values, 64.59063409),
         "Longitude is incorrect",
@@ -213,6 +216,33 @@ def test_select_position_regular_xy_multi(regular_xy_dataset):
         ),
         "Temperature is incorrect",
     )
+
+
+def test_select_position_projected_xy_multi(projected_xy_dataset):
+    query = EDRQuery(
+        coords="MULTIPOINT(64.3 66.6, 64.6 66.5)",
+        crs="EPSG:4326",
+        method="linear",
+    )
+
+    projected_points = query.project_geometry(projected_xy_dataset)
+    ds = select_by_position(projected_xy_dataset, projected_points, method="linear")
+    projected_ds = project_dataset(ds, query.crs)
+    assert "temp" in projected_ds, "Dataset does not contain the temp variable"
+    assert "rlon" not in projected_ds, "Dataset does not contain the rlon variable"
+    assert "rlat" not in projected_ds, "Dataset does not contain the rlat variable"
+    (
+        npt.assert_array_almost_equal(projected_ds.longitude, [64.3, 64.6]),
+        "Longitude is incorrect",
+    )
+    (
+        npt.assert_array_almost_equal(projected_ds.latitude, [66.6, 66.5]),
+        "Latitude is incorrect",
+    )
+    npt.assert_array_almost_equal(
+        ds.temp,
+        projected_ds.temp,
+    ), "Temperature is incorrect"
 
 
 def test_select_position_regular_xy_multi_interpolate(regular_xy_dataset):

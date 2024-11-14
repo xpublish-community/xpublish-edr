@@ -60,8 +60,10 @@ def _select_by_multiple_positions_regular_xy_grid(
     """
     # Find the nearest X and Y coordinates to the point using vectorized indexing
     x, y = np.array(list(zip(*[(point.x, point.y) for point in points.geoms])))
-    sel_x = xr.Variable(data=x, dims=VECTORIZED_DIM)
-    sel_y = xr.Variable(data=y, dims=VECTORIZED_DIM)
+
+    # When using vectorized indexing with interp, we need to persist the attributes explicitly
+    sel_x = xr.Variable(data=x, dims=VECTORIZED_DIM, attrs=ds.cf["X"].attrs)
+    sel_y = xr.Variable(data=y, dims=VECTORIZED_DIM, attrs=ds.cf["Y"].attrs)
     if method == "nearest":
         return ds.cf.sel(X=sel_x, Y=sel_y, method=method)
     else:
