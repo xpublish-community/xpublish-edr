@@ -21,6 +21,7 @@ def regular_xy_dataset():
 def projected_xy_dataset():
     """Loads a sample dataset with projected X and Y coordinates"""
     from cf_xarray.datasets import rotds
+
     return rotds
 
 
