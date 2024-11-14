@@ -170,7 +170,9 @@ def test_select_position_projected_xy(projected_xy_dataset):
         npt.assert_approx_equal(
             projected_ds.temp.values,
             projected_xy_dataset.sel(
-                rlon=[18.045], rlat=[21.725], method="nearest",
+                rlon=[18.045],
+                rlat=[21.725],
+                method="nearest",
             ).temp.values,
         ),
         "Temperature is incorrect",
