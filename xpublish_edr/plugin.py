@@ -11,6 +11,7 @@ from xpublish import Dependencies, Plugin, hookimpl
 
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.query import EDRQuery, edr_query
@@ -112,6 +113,17 @@ class CfEdrPlugin(Plugin):
                 f"Dataset filtered by position ({query.geometry}): {ds}",
             )
 
+            try:
+                ds = project_dataset(ds, query.crs)
+            except Exception as e:
+                logger.error(f"Error projecting dataset: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Error projecting dataset",
+                )
+
+            logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
             if query.format:
                 try:
                     format_fn = position_formats()[query.format]
@@ -156,6 +168,17 @@ class CfEdrPlugin(Plugin):
                 )
 
             logger.debug(f"Dataset filtered by polygon {query.geometry.boundary}: {ds}")
+
+            try:
+                ds = project_dataset(ds, query.crs)
+            except Exception as e:
+                logger.error(f"Error projecting dataset: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Error projecting dataset",
+                )
+
+            logger.debug(f"Dataset projected to {query.crs}: {ds}")
 
             if query.format:
                 try:
