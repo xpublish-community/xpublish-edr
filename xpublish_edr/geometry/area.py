@@ -31,7 +31,15 @@ def _select_area_regular_xy_grid(
     """
     # To minimize performance impact, we first subset the dataset to the bounding box of the polygon
     (minx, miny, maxx, maxy) = polygon.bounds
-    ds = ds.cf.sel(X=slice(minx, maxx), Y=slice(maxy, miny))
+    if ds.cf.indexes["X"].is_monotonic_increasing:
+        x_sel = slice(minx, maxx)
+    else:
+        x_sel = slice(maxx, minx)
+    if ds.cf.indexes["Y"].is_monotonic_increasing:
+        y_sel = slice(miny, maxy)
+    else:
+        y_sel = slice(maxy, miny)
+    ds = ds.cf.sel(X=x_sel, Y=y_sel)
 
     # For a regular grid, we can create a meshgrid of the X and Y coordinates to create a spatial mask
     pts = np.meshgrid(ds.cf["X"], ds.cf["Y"])
@@ -45,6 +53,4 @@ def _select_area_regular_xy_grid(
     y_sel = xr.Variable(data=y_inds, dims=VECTORIZED_DIM)
 
     # Apply the mask and vectorize to a 1d collection of points
-    ds_sub = ds.cf.isel(X=x_sel, Y=y_sel)
-
-    return ds_sub
+    return ds.cf.isel(X=x_sel, Y=y_sel)

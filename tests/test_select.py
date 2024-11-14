@@ -239,10 +239,13 @@ def test_select_position_projected_xy_multi(projected_xy_dataset):
         npt.assert_array_almost_equal(projected_ds.latitude, [66.6, 66.5]),
         "Latitude is incorrect",
     )
-    npt.assert_array_almost_equal(
-        ds.temp,
-        projected_ds.temp,
-    ), "Temperature is incorrect"
+    (
+        npt.assert_array_almost_equal(
+            ds.temp,
+            projected_ds.temp,
+        ),
+        "Temperature is incorrect",
+    )
 
 
 def test_select_position_regular_xy_multi_interpolate(regular_xy_dataset):
@@ -309,6 +312,28 @@ def test_select_area_regular_xy(regular_xy_dataset):
         ),
         "Temperature is incorrect",
     )
+
+
+def test_select_area_projected_xy(projected_xy_dataset):
+    query = EDRQuery(
+        coords="POLYGON((64.3 66.82, 64.5 66.82, 64.5 66.6, 64.3 66.6, 64.3 66.82))",
+        crs="EPSG:4326",
+    )
+
+    projected_area = query.project_geometry(projected_xy_dataset)
+    ds = select_by_area(projected_xy_dataset, projected_area)
+    projected_ds = project_dataset(ds, query.crs)
+
+    assert projected_ds is not None, "Dataset was not returned"
+    assert "temp" in projected_ds, "Dataset does not contain the air variable"
+    assert "latitude" in projected_ds, "Dataset does not contain the latitude variable"
+    assert (
+        "longitude" in projected_ds
+    ), "Dataset does not contain the longitude variable"
+
+    assert projected_ds.longitude.shape[0] == 1, "Longitude shape is incorrect"
+    assert projected_ds.latitude.shape[0] == 1, "Latitude shape is incorrect"
+    assert projected_ds.temp.shape[0] == 1, "Temperature shape is incorrect"
 
 
 def test_select_area_regular_xy_boundary(regular_xy_dataset):
