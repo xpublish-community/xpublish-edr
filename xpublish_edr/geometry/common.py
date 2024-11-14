@@ -84,7 +84,7 @@ def project_dataset(ds: xr.Dataset, query_crs: str) -> xr.Dataset:
     # TODO: Handle 2D coordinates
     if not is_regular_xy_coords(ds):
         raise NotImplementedError("Only 1D coordinates are supported")
-    
+
     x_dim = ds.cf["X"].dims[0]
     y_dim = ds.cf["Y"].dims[0]
     if x_dim == [VECTORIZED_DIM]:
@@ -113,7 +113,7 @@ def project_dataset(ds: xr.Dataset, query_crs: str) -> xr.Dataset:
         {
             target_x_coord_name: ((x_dim, y_dim), x),
             target_y_coord_name: ((x_dim, y_dim), y),
-        }
+        },
     )
 
     ds = ds.drop(coords_to_drop)
