@@ -44,10 +44,6 @@ def project_geometry(ds: xr.Dataset, geometry_crs: str, geometry: Geometry) -> G
 
     grid_mapping = ds[grid_mapping_var]
     data_crs = pyproj.crs.CRS.from_cf(grid_mapping.attrs)
-    if not data_crs.is_projected:
-        raise ValueError(
-            "This method is intended to be used with projected coordinate systems.",
-        )
 
     transformer = transformer_from_crs(
         crs_from=geometry_crs,

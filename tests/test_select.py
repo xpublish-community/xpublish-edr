@@ -17,6 +17,13 @@ def regular_xy_dataset():
     return xr.tutorial.load_dataset("air_temperature")
 
 
+@pytest.fixture(scope="function")
+def projected_xy_dataset():
+    """Loads a sample dataset with projected X and Y coordinates"""
+    from cf_xarray.datasets import rotds
+    return rotds
+
+
 def test_select_query(regular_xy_dataset):
     query = EDRQuery(
         coords="POINT(200 45)",
@@ -132,6 +139,20 @@ def test_select_position_regular_xy(regular_xy_dataset):
     npt.assert_array_equal(ds["lon"], 205.0), "Longitude is incorrect"
     npt.assert_approx_equal(ds["air"][0], 280.2), "Temperature is incorrect"
     npt.assert_approx_equal(ds["air"][-1], 279.19), "Temperature is incorrect"
+
+
+def test_select_position_projected_xy(projected_xy_dataset):
+    from xpublish_edr.geometry.common import project_geometry
+
+    point = Point((64.59063409, 66.66454929))
+    projected_point = project_geometry(projected_xy_dataset, "EPSG:4326", point)
+    npt.assert_approx_equal(projected_point.x, 18.045), "Longitude is incorrect"
+    npt.assert_approx_equal(projected_point.y, 21.725), "Latitude is incorrect"
+
+    ds = select_by_position(projected_xy_dataset, projected_point)
+    npt.assert_approx_equal(ds.rlon.values, 18.045), "Longitude is incorrect"
+    npt.assert_approx_equal(ds.rlat.values, 21.725), "Latitude is incorrect"
+    npt.assert_approx_equal(ds.temp.values, 0.89959461), "Temperature is incorrect"
 
 
 def test_select_position_regular_xy_interpolate(regular_xy_dataset):
