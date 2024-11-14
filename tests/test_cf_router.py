@@ -130,7 +130,7 @@ def test_cf_position_csv(cf_client):
 
     # single time step test
     response = cf_client.get(
-        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv&parameter-name=air&datetime=2013-01-01T00:00:00",
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv&parameter-name=air&datetime=2013-01-01T00:00:00",  # noqa
     )
 
     assert response.status_code == 200, "Response did not return successfully"
