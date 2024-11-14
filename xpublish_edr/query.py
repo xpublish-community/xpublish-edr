@@ -48,18 +48,18 @@ class EDRQuery(BaseModel):
         """Select data from a dataset based on the query"""
         if self.z:
             if self.method == "nearest":
-                ds = ds.cf.sel(Z=self.z, method=self.method)
+                ds = ds.cf.sel(Z=[self.z], method=self.method)
             else:
-                ds = ds.cf.interp(Z=self.z, method=self.method)
+                ds = ds.cf.interp(Z=[self.z], method=self.method)
 
         if self.datetime:
             try:
                 datetimes = self.datetime.split("/")
                 if len(datetimes) == 1:
                     if self.method == "nearest":
-                        ds = ds.cf.sel(T=datetimes[0], method=self.method)
+                        ds = ds.cf.sel(T=datetimes, method=self.method)
                     else:
-                        ds = ds.cf.interp(T=datetimes[0], method=self.method)
+                        ds = ds.cf.interp(T=datetimes, method=self.method)
                 elif len(datetimes) == 2:
                     ds = ds.cf.sel(T=slice(datetimes[0], datetimes[1]))
                 else:
@@ -84,7 +84,7 @@ class EDRQuery(BaseModel):
         for key, value in query_params.items():
             split_value = value.split("/")
             if len(split_value) == 1:
-                continue
+                query_params[key] = [split_value[0]]
             elif len(split_value) == 2:
                 query_params[key] = slice(split_value[0], split_value[1])
             else:
@@ -100,6 +100,7 @@ class EDRQuery(BaseModel):
             except Exception as e:
                 logger.warning(f"Interpolation failed: {e}, falling back to selection")
                 ds = ds.sel(query_params, method="nearest")
+
         return ds
 
 

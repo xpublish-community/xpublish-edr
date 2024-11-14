@@ -47,7 +47,7 @@ def _select_by_position_regular_xy_grid(
     if method == "nearest":
         return ds.cf.sel(X=[point.x], Y=[point.y], method=method)
     else:
-        return ds.cf.interp(X=point.x, Y=point.y, method=method)
+        return ds.cf.interp(X=[point.x], Y=[point.y], method=method)
 
 
 def _select_by_multiple_positions_regular_xy_grid(

@@ -44,7 +44,7 @@ def test_select_query(regular_xy_dataset):
     assert ds["time"] == pd.to_datetime(
         "2013-01-01T06:00:00",
     ), "Dataset shape is incorrect"
-    assert ds["air"].shape == (25, 53), "Dataset shape is incorrect"
+    assert ds["air"].shape == (1, 25, 53), "Dataset shape is incorrect"
 
     query = EDRQuery(
         coords="POINT(200 45)",
@@ -135,7 +135,7 @@ def test_select_position_regular_xy(regular_xy_dataset):
     assert "lat" in ds, "Dataset does not contain the lat variable"
     assert "lon" in ds, "Dataset does not contain the lon variable"
 
-    assert ds["air"].shape == ds["time"].shape, "Dataset shape is incorrect"
+    assert ds["air"].shape == (2920, 1, 1), "Dataset shape is incorrect"
     npt.assert_array_equal(ds["lat"], 45.0), "Latitude is incorrect"
     npt.assert_array_equal(ds["lon"], 205.0), "Longitude is incorrect"
     npt.assert_approx_equal(ds["air"][0], 280.2), "Temperature is incorrect"
@@ -165,7 +165,7 @@ def test_select_position_regular_xy_interpolate(regular_xy_dataset):
     assert "lat" in ds, "Dataset does not contain the lat variable"
     assert "lon" in ds, "Dataset does not contain the lon variable"
 
-    assert ds["air"].shape == ds["time"].shape, "Dataset shape is incorrect"
+    assert ds["air"].shape == (2920, 1, 1), "Dataset shape is incorrect"
     npt.assert_array_equal(ds["lat"], 44.0), "Latitude is incorrect"
     npt.assert_array_equal(ds["lon"], 204.0), "Longitude is incorrect"
     npt.assert_approx_equal(ds["air"][0], 281.376), "Temperature is incorrect"

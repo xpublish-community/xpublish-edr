@@ -20,7 +20,6 @@ def handle_date_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def to_geojson(ds: xr.Dataset):
     """Return a GeoJSON response from an xarray dataset"""
-    ds = ds.squeeze()
     axes = ds.cf.axes
     (x_col,) = axes["X"]
     (y_col,) = axes["Y"]

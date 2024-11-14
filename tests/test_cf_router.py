@@ -93,9 +93,8 @@ def test_cf_position_query(cf_client, cf_dataset):
 
     assert air_range["type"] == "NdArray", "Response range should be a NdArray"
     assert air_range["dataType"] == "float", "Air dataType should be floats"
-    assert air_range["axisNames"] == ["t"], "Time should be the only remaining axes"
-    assert len(air_range["shape"]) == 1, "There should only one axes"
-    assert air_range["shape"][0] == len(axes["t"]["values"]), "The shape of the "
+    assert air_range["axisNames"] == ["t", "y", "x"], "All dimensions should persist"
+    assert air_range["shape"] == [4, 1, 1], "The shape of the array should be 4x1x1"
     assert (
         len(air_range["values"]) == 4
     ), "There should be 4 values, one for each time step"
@@ -126,6 +125,32 @@ def test_cf_position_csv(cf_client):
     assert (
         len(csv_data) == 5
     ), "There should be 4 data rows (one for each time step), and one header row"
+    for key in ("time", "lat", "lon", "air", "cell_area"):
+        assert key in csv_data[0], f"column {key} should be in the header"
+
+    # single time step test
+    response = cf_client.get(
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv&parameter-name=air&datetime=2013-01-01T00:00:00",  # noqa
+    )
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "text/csv" in response.headers["content-type"]
+    ), "The content type should be set as a CSV"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "position.csv" in response.headers["content-disposition"]
+    ), "The file name should be position.csv"
+
+    csv_data = [
+        line.split(",") for line in response.content.decode("utf-8").splitlines()
+    ]
+
+    assert (
+        len(csv_data) == 2
+    ), "There should be 2 data rows, one data and one header row"
     for key in ("time", "lat", "lon", "air", "cell_area"):
         assert key in csv_data[0], f"column {key} should be in the header"
 
