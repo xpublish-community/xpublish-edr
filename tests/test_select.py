@@ -144,7 +144,7 @@ def test_select_position_regular_xy(regular_xy_dataset):
 
 
 def test_select_position_projected_xy(projected_xy_dataset):
-    from xpublish_edr.geometry.common import project_geometry
+    from xpublish_edr.geometry.common import project_geometry, project_dataset
 
     point = Point((64.59063409, 66.66454929))
     projected_point = project_geometry(projected_xy_dataset, "EPSG:4326", point)
@@ -155,6 +155,25 @@ def test_select_position_projected_xy(projected_xy_dataset):
     xrt.assert_equal(
         ds,
         projected_xy_dataset.sel(rlon=[18.045], rlat=[21.725], method="nearest"),
+    )
+
+    projected_ds = project_dataset(ds, "EPSG:4326")
+    (
+        npt.assert_approx_equal(projected_ds.longitude.values, 64.59063409),
+        "Longitude is incorrect",
+    )
+    (
+        npt.assert_approx_equal(projected_ds.latitude.values, 66.66454929),
+        "Latitude is incorrect",
+    )
+    (
+        npt.assert_approx_equal(
+            projected_ds.temp.values,
+            projected_xy_dataset.sel(
+                rlon=[18.045], rlat=[21.725], method="nearest"
+            ).temp.values,
+        ),
+        "Temperature is incorrect",
     )
 
 
