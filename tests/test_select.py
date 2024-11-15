@@ -155,7 +155,7 @@ def test_select_position_projected_xy(projected_xy_dataset):
     npt.assert_approx_equal(projected_point.y, 21.725), "Latitude is incorrect"
 
     ds = select_by_position(projected_xy_dataset, projected_point)
-    xrt.assert_equal(
+    xrt.assert_identical(
         ds,
         projected_xy_dataset.sel(rlon=[18.045], rlat=[21.725], method="nearest"),
     )
