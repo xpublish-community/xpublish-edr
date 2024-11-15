@@ -124,4 +124,7 @@ def project_dataset(ds: xr.Dataset, query_crs: str) -> xr.Dataset:
         },
     )
 
+    if x_dim != y_dim:
+        ds = ds.transpose(..., y_dim, x_dim)
+
     return ds
