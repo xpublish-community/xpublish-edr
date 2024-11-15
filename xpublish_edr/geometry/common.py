@@ -115,10 +115,14 @@ def project_dataset(ds: xr.Dataset, query_crs: str) -> xr.Dataset:
     target_x_coord_name = target_x_coord["standard_name"]
     target_y_coord_name = target_y_coord["standard_name"]
 
-    if target_x_coord_name in ds:
-        target_x_coord_name += "_"
-    if target_y_coord_name in ds:
-        target_y_coord_name += "_"
+    stdnames = ds.cf.standard_names
+    coords_to_drop += list(
+        itertools.chain(
+            stdnames.get(target_x_coord_name, []),
+            stdnames.get(target_y_coord_name, []),
+        ),
+    )
+    ds = ds.drop_vars(coords_to_drop)
 
     # Create the new dataset with vectorized coordinates
     ds = ds.assign_coords(
@@ -127,7 +131,5 @@ def project_dataset(ds: xr.Dataset, query_crs: str) -> xr.Dataset:
             target_y_coord_name: (target_dims, y),
         },
     )
-
-    ds = ds.drop_vars(coords_to_drop)
 
     return ds
