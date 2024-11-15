@@ -34,7 +34,11 @@ def dataset_crs(ds: xr.Dataset) -> pyproj.CRS:
     grid_mapping_names = ds.cf.grid_mapping_names
     if len(grid_mapping_names) == 0:
         # Default to WGS84
-        return pyproj.crs.CRS.from_epsg(4326)
+        keys = ds.cf.keys()
+        if "latitude" in keys and "longitude" in keys:
+            return pyproj.CRS.from_epsg(4326)
+        else:
+            raise ValueError("Unknown coordinate system")
     if len(grid_mapping_names) > 1:
         raise ValueError(f"Multiple grid mappings found: {grid_mapping_names!r}!")
     (grid_mapping_var,) = tuple(itertools.chain(*ds.cf.grid_mapping_names.values()))
