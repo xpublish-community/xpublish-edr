@@ -31,11 +31,12 @@ def _select_area_regular_xy_grid(
     """
     # To minimize performance impact, we first subset the dataset to the bounding box of the polygon
     (minx, miny, maxx, maxy) = polygon.bounds
-    if ds.cf.indexes["X"].is_monotonic_increasing:
+    indexes = ds.cf.indexes
+    if indexes["X"].is_monotonic_increasing:
         x_sel = slice(minx, maxx)
     else:
         x_sel = slice(maxx, minx)
-    if ds.cf.indexes["Y"].is_monotonic_increasing:
+    if indexes["Y"].is_monotonic_increasing:
         y_sel = slice(miny, maxy)
     else:
         y_sel = slice(maxy, miny)
