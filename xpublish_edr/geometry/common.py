@@ -92,25 +92,13 @@ def project_dataset(ds: xr.Dataset, query_crs: str) -> xr.Dataset:
     if len(X.dims) > 1 or len(Y.dims) > 1:
         raise NotImplementedError("Only 1D coordinates are supported")
 
-    x_dim = X.dims[0]
-    y_dim = Y.dims[0]
-    if x_dim == VECTORIZED_DIM and y_dim == VECTORIZED_DIM:
-        x = X
-        y = Y
-        target_dims: tuple = (VECTORIZED_DIM,)
-    else:
-        # Otherwise we need to transform the full grid
-        # TODO: Is there a better way to handle this? this is quite hacky
-        var = [d for d in ds.data_vars if x_dim and y_dim in ds[d].dims][0]
-        var_dims = ds[var].dims
-        if var_dims.index(x_dim) < var_dims.index(y_dim):
-            x, y = xr.broadcast(X, Y)
-            target_dims = (x_dim, y_dim)
-        else:
-            x, y = xr.broadcast(Y, X)
-            target_dims = (y_dim, x_dim)
+    x, y = xr.broadcast(X, Y)
+    target_dims = x.dims
 
     x, y = transformer.transform(x, y)
+
+    x_dim = X.dims[0]
+    y_dim = Y.dims[0]
 
     coords_to_drop = [
         c for c in ds.coords if x_dim in ds[c].dims or y_dim in ds[c].dims
