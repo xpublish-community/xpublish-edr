@@ -124,11 +124,11 @@ def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
 
     npt.assert_array_almost_equal(
         axes["longitude"]["values"],
-        [[64.59063409]],
+        [[x]],
     ), "Did not select nearby x coordinate"
     npt.assert_array_almost_equal(
         axes["latitude"]["values"],
-        [[66.66454929]],
+        [[y]],
     ), "Did not select a nearby y coordinate"
 
     temp_range = data["ranges"]["temp"]
