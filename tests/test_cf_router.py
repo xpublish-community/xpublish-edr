@@ -117,7 +117,6 @@ def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
     assert response.status_code == 200, "Response did not return successfully"
 
     data = response.json()
-    print(data)
     for key in ("type", "domain", "parameters", "ranges"):
         assert key in data, f"Key {key} is not a top level key in the CovJSON response"
 
