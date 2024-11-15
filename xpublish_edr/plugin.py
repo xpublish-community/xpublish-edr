@@ -11,6 +11,7 @@ from xpublish import Dependencies, Plugin, hookimpl
 
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.query import EDRQuery, edr_query
@@ -101,7 +102,7 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by query params {ds}")
 
             try:
-                ds = select_by_position(ds, query.geometry, query.method)
+                ds = select_by_position(ds, query.project_geometry(ds), query.method)
             except KeyError:
                 raise HTTPException(
                     status_code=404,
@@ -111,6 +112,17 @@ class CfEdrPlugin(Plugin):
             logger.debug(
                 f"Dataset filtered by position ({query.geometry}): {ds}",
             )
+
+            try:
+                ds = project_dataset(ds, query.crs)
+            except Exception as e:
+                logger.error(f"Error projecting dataset: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Error projecting dataset",
+                )
+
+            logger.debug(f"Dataset projected to {query.crs}: {ds}")
 
             if query.format:
                 try:
@@ -148,7 +160,7 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by query params {ds}")
 
             try:
-                ds = select_by_area(ds, query.geometry)
+                ds = select_by_area(ds, query.project_geometry(ds))
             except KeyError:
                 raise HTTPException(
                     status_code=404,
@@ -156,6 +168,17 @@ class CfEdrPlugin(Plugin):
                 )
 
             logger.debug(f"Dataset filtered by polygon {query.geometry.boundary}: {ds}")
+
+            try:
+                ds = project_dataset(ds, query.crs)
+            except Exception as e:
+                logger.error(f"Error projecting dataset: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Error projecting dataset",
+                )
+
+            logger.debug(f"Dataset projected to {query.crs}: {ds}")
 
             if query.format:
                 try:
