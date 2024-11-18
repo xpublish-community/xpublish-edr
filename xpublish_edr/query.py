@@ -81,25 +81,32 @@ class EDRQuery(BaseModel):
             if query_param in edr_query_params:
                 del query_params[query_param]
 
+        sel_params = {}
+        sliced_sel_params = {}
         for key, value in query_params.items():
             split_value = value.split("/")
             if len(split_value) == 1:
-                query_params[key] = [split_value[0]]
+                sel_params[key] = [split_value[0]]
             elif len(split_value) == 2:
-                query_params[key] = slice(split_value[0], split_value[1])
+                sliced_sel_params[key] = slice(split_value[0], split_value[1])
             else:
                 raise ValueError(f"Too many values for selecting {key}")
 
+        # We separate the slice selection from the single value selection in order to take 
+        # advantage of selection method which breaks when mixing the two
+        if len(sliced_sel_params) > 0:
+            ds = ds.sel(sliced_sel_params)
+
         if self.method == "nearest":
-            ds = ds.sel(query_params, method=self.method)
+            ds = ds.sel(sel_params, method=self.method)
         else:
             # Interpolation may not be supported for all possible selection
             # parameters, so we provide a fallback to xarray's nearest selection
             try:
-                ds = ds.interp(query_params, method=self.method)
+                ds = ds.interp(sel_params, method=self.method)
             except Exception as e:
                 logger.warning(f"Interpolation failed: {e}, falling back to selection")
-                ds = ds.sel(query_params, method="nearest")
+                ds = ds.sel(sel_params, method="nearest")
 
         return ds
 
