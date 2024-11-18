@@ -87,6 +87,39 @@ def test_select_query(regular_xy_dataset):
         "Time is incorrect",
     )
 
+    custom_dim_ds = xr.Dataset(
+        coords={
+            "lat": np.arange(45, 47),
+            "lon": np.arange(200, 202),
+            "elevation": np.arange(100, 105),
+            "step": pd.timedelta_range("0 days", periods=72, freq="1H"),
+        },
+        data_vars={
+            "air": (("lat", "lon", "elevation", "step"), np.random.rand(2, 2, 5, 72)),
+        },
+    )
+
+    query = EDRQuery(
+        coords="POINT(201 46)",
+        parameters="air",
+        method="linear",
+    )
+    ds = query.select(custom_dim_ds, {"step": "0 hours/10 hours", "elevation": "101"})
+    assert ds["air"].shape == (2, 2, 1, 11), "Dataset shape is incorrect"
+    npt.assert_array_equal(
+        ds["step"],
+        pd.timedelta_range("0 days", periods=11, freq="1H"),
+    )
+    npt.assert_equal(ds["elevation"].values, 101)
+
+    ds = query.select(custom_dim_ds, {"step": "1 hours", "elevation": "101/103"})
+    assert ds["air"].shape == (2, 2, 3, 1), "Dataset shape is incorrect"
+    npt.assert_array_equal(
+        ds["step"],
+        pd.timedelta_range("1 hours", periods=1, freq="1H"),
+    )
+    npt.assert_equal(ds["elevation"].values, np.array([101, 102, 103]))
+
 
 def test_select_query_error(regular_xy_dataset):
     query = EDRQuery(
@@ -162,11 +195,11 @@ def test_select_position_projected_xy(projected_xy_dataset):
 
     projected_ds = project_dataset(ds, query.crs)
     (
-        npt.assert_approx_equal(projected_ds.longitude.values, 64.59063409),
+        npt.assert_approx_equal(projected_ds.cf["X"].values, 64.59063409),
         "Longitude is incorrect",
     )
     (
-        npt.assert_approx_equal(projected_ds.latitude.values, 66.66454929),
+        npt.assert_approx_equal(projected_ds.cf["Y"].values, 66.66454929),
         "Latitude is incorrect",
     )
     (

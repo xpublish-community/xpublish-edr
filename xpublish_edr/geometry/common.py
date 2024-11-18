@@ -117,10 +117,12 @@ def project_dataset(ds: xr.Dataset, query_crs: str) -> xr.Dataset:
     ds = ds.drop_vars(coords_to_drop)
 
     # Create the new dataset with vectorized coordinates
+    x_var = xr.Variable(dims=target_dims, data=x, attrs=target_x_coord)
+    y_var = xr.Variable(dims=target_dims, data=y, attrs=target_y_coord)
     ds = ds.assign_coords(
         {
-            target_x_coord_name: (target_dims, x),
-            target_y_coord_name: (target_dims, y),
+            target_x_coord_name: x_var,
+            target_y_coord_name: y_var,
         },
     )
 

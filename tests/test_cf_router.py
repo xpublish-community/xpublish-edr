@@ -123,11 +123,11 @@ def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
     axes = data["domain"]["axes"]
 
     npt.assert_array_almost_equal(
-        axes["longitude"]["values"],
+        axes["x"]["values"],
         [[x]],
     ), "Did not select nearby x coordinate"
     npt.assert_array_almost_equal(
-        axes["latitude"]["values"],
+        axes["y"]["values"],
         [[y]],
     ), "Did not select a nearby y coordinate"
 
