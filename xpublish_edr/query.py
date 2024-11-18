@@ -92,7 +92,7 @@ class EDRQuery(BaseModel):
             else:
                 raise ValueError(f"Too many values for selecting {key}")
 
-        # We separate the slice selection from the single value selection in order to take 
+        # We separate the slice selection from the single value selection in order to take
         # advantage of selection method which breaks when mixing the two
         if len(sliced_sel_params) > 0:
             ds = ds.sel(sliced_sel_params)

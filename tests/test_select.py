@@ -104,7 +104,8 @@ def test_select_query(regular_xy_dataset):
     ds = query.select(custom_dim_ds, {"step": "0 hours/10 hours"})
     assert ds["air"].shape == (2, 2, 11), "Dataset shape is incorrect"
     npt.assert_array_equal(
-        ds["step"], pd.timedelta_range("0 days", periods=11, freq="1H")
+        ds["step"],
+        pd.timedelta_range("0 days", periods=11, freq="1H"),
     )
 
 
