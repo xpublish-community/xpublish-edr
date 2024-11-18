@@ -162,11 +162,11 @@ def test_select_position_projected_xy(projected_xy_dataset):
 
     projected_ds = project_dataset(ds, query.crs)
     (
-        npt.assert_approx_equal(projected_ds.longitude.values, 64.59063409),
+        npt.assert_approx_equal(projected_ds.cf["X"].values, 64.59063409),
         "Longitude is incorrect",
     )
     (
-        npt.assert_approx_equal(projected_ds.latitude.values, 66.66454929),
+        npt.assert_approx_equal(projected_ds.cf["Y"].values, 66.66454929),
         "Latitude is incorrect",
     )
     (
