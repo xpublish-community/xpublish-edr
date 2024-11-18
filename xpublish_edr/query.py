@@ -84,7 +84,7 @@ class EDRQuery(BaseModel):
         sel_params = {}
         sliced_sel_params = {}
         for key, value in query_params.items():
-            split_value = value.split("/")
+            split_value = [float(v) if v.isnumeric() else v for v in value.split("/")]
             if len(split_value) == 1:
                 sel_params[key] = [split_value[0]]
             elif len(split_value) == 2:
