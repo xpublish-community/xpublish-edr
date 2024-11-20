@@ -109,6 +109,16 @@ def test_cf_metadata_query(cf_client):
     assert data["extent"]["spatial"]["crs"] == "EPSG:4326", "Spatial CRS is incorrect"
 
 
+def test_cf_metadata_query_temp_smoke_test(cf_client):
+    response = cf_client.get("/datasets/temp/edr/")
+    assert response.status_code == 200, "Response did not return successfully"
+    data = response.json()
+
+    assert data["id"] == "temp", "The id should be temp"
+    for key in ("title", "description", "crs", "extent", "output_formats", "data_queries"):
+        assert key in data, f"Key {key} is not a top level key in the metadata response"
+
+
 def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
     x = 204
     y = 44
