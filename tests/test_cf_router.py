@@ -87,6 +87,27 @@ def test_cf_metadata_query(cf_client):
         "position" in data["data_queries"] and "area" in data["data_queries"]
     ), "The data queries are incorrect"
 
+    assert (
+        "temporal" and "spatial" in data["extent"]
+    ), "Temporal and spatial extents should be present in extent"
+    assert (
+        "vertical" not in data["extent"]
+    ), "Vertical extent should not be present in extent"
+
+    assert data["extent"]["temporal"]["interval"] == [
+        "2013-01-01T00:00:00",
+        "2013-01-01T18:00:00",
+    ], "Temporal interval is incorrect"
+    assert (
+        data["extent"]["temporal"]["values"][0]
+        == "2013-01-01T00:00:00/2013-01-01T18:00:00"
+    ), "Temporal values are incorrect"
+
+    assert data["extent"]["spatial"]["bbox"] == [
+        [200.0, 15.0, 322.5, 75.0],
+    ], "Spatial bbox is incorrect"
+    assert data["extent"]["spatial"]["crs"] == "EPSG:4326", "Spatial CRS is incorrect"
+
 
 def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
     x = 204

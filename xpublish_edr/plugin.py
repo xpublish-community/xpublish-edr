@@ -11,7 +11,7 @@ from xpublish import Dependencies, Plugin, hookimpl
 
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
-from xpublish_edr.geometry.common import dataset_crs, project_dataset
+from xpublish_edr.geometry.common import DEFAULT_CRS, dataset_crs, project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.query import EDRQuery, edr_query
@@ -120,29 +120,45 @@ class CfEdrPlugin(Plugin):
 
             available_output_formats = list(output_formats().keys())
 
-            extents = {}
-
             ds_cf = dataset.cf
-            if "longitude" and "latitude" in ds_cf:
-                min_lon = float(ds_cf["longitude"].min().values)
-                max_lon = float(ds_cf["longitude"].max().values)
-                min_lat = float(ds_cf["latitude"].min().values)
-                max_lat = float(ds_cf["latitude"].max().values)
+            axes = ds_cf.axes
+
+            # We will use the dataset's CRS as the default CRS for the extents,
+            # but override when it makes sense.
+            extent_crs = crs
+
+            if len(axes["X"]) > 1:
+                if "latitude" and "longitude" in ds_cf:
+                    min_lon = float(ds_cf["longitude"].min().values)
+                    max_lon = float(ds_cf["longitude"].max().values)
+                    min_lat = float(ds_cf["latitude"].min().values)
+                    max_lat = float(ds_cf["latitude"].max().values)
+
+                    # When we are explicitly using latitude and longitude, we should use WGS84
+                    extent_crs = DEFAULT_CRS
+                else:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Dataset does not have EDR compliant metadata: Multiple X axes found",
+                    )
             else:
                 min_lon = float(ds_cf["X"].min().values)
                 max_lon = float(ds_cf["X"].max().values)
                 min_lat = float(ds_cf["Y"].min().values)
                 max_lat = float(ds_cf["Y"].max().values)
 
-            extents["spatial"] = {
-                "bbox": [
-                    [
-                        min_lon,
-                        min_lat,
-                        max_lon,
-                        max_lat,
+            extents: dict = {
+                "spatial": {
+                    "bbox": [
+                        [
+                            min_lon,
+                            min_lat,
+                            max_lon,
+                            max_lat,
+                        ],
                     ],
-                ],
+                    "crs": extent_crs.to_string(),
+                },
             }
 
             if "T" in ds_cf:
@@ -157,21 +173,25 @@ class CfEdrPlugin(Plugin):
                     "values": [
                         f"{time_min}/{time_max}",
                     ],
+                    "trs": 'TIMECRS["DateTime",TDATUM["Gregorian Calendar"],CS[TemporalDateTime,1],AXIS["Time (T)",unspecified]]',  # noqa
                 }
 
             if "Z" in ds_cf:
-                min_z = ds_cf["Z"].min()
-                max_z = ds_cf["Z"].max()
                 units = ds_cf["Z"].attrs.get("units", "unknown")
+                positive = ds_cf["Z"].attrs.get("positive", "up")
+                elevations = ds_cf["Z"].values
+                min_z = elevations.min()
+                max_z = elevations.max()
+                elevation_values = ",".join([str(e) for e in elevations])
 
                 extents["vertical"] = {
                     "interval": [
                         min_z,
                         max_z,
                     ],
-                    "values": [
-                        f"{min_z}/{max_z}",
-                    ],
+                    "values": elevation_values,
+                    "vrs": f"VERTCRS[VERT_CS['unknown'],AXIS['Z',{positive}],UNIT[{units},1]]",  # noqa
+                    "positive": positive,
                     "units": units,
                 }
 
@@ -181,16 +201,31 @@ class CfEdrPlugin(Plugin):
                 if "axis" not in v.attrs
             }
 
+            crs_details = [
+                {
+                    "crs": crs.to_string(),
+                    "wkt": crs.to_wkt(),
+                },
+            ]
+
+            # 4326 is always available
+            if crs != DEFAULT_CRS:
+                crs_details.append(
+                    {
+                        "crs": DEFAULT_CRS.to_string(),
+                        "wkt": DEFAULT_CRS.to_wkt(),
+                    },
+                )
+
             return {
                 "id": id,
                 "title": title,
                 "description": description,
-                "keywords": [],
                 "links": [],
                 "extent": extents,
                 "data_queries": {
                     "position": {
-                        "href": "/edr/position",
+                        "href": "/edr/position?coords={coords}",
                         "hreflang": "en",
                         "rel": "data",
                         "templated": True,
@@ -205,12 +240,7 @@ class CfEdrPlugin(Plugin):
                             },
                             "output_format": available_output_formats,
                             "default_output_format": "cf_covjson",
-                            "crs_details": [
-                                {
-                                    "crs": crs.to_string(),
-                                    "wkt": crs.to_wkt(),
-                                },
-                            ],
+                            "crs_details": crs_details,
                         },
                     },
                     "area": {
@@ -229,12 +259,7 @@ class CfEdrPlugin(Plugin):
                             },
                             "output_format": available_output_formats,
                             "default_output_format": "cf_covjson",
-                            "crs_details": [
-                                {
-                                    "crs": crs.coordinate_system.name,
-                                    "wkt": crs.to_wkt(),
-                                },
-                            ],
+                            "crs_details": crs_details,
                         },
                     },
                 },

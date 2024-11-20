@@ -16,6 +16,9 @@ VECTORIZED_DIM = "pts"
 transformer_from_crs = lru_cache(pyproj.Transformer.from_crs)
 
 
+DEFAULT_CRS = pyproj.CRS.from_epsg(4326)
+
+
 def coord_is_regular(da: xr.DataArray) -> bool:
     """
     Check if the DataArray has a regular grid
