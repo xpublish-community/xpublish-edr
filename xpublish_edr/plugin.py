@@ -5,7 +5,6 @@ OGC EDR router for datasets with CF convention metadata
 import importlib
 from typing import List
 
-import cf_xarray.units  # noqa
 import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Request
 from xpublish import Dependencies, Plugin, hookimpl
@@ -121,13 +120,21 @@ class CfEdrPlugin(Plugin):
 
             available_output_formats = list(output_formats().keys())
 
-            ds_cf = dataset.cf
-            min_lon = ds_cf["X"].min().item()
-            max_lon = ds_cf["X"].max().item()
-            min_lat = ds_cf["Y"].min().item()
-            max_lat = ds_cf["Y"].max().item()
+            extents = {}
 
-            spatial_extent = {
+            ds_cf = dataset.cf
+            if "longitude" and "latitude" in ds_cf:
+                min_lon = float(ds_cf["longitude"].min().values)
+                max_lon = float(ds_cf["longitude"].max().values)
+                min_lat = float(ds_cf["latitude"].min().values)
+                max_lat = float(ds_cf["latitude"].max().values)
+            else:
+                min_lon = float(ds_cf["X"].min().values)
+                max_lon = float(ds_cf["X"].max().values)
+                min_lat = float(ds_cf["Y"].min().values)
+                max_lat = float(ds_cf["Y"].max().values)
+
+            extents["spatial"] = {
                 "bbox": [
                     [
                         min_lon,
@@ -138,18 +145,35 @@ class CfEdrPlugin(Plugin):
                 ],
             }
 
-            time_min = ds_cf["T"].min().dt.strftime("%Y-%m-%dT%H:%M:%SZ").values
-            time_max = ds_cf["T"].max().dt.strftime("%Y-%m-%dT%H:%M:%SZ").values
+            if "T" in ds_cf:
+                time_min = ds_cf["T"].min().dt.strftime("%Y-%m-%dT%H:%M:%S").values
+                time_max = ds_cf["T"].max().dt.strftime("%Y-%m-%dT%H:%M:%S").values
 
-            temporal_extent = {
-                "interval": [
-                    str(time_min),
-                    str(time_max),
-                ],
-                "values": [
-                    f"{time_min}/{time_max}",
-                ],
-            }
+                extents["temporal"] = {
+                    "interval": [
+                        str(time_min),
+                        str(time_max),
+                    ],
+                    "values": [
+                        f"{time_min}/{time_max}",
+                    ],
+                }
+
+            if "Z" in ds_cf:
+                min_z = ds_cf["Z"].min()
+                max_z = ds_cf["Z"].max()
+                units = ds_cf["Z"].attrs.get("units", "unknown")
+
+                extents["vertical"] = {
+                    "interval": [
+                        min_z,
+                        max_z,
+                    ],
+                    "values": [
+                        f"{min_z}/{max_z}",
+                    ],
+                    "units": units,
+                }
 
             parameters = {
                 k: variable_description(v)
@@ -163,10 +187,7 @@ class CfEdrPlugin(Plugin):
                 "description": description,
                 "keywords": [],
                 "links": [],
-                "extent": {
-                    "spatial": spatial_extent,
-                    "temporal": temporal_extent,
-                },
+                "extent": extents,
                 "data_queries": {
                     "position": {
                         "href": "/edr/position",
