@@ -115,7 +115,14 @@ def test_cf_metadata_query_temp_smoke_test(cf_client):
     data = response.json()
 
     assert data["id"] == "temp", "The id should be temp"
-    for key in ("title", "description", "crs", "extent", "output_formats", "data_queries"):
+    for key in (
+        "title",
+        "description",
+        "crs",
+        "extent",
+        "output_formats",
+        "data_queries",
+    ):
         assert key in data, f"Key {key} is not a top level key in the metadata response"
 
 

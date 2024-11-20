@@ -128,7 +128,7 @@ class CfEdrPlugin(Plugin):
             extent_crs = crs
 
             if len(axes["X"]) > 1:
-                if "latitude" and "longitude" in ds_cf:
+                if "latitude" in ds_cf and "longitude" in ds_cf:
                     min_lon = float(ds_cf["longitude"].min().values)
                     max_lon = float(ds_cf["longitude"].max().values)
                     min_lat = float(ds_cf["latitude"].min().values)
@@ -173,6 +173,7 @@ class CfEdrPlugin(Plugin):
                     "values": [
                         f"{time_min}/{time_max}",
                     ],
+                    # TODO: parse `ds.cf["time"].dt.calendar`
                     "trs": 'TIMECRS["DateTime",TDATUM["Gregorian Calendar"],CS[TemporalDateTime,1],AXIS["Time (T)",unspecified]]',  # noqa
                 }
 
