@@ -62,6 +62,32 @@ def test_cf_area_formats(cf_client):
     assert "csv" in data, "csv is not a valid format"
 
 
+def test_cf_metadata_query(cf_client):
+    response = cf_client.get("/datasets/air/edr/")
+    assert response.status_code == 200, "Response did not return successfully"
+    data = response.json()
+
+    assert data["id"] == "air", "The id should be air"
+    assert data["title"] == "4x daily NMC reanalysis (1948)", "The title is incorrect"
+    assert (
+        data["description"]
+        == "Data is from NMC initialized reanalysis\n(4x/day).  These are the 0.9950 sigma level values."
+    ), "The description is incorrect"
+    assert data["crs"] == ["EPSG:4326"], "The crs is incorrect"
+    assert set(data["output_formats"]) == {
+        "cf_covjson",
+        "nc",
+        "netcdf4",
+        "nc4",
+        "netcdf",
+        "csv",
+        "geojson",
+    }, "The output formats are incorrect"
+    assert (
+        "position" in data["data_queries"] and "area" in data["data_queries"]
+    ), "The data queries are incorrect"
+
+
 def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
     x = 204
     y = 44
@@ -122,14 +148,20 @@ def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
 
     axes = data["domain"]["axes"]
 
-    npt.assert_array_almost_equal(
-        axes["x"]["values"],
-        [[x]],
-    ), "Did not select nearby x coordinate"
-    npt.assert_array_almost_equal(
-        axes["y"]["values"],
-        [[y]],
-    ), "Did not select a nearby y coordinate"
+    (
+        npt.assert_array_almost_equal(
+            axes["x"]["values"],
+            [[x]],
+        ),
+        "Did not select nearby x coordinate",
+    )
+    (
+        npt.assert_array_almost_equal(
+            axes["y"]["values"],
+            [[y]],
+        ),
+        "Did not select a nearby y coordinate",
+    )
 
     temp_range = data["ranges"]["temp"]
     assert temp_range["type"] == "NdArray", "Response range should be a NdArray"

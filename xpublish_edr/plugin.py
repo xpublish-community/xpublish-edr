@@ -5,19 +5,20 @@ OGC EDR router for datasets with CF convention metadata
 import importlib
 from typing import List
 
+import cf_xarray.units  # noqa
 import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Request
 from xpublish import Dependencies, Plugin, hookimpl
 
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
-from xpublish_edr.geometry.common import project_dataset
+from xpublish_edr.geometry.common import dataset_crs, project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.query import EDRQuery, edr_query
 
 
-def position_formats():
+def output_formats():
     """
     Return response format functions from registered
     `xpublish_edr_position_formats` entry_points
@@ -29,6 +30,29 @@ def position_formats():
         formats[entry_point.name] = entry_point.load()
 
     return formats
+
+
+def variable_description(variable: xr.DataArray):
+    """
+    Return CF version of EDR Parameter metadata for a given xarray variable
+    """
+    name = variable.attrs.get("name", None)
+    standard_name = variable.attrs.get("standard_name", name if name else "")
+    label = standard_name if not name else name
+    long_name = variable.attrs.get("long_name", "")
+    units = variable.attrs.get("units", "")
+    return {
+        "type": "Parameter",
+        "description": long_name,
+        "unit": {
+            "label": units,
+        },
+        "observedProperty": {
+            "label": label,
+            "standard_name": standard_name,
+            "long_name": long_name,
+        },
+    }
 
 
 class CfEdrPlugin(Plugin):
@@ -57,7 +81,7 @@ class CfEdrPlugin(Plugin):
             """
             Returns the various supported formats for position queries
             """
-            formats = {key: value.__doc__ for key, value in position_formats().items()}
+            formats = {key: value.__doc__ for key, value in output_formats().items()}
 
             return formats
 
@@ -69,7 +93,7 @@ class CfEdrPlugin(Plugin):
             """
             Returns the various supported formats for area queries
             """
-            formats = {key: value.__doc__ for key, value in position_formats().items()}
+            formats = {key: value.__doc__ for key, value in output_formats().items()}
 
             return formats
 
@@ -79,6 +103,124 @@ class CfEdrPlugin(Plugin):
     def dataset_router(self, deps: Dependencies):
         """Register dataset level router for EDR endpoints"""
         router = APIRouter(prefix=self.app_router_prefix, tags=self.dataset_router_tags)
+
+        @router.get("/", summary="Collection metadata")
+        def get_collection_metadata(dataset: xr.Dataset = Depends(deps.dataset)):
+            """
+            Returns the collection metadata for the dataset
+
+            There is no nested hierarchy in our router right now, so instead we return the metadata
+            for the current dataset as the a single collection. See the spec for more information:
+            https://docs.ogc.org/is/19-086r6/19-086r6.html#_162817c2-ccd7-43c9-b1ea-ad3aea1b4d6b
+            """
+            id = dataset.attrs.get("_xpublish_id", "unknown")
+            title = dataset.attrs.get("title", "unknown")
+            description = dataset.attrs.get("description", "no description")
+
+            crs = dataset_crs(dataset)
+
+            available_output_formats = list(output_formats().keys())
+
+            ds_cf = dataset.cf
+            min_lon = ds_cf["X"].min().item()
+            max_lon = ds_cf["X"].max().item()
+            min_lat = ds_cf["Y"].min().item()
+            max_lat = ds_cf["Y"].max().item()
+
+            spatial_extent = {
+                "bbox": [
+                    [
+                        min_lon,
+                        min_lat,
+                        max_lon,
+                        max_lat,
+                    ],
+                ],
+            }
+
+            time_min = ds_cf["T"].min().dt.strftime("%Y-%m-%dT%H:%M:%SZ").values
+            time_max = ds_cf["T"].max().dt.strftime("%Y-%m-%dT%H:%M:%SZ").values
+
+            temporal_extent = {
+                "interval": [
+                    str(time_min),
+                    str(time_max),
+                ],
+                "values": [
+                    f"{time_min}/{time_max}",
+                ],
+            }
+
+            parameters = {
+                k: variable_description(v)
+                for k, v in dataset.variables.items()
+                if "axis" not in v.attrs
+            }
+
+            return {
+                "id": id,
+                "title": title,
+                "description": description,
+                "keywords": [],
+                "links": [],
+                "extent": {
+                    "spatial": spatial_extent,
+                    "temporal": temporal_extent,
+                },
+                "data_queries": {
+                    "position": {
+                        "href": "/edr/position",
+                        "hreflang": "en",
+                        "rel": "data",
+                        "templated": True,
+                        "variables": {
+                            "title": "Position query",
+                            "description": "Returns position data based on WKT `POINT(lon lat)` or `MULTIPOINT(lon lat, ...)` coordinates",  # noqa
+                            "query_type": "position",
+                            "coords": {
+                                "type": "string",
+                                "description": "WKT `POINT(lon lat)` or `MULTIPOINT(lon lat, ...)` coordinates",  # noqa
+                                "required": True,
+                            },
+                            "output_format": available_output_formats,
+                            "default_output_format": "cf_covjson",
+                            "crs_details": [
+                                {
+                                    "crs": crs.to_string(),
+                                    "wkt": crs.to_wkt(),
+                                },
+                            ],
+                        },
+                    },
+                    "area": {
+                        "href": "/edr/area",
+                        "hreflang": "en",
+                        "rel": "data",
+                        "templated": True,
+                        "variables": {
+                            "title": "Area query",
+                            "description": "Returns data in a polygon based on WKT `POLYGON(lon lat, ...)` coordinates",  # noqa
+                            "query_type": "position",
+                            "coords": {
+                                "type": "string",
+                                "description": "WKT `POLYGON(lon lat, ...)` coordinates",
+                                "required": True,
+                            },
+                            "output_format": available_output_formats,
+                            "default_output_format": "cf_covjson",
+                            "crs_details": [
+                                {
+                                    "crs": crs.coordinate_system.name,
+                                    "wkt": crs.to_wkt(),
+                                },
+                            ],
+                        },
+                    },
+                },
+                "crs": [crs.to_string()],
+                "output_formats": available_output_formats,
+                "parameter_names": parameters,
+            }
 
         @router.get("/position", summary="Position query")
         def get_position(
@@ -126,7 +268,7 @@ class CfEdrPlugin(Plugin):
 
             if query.format:
                 try:
-                    format_fn = position_formats()[query.format]
+                    format_fn = output_formats()[query.format]
                 except KeyError:
                     raise HTTPException(
                         404,
@@ -182,7 +324,7 @@ class CfEdrPlugin(Plugin):
 
             if query.format:
                 try:
-                    format_fn = position_formats()[query.format]
+                    format_fn = output_formats()[query.format]
                 except KeyError:
                     raise HTTPException(
                         404,
