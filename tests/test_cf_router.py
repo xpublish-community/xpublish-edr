@@ -62,6 +62,74 @@ def test_cf_area_formats(cf_client):
     assert "csv" in data, "csv is not a valid format"
 
 
+def test_cf_metadata_query(cf_client):
+    response = cf_client.get("/datasets/air/edr/")
+    assert response.status_code == 200, "Response did not return successfully"
+    data = response.json()
+
+    assert data["id"] == "air", "The id should be air"
+    assert data["title"] == "4x daily NMC reanalysis (1948)", "The title is incorrect"
+    assert (
+        data["description"]
+        == "Data is from NMC initialized reanalysis\n(4x/day).  These are the 0.9950 sigma level values."
+    ), "The description is incorrect"
+    assert data["crs"] == ["EPSG:4326"], "The crs is incorrect"
+    assert set(data["output_formats"]) == {
+        "cf_covjson",
+        "nc",
+        "netcdf4",
+        "nc4",
+        "netcdf",
+        "csv",
+        "geojson",
+    }, "The output formats are incorrect"
+    assert (
+        "position" in data["data_queries"] and "area" in data["data_queries"]
+    ), "The data queries are incorrect"
+
+    assert (
+        "temporal" and "spatial" in data["extent"]
+    ), "Temporal and spatial extents should be present in extent"
+    assert (
+        "vertical" not in data["extent"]
+    ), "Vertical extent should not be present in extent"
+
+    assert data["extent"]["temporal"]["interval"] == [
+        "2013-01-01T00:00:00",
+        "2013-01-01T18:00:00",
+    ], "Temporal interval is incorrect"
+    assert (
+        data["extent"]["temporal"]["values"][0]
+        == "2013-01-01T00:00:00/2013-01-01T18:00:00"
+    ), "Temporal values are incorrect"
+
+    assert data["extent"]["spatial"]["bbox"] == [
+        [200.0, 15.0, 322.5, 75.0],
+    ], "Spatial bbox is incorrect"
+    assert data["extent"]["spatial"]["crs"] == "EPSG:4326", "Spatial CRS is incorrect"
+
+    assert "air" in data["parameter_names"], "Air parameter should be present"
+    assert "lat" not in data["parameter_names"], "lat should not be present"
+    assert "lon" not in data["parameter_names"], "lon should not be present"
+
+
+def test_cf_metadata_query_temp_smoke_test(cf_client):
+    response = cf_client.get("/datasets/temp/edr/")
+    assert response.status_code == 200, "Response did not return successfully"
+    data = response.json()
+
+    assert data["id"] == "temp", "The id should be temp"
+    for key in (
+        "title",
+        "description",
+        "crs",
+        "extent",
+        "output_formats",
+        "data_queries",
+    ):
+        assert key in data, f"Key {key} is not a top level key in the metadata response"
+
+
 def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
     x = 204
     y = 44
@@ -122,14 +190,20 @@ def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
 
     axes = data["domain"]["axes"]
 
-    npt.assert_array_almost_equal(
-        axes["x"]["values"],
-        [[x]],
-    ), "Did not select nearby x coordinate"
-    npt.assert_array_almost_equal(
-        axes["y"]["values"],
-        [[y]],
-    ), "Did not select a nearby y coordinate"
+    (
+        npt.assert_array_almost_equal(
+            axes["x"]["values"],
+            [[x]],
+        ),
+        "Did not select nearby x coordinate",
+    )
+    (
+        npt.assert_array_almost_equal(
+            axes["y"]["values"],
+            [[y]],
+        ),
+        "Did not select a nearby y coordinate",
+    )
 
     temp_range = data["ranges"]["temp"]
     assert temp_range["type"] == "NdArray", "Response range should be a NdArray"

@@ -14,10 +14,11 @@ from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
+from xpublish_edr.metadata import collection_metadata
 from xpublish_edr.query import EDRQuery, edr_query
 
 
-def position_formats():
+def output_formats():
     """
     Return response format functions from registered
     `xpublish_edr_position_formats` entry_points
@@ -57,7 +58,7 @@ class CfEdrPlugin(Plugin):
             """
             Returns the various supported formats for position queries
             """
-            formats = {key: value.__doc__ for key, value in position_formats().items()}
+            formats = {key: value.__doc__ for key, value in output_formats().items()}
 
             return formats
 
@@ -69,7 +70,7 @@ class CfEdrPlugin(Plugin):
             """
             Returns the various supported formats for area queries
             """
-            formats = {key: value.__doc__ for key, value in position_formats().items()}
+            formats = {key: value.__doc__ for key, value in output_formats().items()}
 
             return formats
 
@@ -79,6 +80,20 @@ class CfEdrPlugin(Plugin):
     def dataset_router(self, deps: Dependencies):
         """Register dataset level router for EDR endpoints"""
         router = APIRouter(prefix=self.app_router_prefix, tags=self.dataset_router_tags)
+
+        @router.get("/", summary="Collection metadata")
+        def get_collection_metadata(dataset: xr.Dataset = Depends(deps.dataset)):
+            """
+            Returns the collection metadata for the dataset
+
+            There is no nested hierarchy in our router right now, so instead we return the metadata
+            for the current dataset as the a single collection. See the spec for more information:
+            https://docs.ogc.org/is/19-086r6/19-086r6.html#_162817c2-ccd7-43c9-b1ea-ad3aea1b4d6b
+            """
+            available_output_formats = list(output_formats().keys())
+            return collection_metadata(dataset, available_output_formats).dict(
+                exclude_none=True,
+            )
 
         @router.get("/position", summary="Position query")
         def get_position(
@@ -126,7 +141,7 @@ class CfEdrPlugin(Plugin):
 
             if query.format:
                 try:
-                    format_fn = position_formats()[query.format]
+                    format_fn = output_formats()[query.format]
                 except KeyError:
                     raise HTTPException(
                         404,
@@ -182,7 +197,7 @@ class CfEdrPlugin(Plugin):
 
             if query.format:
                 try:
-                    format_fn = position_formats()[query.format]
+                    format_fn = output_formats()[query.format]
                 except KeyError:
                     raise HTTPException(
                         404,

@@ -55,9 +55,9 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 
 ### [collections](https://docs.ogc.org/is/19-086r6/19-086r6.html#_e55ba0f5-8f24-4f1b-a7e3-45775e39ef2e) and Resource Paths Support
 
-`xpublish-edr` does not currently support the `/collections/{collectionId}/query` path template described in the spec. Instead the path resource appears as `/{dataset_id}/query`. This is because of the path structure of xpublish.
+`xpublish-edr` does not currently support the `/collections/{collectionId}/query` path template described in the spec. Instead the path resource appears as `/{dataset_id}/edr/{query}`. This is because of the path structure of xpublish. In the future, if `xpublish` supports [`DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html) it could provide a path to supporting the spec compliant `collections` resource path.
 
-In the future, when `xpublish` supports [`DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html) it will provide a path to supporting the spec compliant `collections` resource path.
+ However, despite the collections resource not existing, this implementation supports [collection metadata](https://docs.ogc.org/is/19-086r6/19-086r6.html#_5d07dde9-231a-4652-a1f3-dd036c337bdc) at the dataset level through the `/{dataset_id}/edr/` resource.
 
 ### Supported Queries
 
