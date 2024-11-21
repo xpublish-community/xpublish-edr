@@ -177,7 +177,7 @@ class CfEdrPlugin(Plugin):
 
             parameters = {
                 k: variable_description(v)
-                for k, v in dataset.variables.items()
+                for k, v in projected_ds.variables.items()
                 if "axis" not in v.attrs
             }
 

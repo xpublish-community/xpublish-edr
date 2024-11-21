@@ -108,6 +108,10 @@ def test_cf_metadata_query(cf_client):
     ], "Spatial bbox is incorrect"
     assert data["extent"]["spatial"]["crs"] == "EPSG:4326", "Spatial CRS is incorrect"
 
+    assert "air" in data["parameter_names"], "Air parameter should be present"
+    assert "lat" not in data["parameter_names"], "lat should not be present"
+    assert "lon" not in data["parameter_names"], "lon should not be present"
+
 
 def test_cf_metadata_query_temp_smoke_test(cf_client):
     response = cf_client.get("/datasets/temp/edr/")
