@@ -4,6 +4,7 @@ Common geometry handling functions
 
 import itertools
 from functools import lru_cache
+from typing import Union
 
 import pyproj
 import xarray as xr
@@ -78,7 +79,7 @@ def project_geometry(ds: xr.Dataset, geometry_crs: str, geometry: Geometry) -> G
     return transform(transformer.transform, geometry)
 
 
-def project_dataset(ds: xr.Dataset, query_crs: str | pyproj.CRS) -> xr.Dataset:
+def project_dataset(ds: xr.Dataset, query_crs: Union[str, pyproj.CRS]) -> xr.Dataset:
     """
     Project the dataset to the given CRS
     """
