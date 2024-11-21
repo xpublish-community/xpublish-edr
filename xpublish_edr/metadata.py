@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 import pyproj
 import xarray as xr
@@ -28,13 +28,13 @@ class VariablesMetadata(BaseModel):
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_1b54f97a-e1dc-4920-b8b4-e4981554138d
     """
 
-    title: Optional[str]
-    description: Optional[str]
-    query_type: Optional[str]
-    coords: Optional[dict]
-    output_formats: Optional[list[str]]
-    default_output_format: Optional[str]
-    crs_details: Optional[list[CRSDetails]]
+    title: Optional[str] = None
+    description: Optional[str] = None
+    query_type: Optional[str] = None
+    coords: Optional[dict] = None
+    output_formats: Optional[list[str]] = None
+    default_output_format: Optional[str] = None
+    crs_details: Optional[list[CRSDetails]] = None
 
 
 class Link(BaseModel):
@@ -46,11 +46,11 @@ class Link(BaseModel):
     href: str
     rel: str
     type_: Optional[str] = Field(None, serialization_alias="type")
-    hreflang: Optional[str]
-    title: Optional[str]
-    length: Optional[int]
-    templated: Optional[bool]
-    variables: Optional[VariablesMetadata]
+    hreflang: Optional[str] = None
+    title: Optional[str] = None
+    length: Optional[int] = None
+    templated: Optional[bool] = None
+    variables: Optional[VariablesMetadata] = None
 
 
 class SpatialExtent(BaseModel):
@@ -92,8 +92,8 @@ class Extent(BaseModel):
     """
 
     spatial: SpatialExtent
-    temporal: Optional[TemporalExtent]
-    vertical: Optional[VerticalExtent]
+    temporal: Optional[TemporalExtent] = None
+    vertical: Optional[VerticalExtent] = None
 
 
 class EDRQueryMetadata(BaseModel):
@@ -111,14 +111,14 @@ class DataQueries(BaseModel):
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_df2c080b-949c-40c3-ad14-d20228270c2d
     """
 
-    position: Optional[EDRQueryMetadata]
-    radius: Optional[EDRQueryMetadata]
-    area: Optional[EDRQueryMetadata]
-    cube: Optional[EDRQueryMetadata]
-    trajectory: Optional[EDRQueryMetadata]
-    corridor: Optional[EDRQueryMetadata]
-    item: Optional[EDRQueryMetadata]
-    location: Optional[EDRQueryMetadata]
+    position: Optional[EDRQueryMetadata] = None
+    radius: Optional[EDRQueryMetadata] = None
+    area: Optional[EDRQueryMetadata] = None
+    cube: Optional[EDRQueryMetadata] = None
+    trajectory: Optional[EDRQueryMetadata] = None
+    corridor: Optional[EDRQueryMetadata] = None
+    item: Optional[EDRQueryMetadata] = None
+    location: Optional[EDRQueryMetadata] = None
 
 
 class SymbolMetadata(BaseModel):
@@ -127,10 +127,10 @@ class SymbolMetadata(BaseModel):
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_3e50c10c-85bd-46d9-8e09-1c5fffffb055
     """
 
-    title: Optional[str]
-    description: Optional[str]
-    value: Optional[str]
-    type: Optional[str]
+    title: Optional[str] = None
+    description: Optional[str] = None
+    value: Optional[str] = None
+    type_: Optional[str] = Field(None, serialization_alias="type")
 
 
 class UnitMetadata(BaseModel):
@@ -159,9 +159,9 @@ class ObservedProperty(BaseModel):
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_7e053ab4-5cde-4a5c-a8be-acc6495f9eb5
     """
 
-    id: Optional[str]
+    id: Optional[str] = None
     label: str
-    description: Optional[str]
+    description: Optional[str] = None
 
 
 class Parameter(BaseModel):
@@ -170,17 +170,17 @@ class Parameter(BaseModel):
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_da400aef-f6ee-4d08-b36c-2f535d581d53
     """
 
-    id: Optional[str]
-    type_: str = Field(..., serialization_alias="type")
-    label: Optional[str]
-    description: Optional[str]
+    id: Optional[str] = None
+    type_: Literal["Parameter"] = Field("Parameter", serialization_alias="type")
+    label: Optional[str] = None
+    description: Optional[str] = None
     data_type: Optional[str] = Field(None, serialization_alias="data-type")
-    unit: Optional[UnitMetadata]
+    unit: Optional[UnitMetadata] = None
     observed_property: ObservedProperty = Field(
         ...,
         serialization_alias="observedProperty",
     )
-    extent: Optional[Extent]
+    extent: Optional[Extent] = None
     measurement_type: Optional[MeasurementType] = Field(
         None,
         serialization_alias="measurementType",
@@ -198,167 +198,181 @@ class Collection(BaseModel):
     title: str
     description: str
     keywords: list[str]
-    extent: dict
-    data_queries: dict
+    extent: Extent
+    data_queries: DataQueries
     crs: list[str]
     output_formats: list[str]
-    parameter_names: dict
+    parameter_names: dict[str, Parameter]
 
 
-def crs_description(crs: pyproj.CRS) -> dict:
+def crs_details(crs: pyproj.CRS) -> CRSDetails:
     """
     Return CF version of EDR CRS metadata
     """
-    return {
-        "crs": crs.to_string(),
-        "wkt": crs.to_wkt(),
-    }
+    return CRSDetails(crs=crs.to_string(), wkt=crs.to_wkt())
 
 
-def variable_description(da: xr.DataArray) -> dict:
+def unit(unit: str) -> UnitMetadata:
+    """
+    Return CF version of EDR Unit metadata
+    """
+    return UnitMetadata(
+        label=unit,
+        symbol=SymbolMetadata(
+            value=unit,
+            type="unit",
+        ),
+    )
+
+
+def parameter(da: xr.DataArray) -> Parameter:
     """
     Return CF version of EDR Parameter metadata for a given xarray variable
     """
     name = da.attrs.get("name", None)
     standard_name = da.attrs.get("standard_name", name if name else "")
-    label = standard_name if not name else name
-    long_name = da.attrs.get("long_name", "")
-    units = da.attrs.get("units", "")
-    return {
-        "type": "Parameter",
-        "description": long_name,
-        "unit": {
-            "label": units,
-        },
-        "observedProperty": {
-            "label": label,
-            "standard_name": standard_name,
-            "long_name": long_name,
-        },
-    }
+    observed_property = ObservedProperty(
+        label=standard_name,
+        description=da.attrs.get("long_name", ""),
+    )
+    return Parameter(
+        label=standard_name,
+        type_="Parameter",
+        description=da.attrs.get("long_name", ""),
+        data_type=da.dtype.name,
+        unit=unit(da.attrs.get("units", "")),
+        observed_property=observed_property,
+    )
 
 
-def extract_parameters(ds: xr.Dataset) -> dict:
-    """
-    Extract the parameters from the dataset into collection metadata specific format
-    """
-    return {
-        k: variable_description(v)
-        for k, v in ds.variables.items()
-        if "axis" not in v.attrs
-    }
-
-
-def spatial_extent_description(ds: xr.Dataset, crs: pyproj.CRS) -> dict:
-    """
-    Extract the spatial extent from the dataset into collection metadata specific format
-    """
-    # We will use the dataset's CRS as the default CRS, but use 4326 for the extents
-    # since it is always available
+def spatial_extent(ds: xr.Dataset, crs: pyproj.CRS) -> SpatialExtent:
+    """Extract the spatial extent from the dataset into collection metadata specific format"""
     bounds = spatial_bounds(ds)
 
-    return {
-        "bbox": [bounds],
-        "crs": crs.to_string(),
-    }
+    return SpatialExtent(
+        bbox=[bounds],
+        crs=crs.to_string(),
+    )
 
 
-def temporal_extent_description(ds: xr.Dataset) -> dict:
-    """
-    Extract the temporal extent from the dataset into collection metadata specific format
-    """
-    time_min = ds["T"].min().dt.strftime("%Y-%m-%dT%H:%M:%S").values
-    time_max = ds["T"].max().dt.strftime("%Y-%m-%dT%H:%M:%S").values
-    return {
-        "interval": [
-            str(time_min),
-            str(time_max),
-        ],
-        "values": [
-            f"{time_min}/{time_max}",
-        ],
-        # TODO: parse `ds.cf["time"].dt.calendar`
-        "trs": 'TIMECRS["DateTime",TDATUM["Gregorian Calendar"],CS[TemporalDateTime,1],AXIS["Time (T)",unspecified]]',  # noqa
-    }
+def temporal_extent(ds: xr.Dataset) -> Optional[TemporalExtent]:
+    """Extract the temporal extent from the dataset into collection metadata specific format"""
+    if "T" not in ds.cf:
+        return None
+
+    t = ds.cf["T"]
+    time_min = t.min().dt.strftime("%Y-%m-%dT%H:%M:%S").values
+    time_max = t.max().dt.strftime("%Y-%m-%dT%H:%M:%S").values
+    return TemporalExtent(
+        interval=[str(time_min), str(time_max)],
+        values=[f"{time_min}/{time_max}"],
+        trs='TIMECRS["DateTime",TDATUM["Gregorian Calendar"],CS[TemporalDateTime,1],AXIS["Time (T)",unspecified]]',  # noqa
+    )
 
 
-def vertical_extent_description(ds: xr.Dataset) -> dict:
-    """
-    Extract the vertical extent from the dataset into collection metadata specific format
-    """
-    elevations = ds.cf["Z"].values
-    units = ds.cf["Z"].attrs.get("units", "unknown")
-    positive = ds.cf["Z"].attrs.get("positive", "up")
+def vertical_extent(ds: xr.Dataset) -> Optional[VerticalExtent]:
+    """Extract the vertical extent from the dataset into collection metadata specific format"""
+    if "Z" not in ds.cf:
+        return None
+
+    z = ds.cf["Z"]
+    elevations = z.values
+    units = z.attrs.get("units", "unknown")
+    positive = z.attrs.get("positive", "up")
     min_z = elevations.min()
     max_z = elevations.max()
     elevation_values = ",".join([str(e) for e in elevations])
 
-    return {
-        "interval": [
-            min_z,
-            max_z,
-        ],
-        "values": elevation_values,
-        "vrs": f"VERTCRS[VERT_CS['unknown'],AXIS['Z',{positive}],UNIT[{units},1]]",  # noqa
-        "positive": positive,
-        "units": units,
-    }
+    return VerticalExtent(
+        interval=[min_z, max_z],
+        values=elevation_values,
+        vrs=f"VERTCRS[VERT_CS['unknown'],AXIS['Z',{positive}],UNIT[{units},1]]",  # noqa
+    )
+
+
+def extent(ds: xr.Dataset, crs: pyproj.CRS) -> Extent:
+    """
+    Extract the extent from the dataset into collection metadata specific format
+    """
+    spatial = spatial_extent(ds, crs)
+    temporal = temporal_extent(ds)
+    vertical = vertical_extent(ds)
+
+    return Extent(
+        spatial=spatial,
+        temporal=temporal,
+        vertical=vertical,
+    )
+
+
+def extract_parameters(ds: xr.Dataset) -> dict[str, Parameter]:
+    """
+    Extract the parameters from the dataset into collection metadata specific format
+    """
+    return {k: parameter(v) for k, v in ds.variables.items() if "axis" not in v.attrs}
 
 
 def position_query_description(
     output_formats: list[str],
-    crs_details: list[dict],
-) -> dict:
+    crs_details: list[CRSDetails],
+) -> EDRQueryMetadata:
     """
     Return CF version of EDR Position Query metadata
     """
-    return {
-        "href": "/edr/position",
-        "hreflang": "en",
-        "rel": "data",
-        "templated": True,
-        "variables": {
-            "title": "Position query",
-            "description": "Returns position data based on WKT `POINT(lon lat)` or `MULTIPOINT(lon lat, ...)` coordinates",  # noqa
-            "query_type": "position",
-            "coords": {
-                "type": "string",
-                "description": "WKT `POINT(lon lat)` or `MULTIPOINT(lon lat, ...)` coordinates",  # noqa
-                "required": True,
-            },
-            "output_format": output_formats,
-            "default_output_format": "cf_covjson",
-            "crs_details": crs_details,
-        },
-    }
+    return EDRQueryMetadata(
+        link=Link(
+            href="/edr/position?coords={coords}",
+            hreflang="en",
+            rel="data",
+            templated=True,
+            variables=VariablesMetadata(
+                title="Position query",
+                description="Returns position data based on WKT `POINT(lon lat)` or `MULTIPOINT(lon lat, ...)` coordinates",  # noqa
+                query_type="position",
+                coords={
+                    "type": "string",
+                    "description": "WKT `POINT(lon lat)` or `MULTIPOINT(lon lat, ...)` coordinates",  # noqa
+                    "required": True,
+                },
+                output_formats=output_formats,
+                default_output_format="cf_covjson",
+                crs_details=crs_details,
+            ),
+        ),
+    )
 
 
-def area_query_description(output_formats: list[str], crs_details: list[dict]) -> dict:
+def area_query_description(
+    output_formats: list[str],
+    crs_details: list[CRSDetails],
+) -> EDRQueryMetadata:
     """
     Return CF version of EDR Area Query metadata
     """
-    return {
-        "href": "/edr/area?coords={coords}",
-        "hreflang": "en",
-        "rel": "data",
-        "templated": True,
-        "variables": {
-            "title": "Area query",
-            "description": "Returns data in a polygon based on WKT `POLYGON(lon lat, ...)` coordinates",  # noqa
-            "query_type": "position",
-            "coords": {
-                "type": "string",
-                "description": "WKT `POLYGON(lon lat, ...)` coordinates",
-                "required": True,
-            },
-            "output_format": output_formats,
-            "default_output_format": "cf_covjson",
-            "crs_details": crs_details,
-        },
-    }
+    return EDRQueryMetadata(
+        link=Link(
+            href="/edr/area?coords={coords}",
+            hreflang="en",
+            rel="data",
+            templated=True,
+            variables=VariablesMetadata(
+                title="Area query",
+                description="Returns data in a polygon based on WKT `POLYGON(lon lat, ...)` coordinates",  # noqa
+                query_type="position",
+                coords={
+                    "type": "string",
+                    "description": "WKT `POLYGON(lon lat, ...)` coordinates",
+                    "required": True,
+                },
+                output_formats=output_formats,
+                default_output_format="cf_covjson",
+                crs_details=crs_details,
+            ),
+        ),
+    )
 
 
-def collection_metadata(ds: xr.Dataset, output_formats: list[str]) -> dict:
+def collection_metadata(ds: xr.Dataset, output_formats: list[str]) -> Collection:
     """
     Returns the collection metadata for the dataset
     There is no nested hierarchy in our router right now, so instead we return the metadata
@@ -371,45 +385,36 @@ def collection_metadata(ds: xr.Dataset, output_formats: list[str]) -> dict:
 
     crs = dataset_crs(ds)
 
-    ds_cf = ds.cf
-
     # We will use the dataset's CRS as the default CRS, but use 4326 for the extents
     # since it is always available
     projected_ds = project_dataset(ds, DEFAULT_CRS)
 
-    extents: dict = {
-        "spatial": spatial_extent_description(projected_ds, DEFAULT_CRS),
-    }
-
-    if "T" in ds_cf:
-        extents["temporal"] = temporal_extent_description(ds_cf)
-
-    if "Z" in ds_cf:
-        extents["vertical"] = vertical_extent_description(ds_cf)
+    extents = extent(projected_ds, crs)
 
     parameters = extract_parameters(ds)
 
-    crs_details = [
-        crs_description(crs),
+    supported_crs = [
+        crs_details(crs),
     ]
 
     # 4326 is always available
     if crs != DEFAULT_CRS:
-        crs_details.append(
-            crs_description(DEFAULT_CRS),
+        supported_crs.append(
+            crs_details(DEFAULT_CRS),
         )
 
-    return {
-        "id": id,
-        "title": title,
-        "description": description,
-        "links": [],
-        "extent": extents,
-        "data_queries": {
-            "position": position_query_description(output_formats, crs_details),
-            "area": area_query_description(output_formats, crs_details),
-        },
-        "crs": [crs.to_string()],
-        "output_formats": output_formats,
-        "parameter_names": parameters,
-    }
+    return Collection(
+        links=[],
+        id=id,
+        title=title,
+        description=description,
+        keywords=[],
+        extent=extents,
+        data_queries=DataQueries(
+            position=position_query_description(output_formats, supported_crs),
+            area=area_query_description(output_formats, supported_crs),
+        ),
+        crs=[crs.to_string()],
+        output_formats=output_formats,
+        parameter_names=parameters,
+    )

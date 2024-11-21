@@ -91,7 +91,9 @@ class CfEdrPlugin(Plugin):
             https://docs.ogc.org/is/19-086r6/19-086r6.html#_162817c2-ccd7-43c9-b1ea-ad3aea1b4d6b
             """
             available_output_formats = list(output_formats().keys())
-            return collection_metadata(dataset, available_output_formats)
+            return collection_metadata(dataset, available_output_formats).dict(
+                exclude_none=True,
+            )
 
         @router.get("/position", summary="Position query")
         def get_position(
