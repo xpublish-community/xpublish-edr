@@ -110,7 +110,7 @@ def vertical_extent_description(ds: xr.Dataset) -> dict:
 
 
 def position_query_description(
-    output_formats: list[str], crs_details: list[dict]
+    output_formats: list[str], crs_details: list[dict],
 ) -> dict:
     """
     Return CF version of EDR Position Query metadata
