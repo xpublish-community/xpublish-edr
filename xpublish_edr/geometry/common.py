@@ -33,6 +33,20 @@ def is_regular_xy_coords(ds: xr.Dataset) -> bool:
     return coord_is_regular(ds.cf["X"]) and coord_is_regular(ds.cf["Y"])
 
 
+def spatial_bounds(ds: xr.Dataset) -> tuple[float, float, float, float]:
+    """
+    Get the spatial bounds of the dataset, naively, in whatever CRS it is in
+    """
+    x = ds.cf["X"]
+    min_x = float(x.min().values)
+    max_x = float(x.max().values)
+
+    y = ds.cf["Y"]
+    min_y = float(y.min().values)
+    max_y = float(y.max().values)
+    return min_x, min_y, max_x, max_y
+
+
 def dataset_crs(ds: xr.Dataset) -> pyproj.CRS:
     grid_mapping_names = ds.cf.grid_mapping_names
     if len(grid_mapping_names) == 0:
@@ -64,12 +78,15 @@ def project_geometry(ds: xr.Dataset, geometry_crs: str, geometry: Geometry) -> G
     return transform(transformer.transform, geometry)
 
 
-def project_dataset(ds: xr.Dataset, query_crs: str) -> xr.Dataset:
+def project_dataset(ds: xr.Dataset, query_crs: str | pyproj.CRS) -> xr.Dataset:
     """
     Project the dataset to the given CRS
     """
     data_crs = dataset_crs(ds)
-    target_crs = pyproj.CRS.from_string(query_crs)
+    if isinstance(query_crs, pyproj.CRS):
+        target_crs = query_crs
+    else:
+        target_crs = pyproj.CRS.from_string(query_crs)
     if data_crs == target_crs:
         return ds
 

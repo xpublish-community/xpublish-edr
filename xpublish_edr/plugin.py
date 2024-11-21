@@ -11,7 +11,12 @@ from xpublish import Dependencies, Plugin, hookimpl
 
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
-from xpublish_edr.geometry.common import DEFAULT_CRS, dataset_crs, project_dataset
+from xpublish_edr.geometry.common import (
+    DEFAULT_CRS,
+    dataset_crs,
+    project_dataset,
+    spatial_bounds,
+)
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.query import EDRQuery, edr_query
@@ -121,42 +126,16 @@ class CfEdrPlugin(Plugin):
             available_output_formats = list(output_formats().keys())
 
             ds_cf = dataset.cf
-            axes = ds_cf.axes
 
-            # We will use the dataset's CRS as the default CRS for the extents,
-            # but override when it makes sense.
-            extent_crs = crs
-
-            if len(axes["X"]) > 1:
-                if "latitude" in ds_cf and "longitude" in ds_cf:
-                    min_lon = float(ds_cf["longitude"].min().values)
-                    max_lon = float(ds_cf["longitude"].max().values)
-                    min_lat = float(ds_cf["latitude"].min().values)
-                    max_lat = float(ds_cf["latitude"].max().values)
-
-                    # When we are explicitly using latitude and longitude, we should use WGS84
-                    extent_crs = DEFAULT_CRS
-                else:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="Dataset does not have EDR compliant metadata: Multiple X axes found",
-                    )
-            else:
-                min_lon = float(ds_cf["X"].min().values)
-                max_lon = float(ds_cf["X"].max().values)
-                min_lat = float(ds_cf["Y"].min().values)
-                max_lat = float(ds_cf["Y"].max().values)
+            # We will use the dataset's CRS as the default CRS, but use 4326 for the extents
+            # since it is always available
+            extent_crs = DEFAULT_CRS
+            projected_ds = project_dataset(dataset, DEFAULT_CRS)
+            bounds = spatial_bounds(projected_ds)
 
             extents: dict = {
                 "spatial": {
-                    "bbox": [
-                        [
-                            min_lon,
-                            min_lat,
-                            max_lon,
-                            max_lat,
-                        ],
-                    ],
+                    "bbox": [bounds],
                     "crs": extent_crs.to_string(),
                 },
             }
