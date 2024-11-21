@@ -1,5 +1,8 @@
+from typing import Optional
+
 import pyproj
 import xarray as xr
+from pydantic import BaseModel, Field
 
 from xpublish_edr.geometry.common import (
     DEFAULT_CRS,
@@ -7,6 +10,199 @@ from xpublish_edr.geometry.common import (
     project_dataset,
     spatial_bounds,
 )
+
+
+class CRSDetails(BaseModel):
+    """OGC EDR CRS metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_7124ec17-6401-4eb7-ba1d-8ec329b7e677
+    """
+
+    crs: str
+    wkt: str
+
+
+class VariablesMetadata(BaseModel):
+    """OGC EDR Variables metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_1b54f97a-e1dc-4920-b8b4-e4981554138d
+    """
+
+    title: Optional[str]
+    description: Optional[str]
+    query_type: Optional[str]
+    coords: Optional[dict]
+    output_formats: Optional[list[str]]
+    default_output_format: Optional[str]
+    crs_details: Optional[list[CRSDetails]]
+
+
+class Link(BaseModel):
+    """OGC EDR Link metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_ea77762b-89c0-4704-b845-748efc66e597
+    """
+
+    href: str
+    rel: str
+    type_: Optional[str] = Field(None, serialization_alias="type")
+    hreflang: Optional[str]
+    title: Optional[str]
+    length: Optional[int]
+    templated: Optional[bool]
+    variables: Optional[VariablesMetadata]
+
+
+class SpatialExtent(BaseModel):
+    """OGC EDR Spatial Extent metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_0afff399-4d8e-4a9b-961b-cab841d23cc1
+    """
+
+    bbox: list[list[float]]
+    crs: str
+
+
+class TemporalExtent(BaseModel):
+    """OGC EDR Temporal Extent metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_8f4c9f38-bc6a-4b98-8fd9-772e42d60ab2
+    """
+
+    interval: list[str]
+    values: list[str]
+    trs: str
+
+
+class VerticalExtent(BaseModel):
+    """OGC EDR Vertical Extent metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_52bf970b-315a-4a09-8b92-51757b584a62
+    """
+
+    interval: list[float]
+    values: list[float]
+    vrs: str
+
+
+class Extent(BaseModel):
+    """OGC EDR Extent metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_2a2d533f-6efe-48df-8056-2eca9deb848f
+    """
+
+    spatial: SpatialExtent
+    temporal: Optional[TemporalExtent]
+    vertical: Optional[VerticalExtent]
+
+
+class EDRQueryMetadata(BaseModel):
+    """OGC EDR Query metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_9a6620ce-6093-4b1b-8f68-2e2c04a13746
+    """
+
+    link: Link
+
+
+class DataQueries(BaseModel):
+    """OGC EDR Data Queries metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_df2c080b-949c-40c3-ad14-d20228270c2d
+    """
+
+    position: Optional[EDRQueryMetadata]
+    radius: Optional[EDRQueryMetadata]
+    area: Optional[EDRQueryMetadata]
+    cube: Optional[EDRQueryMetadata]
+    trajectory: Optional[EDRQueryMetadata]
+    corridor: Optional[EDRQueryMetadata]
+    item: Optional[EDRQueryMetadata]
+    location: Optional[EDRQueryMetadata]
+
+
+class SymbolMetadata(BaseModel):
+    """OGC EDR Symbol metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_3e50c10c-85bd-46d9-8e09-1c5fffffb055
+    """
+
+    title: Optional[str]
+    description: Optional[str]
+    value: Optional[str]
+    type: Optional[str]
+
+
+class UnitMetadata(BaseModel):
+    """OGC EDR Unit metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_5378d779-6a38-4607-9051-6f12c3d3107b
+    """
+
+    label: str
+    symbol: SymbolMetadata
+
+
+class MeasurementType(BaseModel):
+    """OGC EDR Measurement Type metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_c81181d6-fd09-454e-9c00-a3bb3b21d592
+    """
+
+    method: str
+    duration: str
+
+
+class ObservedProperty(BaseModel):
+    """OGC EDR Observed Property metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_7e053ab4-5cde-4a5c-a8be-acc6495f9eb5
+    """
+
+    id: Optional[str]
+    label: str
+    description: Optional[str]
+
+
+class Parameter(BaseModel):
+    """OGC EDR Parameter metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_da400aef-f6ee-4d08-b36c-2f535d581d53
+    """
+
+    id: Optional[str]
+    type_: str = Field(..., serialization_alias="type")
+    label: Optional[str]
+    description: Optional[str]
+    data_type: Optional[str] = Field(None, serialization_alias="data-type")
+    unit: Optional[UnitMetadata]
+    observed_property: ObservedProperty = Field(
+        ...,
+        serialization_alias="observedProperty",
+    )
+    extent: Optional[Extent]
+    measurement_type: Optional[MeasurementType] = Field(
+        None,
+        serialization_alias="measurementType",
+    )
+
+
+class Collection(BaseModel):
+    """OGC EDR Collection metadata
+
+    https://docs.ogc.org/is/19-086r6/19-086r6.html#_b6db449c-4ca7-4117-9bf4-241984cef569
+    """
+
+    links: list[Link]
+    id: str
+    title: str
+    description: str
+    keywords: list[str]
+    extent: dict
+    data_queries: dict
+    crs: list[str]
+    output_formats: list[str]
+    parameter_names: dict
 
 
 def crs_description(crs: pyproj.CRS) -> dict:
@@ -110,7 +306,8 @@ def vertical_extent_description(ds: xr.Dataset) -> dict:
 
 
 def position_query_description(
-    output_formats: list[str], crs_details: list[dict],
+    output_formats: list[str],
+    crs_details: list[dict],
 ) -> dict:
     """
     Return CF version of EDR Position Query metadata
