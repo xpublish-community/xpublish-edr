@@ -128,7 +128,7 @@ class CfEdrPlugin(Plugin):
                 )
                 raise HTTPException(
                     status_code=422,
-                    detail="Could not parse coordinates to geometry"
+                    detail="Could not parse coordinates to geometry, "
                     + "check the format of the 'coords' query parameter",
                 )
             except KeyError as e:
@@ -202,7 +202,7 @@ class CfEdrPlugin(Plugin):
                 )
                 raise HTTPException(
                     status_code=422,
-                    detail="Could not parse coordinates to geometry"
+                    detail="Could not parse coordinates to geometry, "
                     + "check the format of the 'coords' query parameter",
                 )
             except KeyError as e:
