@@ -20,7 +20,7 @@ class EDRQuery(BaseModel):
 
     coords: str = Field(
         ...,
-        title="Point in WKT format",
+        title="Points in WKT format",
         description="Well Known Text coordinates",
     )
     z: Optional[str] = None
@@ -114,7 +114,7 @@ class EDRQuery(BaseModel):
 def edr_query(
     coords: str = Query(
         ...,
-        title="Point in WKT format",
+        title="Points in WKT format",
         description="Well Known Text coordinates",
     ),
     z: Optional[str] = Query(
