@@ -7,6 +7,7 @@ from typing import List
 
 import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Request
+from shapely.errors import GEOSException
 from xpublish import Dependencies, Plugin, hookimpl
 
 from xpublish_edr.formats.to_covjson import to_cf_covjson
@@ -109,6 +110,9 @@ class CfEdrPlugin(Plugin):
             try:
                 ds = query.select(dataset, dict(request.query_params))
             except ValueError as e:
+                logger.error(
+                    f"Error selecting from query while selecting by position: {e}",
+                )
                 raise HTTPException(
                     status_code=404,
                     detail=f"Error selecting from query: {e.args[0]}",
@@ -118,7 +122,17 @@ class CfEdrPlugin(Plugin):
 
             try:
                 ds = select_by_position(ds, query.project_geometry(ds), query.method)
-            except KeyError:
+            except GEOSException as e:
+                logger.error(
+                    f"Error parsing coordinates to geometry while selecting by position: {e}",
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not parse coordinates to geometry"
+                    + "check the format of the 'coords' query parameter",
+                )
+            except KeyError as e:
+                logger.error(f"Error selecting by position: {e}")
                 raise HTTPException(
                     status_code=404,
                     detail="Dataset does not have CF Convention compliant metadata",
@@ -131,7 +145,9 @@ class CfEdrPlugin(Plugin):
             try:
                 ds = project_dataset(ds, query.crs)
             except Exception as e:
-                logger.error(f"Error projecting dataset: {e}")
+                logger.error(
+                    f"Error projecting dataset while selecting by position: {e}",
+                )
                 raise HTTPException(
                     status_code=404,
                     detail="Error projecting dataset",
@@ -142,7 +158,10 @@ class CfEdrPlugin(Plugin):
             if query.format:
                 try:
                     format_fn = output_formats()[query.format]
-                except KeyError:
+                except KeyError as e:
+                    logger.error(
+                        f"Error getting format function while selecting by position: {e}",
+                    )
                     raise HTTPException(
                         404,
                         f"{query.format} is not a valid format for EDR position queries. "
@@ -167,6 +186,7 @@ class CfEdrPlugin(Plugin):
             try:
                 ds = query.select(dataset, dict(request.query_params))
             except ValueError as e:
+                logger.error(f"Error selecting from query while selecting by area: {e}")
                 raise HTTPException(
                     status_code=404,
                     detail=f"Error selecting from query: {e.args[0]}",
@@ -176,7 +196,17 @@ class CfEdrPlugin(Plugin):
 
             try:
                 ds = select_by_area(ds, query.project_geometry(ds))
-            except KeyError:
+            except GEOSException as e:
+                logger.error(
+                    f"Error parsing coordinates to geometry while selecting by area: {e}",
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not parse coordinates to geometry"
+                    + "check the format of the 'coords' query parameter",
+                )
+            except KeyError as e:
+                logger.error(f"Error selecting by area: {e}")
                 raise HTTPException(
                     status_code=404,
                     detail="Dataset does not have CF Convention compliant metadata",
@@ -187,7 +217,7 @@ class CfEdrPlugin(Plugin):
             try:
                 ds = project_dataset(ds, query.crs)
             except Exception as e:
-                logger.error(f"Error projecting dataset: {e}")
+                logger.error(f"Error projecting dataset while selecting by area: {e}")
                 raise HTTPException(
                     status_code=404,
                     detail="Error projecting dataset",
@@ -198,7 +228,8 @@ class CfEdrPlugin(Plugin):
             if query.format:
                 try:
                     format_fn = output_formats()[query.format]
-                except KeyError:
+                except KeyError as e:
+                    logger.error(f"Error getting format function: {e}")
                     raise HTTPException(
                         404,
                         f"{query.format} is not a valid format for EDR position queries. "

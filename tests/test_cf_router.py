@@ -130,6 +130,12 @@ def test_cf_metadata_query_temp_smoke_test(cf_client):
         assert key in data, f"Key {key} is not a top level key in the metadata response"
 
 
+def test_cf_position_query_invalid_coords(cf_client):
+    response = cf_client.get("/datasets/air/edr/position?coords=(71, 41)")
+    assert response.status_code == 422, "Response should have returned a 422"
+    assert "Could not parse coordinates to geometry" in response.json()["detail"]
+
+
 def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
     x = 204
     y = 44
