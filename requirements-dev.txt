@@ -28,4 +28,4 @@ uvicorn-standard
 wheel
 xarray
 xpublish
-zarr < 3.0.0
+zarr > 3.0.7
