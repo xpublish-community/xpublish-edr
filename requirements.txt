@@ -2,4 +2,4 @@ geopandas
 scipy
 shapely
 xarray
-xpublish>=0.3.0,<0.4.0
+xpublish>=0.4.0

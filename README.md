@@ -70,7 +70,6 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅   | |
 | `crs`  | ✅  | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326` |
-| `parameter-name`  | ✅ | |
 | `f`  | ✅ | |
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
 
@@ -85,7 +84,6 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅   | |
 | `crs`  | ✅  | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326` |
-| `parameter-name`  | ✅   | |
 | `f`  | ✅   | |
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
 
