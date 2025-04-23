@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "xpublish_edr"
 description = ""
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.11"
 keywords = []
 license = { file = "LICENSE.txt" }
 
@@ -17,9 +17,8 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering",
 ]
 
