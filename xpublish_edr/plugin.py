@@ -10,7 +10,8 @@ from shapely.errors import GEOSException
 from xpublish import Dependencies, Plugin, hookimpl
 
 from xpublish_edr.formats.to_covjson import to_cf_covjson
-from xpublish_edr.geometry.area import select_by_area, select_by_bbox
+from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
