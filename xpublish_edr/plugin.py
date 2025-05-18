@@ -3,10 +3,10 @@ OGC EDR router for datasets with CF convention metadata
 """
 
 import importlib
-from typing import List
+from typing import Annotated, List
 
 import xarray as xr
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from shapely.errors import GEOSException
 from xpublish import Dependencies, Plugin, hookimpl
 
@@ -16,7 +16,7 @@ from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.metadata import collection_metadata
-from xpublish_edr.query import EDRQuery, edr_query
+from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
 
 
 def output_formats():
@@ -75,6 +75,14 @@ class CfEdrPlugin(Plugin):
 
             return formats
 
+        @router.get("/cube/formats", summary="Cube query response formats")
+        def get_cube_formats():
+            """
+            Returns the various supported formats for cube queries
+            """
+            formats = {key: value.__doc__ for key, value in output_formats().items()}
+            return formats
+
         return router
 
     @hookimpl
@@ -99,7 +107,7 @@ class CfEdrPlugin(Plugin):
         @router.get("/position", summary="Position query")
         def get_position(
             request: Request,
-            query: EDRQuery = Depends(edr_query),
+            query: Annotated[EDRPositionQuery, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
@@ -175,7 +183,7 @@ class CfEdrPlugin(Plugin):
         @router.get("/area", summary="Area query")
         def get_area(
             request: Request,
-            query: EDRQuery = Depends(edr_query),
+            query: Annotated[EDRAreaQuery, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
@@ -239,5 +247,16 @@ class CfEdrPlugin(Plugin):
                 return format_fn(ds)
 
             return to_cf_covjson(ds)
+
+        @router.get("/cube", summary="Cube query")
+        def get_cube(
+            request: Request,
+            query: Annotated[EDRCubeQuery, Query()],
+            dataset: xr.Dataset = Depends(deps.dataset),
+        ):
+            """
+            Returns cube data based on bbox coordinates and optional elevation
+            """
+            pass
 
         return router
