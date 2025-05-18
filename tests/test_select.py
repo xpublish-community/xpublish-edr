@@ -8,9 +8,10 @@ import xarray.testing as xrt
 from shapely import MultiPoint, Point, from_wkt
 
 from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
-from xpublish_edr.query import EDRAreaQuery, EDRPositionQuery
+from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
 
 
 @pytest.fixture(scope="function")
@@ -374,6 +375,21 @@ def test_select_area_regular_xy_boundary(regular_xy_dataset):
         0.0001,
     )
     ds = select_by_area(regular_xy_dataset, polygon)
+
+    assert ds["lat"].min() == 40.0, "Latitude is incorrect"
+    assert ds["lat"].max() == 50.0, "Latitude is incorrect"
+    assert ds["lon"].min() == 200.0, "Longitude is incorrect"
+    assert ds["lon"].max() == 210.0, "Longitude is incorrect"
+
+
+def test_select_cube_regular_xy(regular_xy_dataset):
+    query = EDRCubeQuery(
+        bbox="200,40,210,50",
+        crs="EPSG:4326",
+    )
+
+    bbox = query.project_bbox(regular_xy_dataset)
+    ds = select_by_bbox(regular_xy_dataset, bbox)
 
     assert ds["lat"].min() == 40.0, "Latitude is incorrect"
     assert ds["lat"].max() == 50.0, "Latitude is incorrect"
