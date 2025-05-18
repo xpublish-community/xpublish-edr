@@ -2,7 +2,6 @@
 OGC EDR router for datasets with CF convention metadata
 """
 
-import importlib
 from typing import Annotated, List
 
 import xarray as xr
@@ -16,21 +15,12 @@ from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.metadata import collection_metadata
-from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
-
-
-def output_formats():
-    """
-    Return response format functions from registered
-    `xpublish_edr_position_formats` entry_points
-    """
-    formats = {}
-
-    entry_points = importlib.metadata.entry_points()
-    for entry_point in entry_points.select(group="xpublish_edr_position_formats"):
-        formats[entry_point.name] = entry_point.load()
-
-    return formats
+from xpublish_edr.query import (
+    EDRAreaQuery,
+    EDRCubeQuery,
+    EDRPositionQuery,
+    output_formats,
+)
 
 
 class CfEdrPlugin(Plugin):
@@ -163,17 +153,17 @@ class CfEdrPlugin(Plugin):
 
             logger.debug(f"Dataset projected to {query.crs}: {ds}")
 
-            if query.format:
+            if query.f:
                 try:
-                    format_fn = output_formats()[query.format]
+                    format_fn = output_formats()[query.f]
                 except KeyError as e:
                     logger.error(
                         f"Error getting format function while selecting by position: {e}",
                     )
                     raise HTTPException(
                         404,
-                        f"{query.format} is not a valid format for EDR position queries. "
-                        "Get `./formats` for valid formats",
+                        f"{query.f} is not a valid format for EDR position queries. "
+                        "Get `./position/formats` for valid formats",
                     )
 
                 return format_fn(ds)
@@ -233,15 +223,15 @@ class CfEdrPlugin(Plugin):
 
             logger.debug(f"Dataset projected to {query.crs}: {ds}")
 
-            if query.format:
+            if query.f:
                 try:
-                    format_fn = output_formats()[query.format]
+                    format_fn = output_formats()[query.f]
                 except KeyError as e:
                     logger.error(f"Error getting format function: {e}")
                     raise HTTPException(
                         404,
-                        f"{query.format} is not a valid format for EDR position queries. "
-                        "Get `./formats` for valid formats",
+                        f"{query.f} is not a valid format for EDR area queries. "
+                        "Get `./area/formats` for valid formats",
                     )
 
                 return format_fn(ds)

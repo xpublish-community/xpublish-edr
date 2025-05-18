@@ -2,14 +2,29 @@
 OGC EDR Query param parsing
 """
 
+import importlib
 from typing import Literal, Optional
 
 import xarray as xr
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from shapely import Geometry, wkt
 
 from xpublish_edr.geometry.common import project_bbox, project_geometry
 from xpublish_edr.logger import logger
+
+
+def output_formats():
+    """
+    Return response format functions from registered
+    `xpublish_edr_position_formats` entry_points
+    """
+    formats = {}
+
+    entry_points = importlib.metadata.entry_points()
+    for entry_point in entry_points.select(group="xpublish_edr_position_formats"):
+        formats[entry_point.name] = entry_point.load()
+
+    return formats
 
 
 class BaseEDRQuery(BaseModel):
@@ -17,16 +32,48 @@ class BaseEDRQuery(BaseModel):
     Base class for EDR queries
     """
 
-    format: Optional[str] = None
-    z: Optional[str] = None
-    datetime: Optional[str] = None
-    parameters: Optional[str] = None
+    f: Optional[str] = Field(
+        None,
+        title="Response format",
+        description="The format of the response. Default is CoverageJSON. "
+        f"Valid formats are: {', '.join(output_formats().keys())}",
+    )
+    z: Optional[str] = Field(
+        None,
+        title="Elevation",
+        description="Elevation for the query",
+        alias="z",
+    )
+    datetime: Optional[str] = Field(
+        None,
+        title="Datetime",
+        description="Datetime for the query",
+        alias="datetime",
+    )
+    parameters: Optional[str] = Field(
+        None,
+        title="Parameters",
+        description="Parameters for the query",
+        alias="parameter-name",
+    )
     crs: str = Field(
         "EPSG:4326",
         title="Coordinate Reference System",
         description="Coordinate Reference System for the query. Default is EPSG:4326",
+        alias="crs",
     )
-    method: Literal["nearest", "linear"] = "nearest"
+    method: Literal["nearest", "linear"] = Field(
+        "nearest",
+        title="Method",
+        description="Method for the query",
+        alias="method",
+    )
+
+    @field_validator("f", mode="before")
+    def validate_f(cls, v):
+        if v not in output_formats().keys():
+            raise ValueError(f"Invalid format: {v}")
+        return v
 
     def select(self, ds: xr.Dataset, query_params: dict) -> xr.Dataset:
         """Select data from a dataset based on the query"""
@@ -95,22 +142,31 @@ class BaseEDRQuery(BaseModel):
         return ds
 
 
+def validate_wkt(v: str) -> Geometry:
+    """Validate WKT"""
+    try:
+        return wkt.loads(v)
+    except Exception as e:
+        raise ValueError(f"Invalid WKT: {e}")
+
+
 class EDRPositionQuery(BaseEDRQuery):
     """
     Capture query parameters for EDR position queries
     """
 
-    coords: Geometry = Field(
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    coords: str = Field(
         ...,
-        title="Points in WKT format",
-        description="Well Known Text coordinates",
-        validator=lambda v: wkt.loads(v),
+        title="Point(s) in WKT format",
+        description="Well Known Text coordinates for the point(s) to query",
     )
 
     @property
     def geometry(self) -> Geometry:
         """Shapely point from WKT query params"""
-        return self.coords
+        return wkt.loads(self.coords)
 
     def project_geometry(self, ds: xr.Dataset) -> Geometry:
         """Project the geometry to the dataset's CRS"""
@@ -122,7 +178,9 @@ class EDRAreaQuery(BaseEDRQuery):
     Capture query parameters for EDR area queries
     """
 
-    coords: Geometry = Field(
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    coords: str = Field(
         ...,
         title="Polygon in WKT format",
         description="Well Known Text coordinates",
@@ -131,7 +189,7 @@ class EDRAreaQuery(BaseEDRQuery):
     @property
     def geometry(self) -> Geometry:
         """Shapely polygon from WKT query params"""
-        return self.coords
+        return wkt.loads(self.coords)
 
     def project_geometry(self, ds: xr.Dataset) -> Geometry:
         """Project the geometry to the dataset's CRS"""
@@ -145,10 +203,13 @@ class EDRCubeQuery(BaseEDRQuery):
 
     bbox: tuple[float, float, float, float] = Field(
         ...,
-        title="Bounding box in minx, miny, maxx, maxy format",
+        title="Bounding box in minx, miny, maxx, maxy",
         description="Bounding box for the query",
-        validator=lambda v: tuple(float(v.strip()) for v in v.split(",")),
     )
+
+    @field_validator("bbox", mode="before")
+    def validate_bbox(cls, v):
+        return tuple(float(v.strip()) for v in v.split(","))  # type: ignore
 
     def project_bbox(self, ds: xr.Dataset) -> tuple[float, float, float, float]:
         """Project the bbox to the dataset's CRS"""

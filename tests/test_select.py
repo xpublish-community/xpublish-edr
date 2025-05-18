@@ -129,7 +129,7 @@ def test_select_query_error(regular_xy_dataset):
     )
     query_params = {"foo": "bar"}
 
-    with pytest.raises(ValueError):
+    with pytest.raises(KeyError):
         query.select(regular_xy_dataset, query_params)
 
     query = EDRPositionQuery(
