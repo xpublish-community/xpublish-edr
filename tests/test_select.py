@@ -10,7 +10,7 @@ from shapely import MultiPoint, Point, from_wkt
 from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
-from xpublish_edr.query import EDRPositionQuery
+from xpublish_edr.query import EDRAreaQuery, EDRPositionQuery
 
 
 @pytest.fixture(scope="function")
@@ -348,7 +348,7 @@ def test_select_area_regular_xy(regular_xy_dataset):
 
 
 def test_select_area_projected_xy(projected_xy_dataset):
-    query = EDRPositionQuery(
+    query = EDRAreaQuery(
         coords="POLYGON((64.3 66.82, 64.5 66.82, 64.5 66.6, 64.3 66.6, 64.3 66.82))",
         crs="EPSG:4326",
     )
