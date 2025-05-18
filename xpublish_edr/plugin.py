@@ -10,7 +10,7 @@ from shapely.errors import GEOSException
 from xpublish import Dependencies, Plugin, hookimpl
 
 from xpublish_edr.formats.to_covjson import to_cf_covjson
-from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.geometry.area import select_by_area, select_by_bbox
 from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
@@ -101,7 +101,7 @@ class CfEdrPlugin(Plugin):
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
-            Returns position data based on WKT `Point(lon lat)` coordinates
+            Returns vectorized position data based on WKT `Point(lon lat)` coordinates
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
@@ -177,7 +177,7 @@ class CfEdrPlugin(Plugin):
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
-            Returns area data based on WKT `Polygon(lon lat)` coordinates
+            Returns vectorizedarea data based on WKT `Polygon(lon lat)` coordinates
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
@@ -245,8 +245,64 @@ class CfEdrPlugin(Plugin):
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
-            Returns cube data based on bbox coordinates and optional elevation
+            Returns gridded cube data based on bbox coordinates and optional elevation
+
+            Extra selecting/slicing parameters can be provided as extra query parameters
             """
-            pass
+            try:
+                ds = query.select(dataset, dict(request.query_params))
+            except ValueError as e:
+                logger.error(f"Error selecting from query while selecting by cube: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Error selecting from query: {e.args[0]}",
+                )
+
+            logger.debug(f"Dataset filtered by query params {ds}")
+
+            try:
+                ds = select_by_bbox(ds, query.project_bbox(ds))
+            except KeyError as e:
+                logger.error(f"Error selecting by bbox: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Dataset does not have CF Convention compliant metadata",
+                )
+            except ValueError as e:
+                logger.error(f"Error selecting by bbox: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Error selecting by bbox, see logs for more details",
+                )
+
+            logger.debug(
+                f"Dataset filtered by bbox ({query.bbox}): {ds}",
+            )
+
+            try:
+                ds = project_dataset(ds, query.crs)
+            except Exception as e:
+                logger.error(f"Error projecting dataset while selecting by area: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Error projecting dataset",
+                )
+
+            logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+            if query.f:
+                try:
+                    format_fn = output_formats()[query.f]
+                except KeyError as e:
+                    logger.error(f"Error getting format function: {e}")
+                    raise HTTPException(
+                        404,
+                        f"{query.f} is not a valid format for EDR cube queries. "
+                        "Get `./cube/formats` for valid formats",
+                    )
+
+                return format_fn(ds)
+
+            return to_cf_covjson(ds)
 
         return router
