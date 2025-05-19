@@ -209,7 +209,11 @@ class EDRCubeQuery(BaseEDRQuery):
 
     @field_validator("bbox", mode="before")
     def validate_bbox(cls, v):
-        return tuple(float(v.strip()) for v in v.split(","))  # type: ignore
+        if isinstance(v, str):
+            return tuple(float(v.strip()) for v in v.split(","))
+        if isinstance(v, list):
+            return tuple(float(v.strip()) for v in v[0].split(","))
+        raise ValueError(f"Invalid bbox: {v}")
 
     def project_bbox(self, ds: xr.Dataset) -> tuple[float, float, float, float]:
         """Project the bbox to the dataset's CRS"""

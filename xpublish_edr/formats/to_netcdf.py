@@ -12,12 +12,12 @@ from fastapi import Response
 def to_netcdf(ds: xr.Dataset):
     """Return a NetCDF response from a dataset"""
     with TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "position.nc"
+        path = Path(tmpdir) / "data.nc"
         ds.to_netcdf(path)
 
         with path.open("rb") as f:
             return Response(
                 f.read(),
                 media_type="application/netcdf",
-                headers={"Content-Disposition": 'attachment; filename="position.nc"'},
+                headers={"Content-Disposition": 'attachment; filename="data.nc"'},
             )
