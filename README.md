@@ -105,6 +105,8 @@ For `POLYGON` coordinates, points that are located within **OR** on the polygons
 
 > `method` is not applicable for the coordinates of cube queries, only for selecting datetime, z, or additional dimensions.
 
+Cube queries are not vectorized like area queries, so the response is returned as sliced by xarray. This is particularly useful for subsetting regular grids.
+
 ## Get in touch
 
 Report bugs, suggest features or view the source code on [GitHub](https://github.com/gulfofmaine/xpublish-edr/issues).
