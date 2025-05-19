@@ -32,11 +32,12 @@ class BaseEDRQuery(BaseModel):
     Base class for EDR queries
     """
 
-    f: Optional[str] = Field(
+    format: Optional[str] = Field(
         None,
         title="Response format",
         description="The format of the response. Default is CoverageJSON. "
         f"Valid formats are: {', '.join(output_formats().keys())}",
+        validation_alias="f",
     )
     z: Optional[str] = Field(
         None,
@@ -69,8 +70,8 @@ class BaseEDRQuery(BaseModel):
         alias="method",
     )
 
-    @field_validator("f", mode="before")
-    def validate_f(cls, v):
+    @field_validator("format", mode="before")
+    def validate_format(cls, v):
         if v not in output_formats().keys():
             raise ValueError(f"Invalid format: {v}")
         return v

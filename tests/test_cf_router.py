@@ -585,7 +585,6 @@ def test_cf_area_nc_query(cf_client, cf_air_dataset):
 def test_cf_cube_query_covjson(cf_client, cf_air_dataset):
     bbox = "200,40,210,50"
     response = cf_client.get(f"/datasets/air/edr/cube?bbox={bbox}")
-    print(response.content)
 
     assert response.status_code == 200, "Response did not return successfully"
     assert (

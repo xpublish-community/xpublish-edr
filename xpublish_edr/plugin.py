@@ -154,16 +154,16 @@ class CfEdrPlugin(Plugin):
 
             logger.debug(f"Dataset projected to {query.crs}: {ds}")
 
-            if query.f:
+            if query.format:
                 try:
-                    format_fn = output_formats()[query.f]
+                    format_fn = output_formats()[query.format]
                 except KeyError as e:
                     logger.error(
                         f"Error getting format function while selecting by position: {e}",
                     )
                     raise HTTPException(
                         404,
-                        f"{query.f} is not a valid format for EDR position queries. "
+                        f"{query.format} is not a valid format for EDR position queries. "
                         "Get `./position/formats` for valid formats",
                     )
 
@@ -224,14 +224,14 @@ class CfEdrPlugin(Plugin):
 
             logger.debug(f"Dataset projected to {query.crs}: {ds}")
 
-            if query.f:
+            if query.format:
                 try:
-                    format_fn = output_formats()[query.f]
+                    format_fn = output_formats()[query.format]
                 except KeyError as e:
                     logger.error(f"Error getting format function: {e}")
                     raise HTTPException(
                         404,
-                        f"{query.f} is not a valid format for EDR area queries. "
+                        f"{query.format} is not a valid format for EDR area queries. "
                         "Get `./area/formats` for valid formats",
                     )
 
@@ -291,14 +291,14 @@ class CfEdrPlugin(Plugin):
 
             logger.debug(f"Dataset projected to {query.crs}: {ds}")
 
-            if query.f:
+            if query.format:
                 try:
-                    format_fn = output_formats()[query.f]
+                    format_fn = output_formats()[query.format]
                 except KeyError as e:
                     logger.error(f"Error getting format function: {e}")
                     raise HTTPException(
                         404,
-                        f"{query.f} is not a valid format for EDR cube queries. "
+                        f"{query.format} is not a valid format for EDR cube queries. "
                         "Get `./cube/formats` for valid formats",
                     )
 
