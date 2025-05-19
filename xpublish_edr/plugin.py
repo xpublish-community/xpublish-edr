@@ -178,7 +178,7 @@ class CfEdrPlugin(Plugin):
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
-            Returns vectorizedarea data based on WKT `Polygon(lon lat)` coordinates
+            Returns vectorized area data based on WKT `Polygon(lon lat)` coordinates
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
