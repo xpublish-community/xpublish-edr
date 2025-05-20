@@ -281,11 +281,10 @@ def vertical_extent(ds: xr.Dataset) -> Optional[VerticalExtent]:
     positive = z.attrs.get("positive", "up")
     min_z = elevations.min()
     max_z = elevations.max()
-    elevation_values = ",".join([str(e) for e in elevations])
 
     return VerticalExtent(
         interval=[min_z, max_z],
-        values=elevation_values,
+        values=elevations,
         vrs=f"VERTCRS[VERT_CS['unknown'],AXIS['Z',{positive}],UNIT[{units},1]]",  # noqa
     )
 
