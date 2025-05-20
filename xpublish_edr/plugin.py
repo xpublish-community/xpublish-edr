@@ -2,35 +2,26 @@
 OGC EDR router for datasets with CF convention metadata
 """
 
-import importlib
-from typing import List
+from typing import Annotated, List
 
 import xarray as xr
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from shapely.errors import GEOSException
 from xpublish import Dependencies, Plugin, hookimpl
 
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.metadata import collection_metadata
-from xpublish_edr.query import EDRQuery, edr_query
-
-
-def output_formats():
-    """
-    Return response format functions from registered
-    `xpublish_edr_position_formats` entry_points
-    """
-    formats = {}
-
-    entry_points = importlib.metadata.entry_points()
-    for entry_point in entry_points.select(group="xpublish_edr_position_formats"):
-        formats[entry_point.name] = entry_point.load()
-
-    return formats
+from xpublish_edr.query import (
+    EDRAreaQuery,
+    EDRCubeQuery,
+    EDRPositionQuery,
+    output_formats,
+)
 
 
 class CfEdrPlugin(Plugin):
@@ -75,6 +66,14 @@ class CfEdrPlugin(Plugin):
 
             return formats
 
+        @router.get("/cube/formats", summary="Cube query response formats")
+        def get_cube_formats():
+            """
+            Returns the various supported formats for cube queries
+            """
+            formats = {key: value.__doc__ for key, value in output_formats().items()}
+            return formats
+
         return router
 
     @hookimpl
@@ -99,11 +98,11 @@ class CfEdrPlugin(Plugin):
         @router.get("/position", summary="Position query")
         def get_position(
             request: Request,
-            query: EDRQuery = Depends(edr_query),
+            query: Annotated[EDRPositionQuery, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
-            Returns position data based on WKT `Point(lon lat)` coordinates
+            Returns vectorized position data based on WKT `Point(lon lat)` coordinates
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
@@ -165,7 +164,7 @@ class CfEdrPlugin(Plugin):
                     raise HTTPException(
                         404,
                         f"{query.format} is not a valid format for EDR position queries. "
-                        "Get `./formats` for valid formats",
+                        "Get `./position/formats` for valid formats",
                     )
 
                 return format_fn(ds)
@@ -175,11 +174,11 @@ class CfEdrPlugin(Plugin):
         @router.get("/area", summary="Area query")
         def get_area(
             request: Request,
-            query: EDRQuery = Depends(edr_query),
+            query: Annotated[EDRAreaQuery, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
-            Returns area data based on WKT `Polygon(lon lat)` coordinates
+            Returns vectorized area data based on WKT `Polygon(lon lat)` coordinates
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
@@ -232,8 +231,75 @@ class CfEdrPlugin(Plugin):
                     logger.error(f"Error getting format function: {e}")
                     raise HTTPException(
                         404,
-                        f"{query.format} is not a valid format for EDR position queries. "
-                        "Get `./formats` for valid formats",
+                        f"{query.format} is not a valid format for EDR area queries. "
+                        "Get `./area/formats` for valid formats",
+                    )
+
+                return format_fn(ds)
+
+            return to_cf_covjson(ds)
+
+        @router.get("/cube", summary="Cube query")
+        def get_cube(
+            request: Request,
+            query: Annotated[EDRCubeQuery, Query()],
+            dataset: xr.Dataset = Depends(deps.dataset),
+        ):
+            """
+            Returns gridded cube data based on bbox coordinates and optional elevation
+
+            Extra selecting/slicing parameters can be provided as extra query parameters
+            """
+            try:
+                ds = query.select(dataset, dict(request.query_params))
+            except ValueError as e:
+                logger.error(f"Error selecting from query while selecting by cube: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Error selecting from query: {e.args[0]}",
+                )
+
+            logger.debug(f"Dataset filtered by query params {ds}")
+
+            try:
+                ds = select_by_bbox(ds, query.project_bbox(ds))
+            except KeyError as e:
+                logger.error(f"Error selecting by bbox: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Dataset does not have CF Convention compliant metadata",
+                )
+            except ValueError as e:
+                logger.error(f"Error selecting by bbox: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Error selecting by bbox, see logs for more details",
+                )
+
+            logger.debug(
+                f"Dataset filtered by bbox ({query.bbox}): {ds}",
+            )
+
+            try:
+                ds = project_dataset(ds, query.crs)
+            except Exception as e:
+                logger.error(f"Error projecting dataset while selecting by area: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Error projecting dataset",
+                )
+
+            logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+            if query.format:
+                try:
+                    format_fn = output_formats()[query.format]
+                except KeyError as e:
+                    logger.error(f"Error getting format function: {e}")
+                    raise HTTPException(
+                        404,
+                        f"{query.format} is not a valid format for EDR cube queries. "
+                        "Get `./cube/formats` for valid formats",
                     )
 
                 return format_fn(ds)

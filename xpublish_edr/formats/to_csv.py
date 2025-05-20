@@ -15,5 +15,5 @@ def to_csv(ds: xr.Dataset):
     return Response(
         csv,
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="position.csv"'},
+        headers={"Content-Disposition": 'attachment; filename="data.csv"'},
     )

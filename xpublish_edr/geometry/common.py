@@ -79,6 +79,34 @@ def project_geometry(ds: xr.Dataset, geometry_crs: str, geometry: Geometry) -> G
     return transform(transformer.transform, geometry)
 
 
+def project_bbox(
+    ds: xr.Dataset,
+    bbox_crs: Union[str, pyproj.CRS],
+    bbox: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """
+    Project the bbox to the dataset's CRS
+    """
+    data_crs = dataset_crs(ds)
+    if isinstance(bbox_crs, pyproj.CRS):
+        target_crs = bbox_crs
+    else:
+        target_crs = pyproj.CRS.from_string(bbox_crs)
+    if data_crs == target_crs:
+        return bbox
+
+    transformer: pyproj.Transformer = transformer_from_crs(
+        crs_from=target_crs,
+        crs_to=data_crs,
+        always_xy=True,
+    )
+    projected_x, projected_y = transformer.transform(
+        xx=[bbox[0], bbox[2]],
+        yy=[bbox[1], bbox[3]],
+    )
+    return projected_x[0], projected_y[0], projected_x[1], projected_y[1]
+
+
 def project_dataset(ds: xr.Dataset, query_crs: Union[str, pyproj.CRS]) -> xr.Dataset:
     """
     Project the dataset to the given CRS

@@ -234,8 +234,8 @@ def test_cf_position_csv(cf_client):
         "attachment" in response.headers["content-disposition"]
     ), "The response should be set as an attachment to trigger download"
     assert (
-        "position.csv" in response.headers["content-disposition"]
-    ), "The file name should be position.csv"
+        "data.csv" in response.headers["content-disposition"]
+    ), "The file name should be data.csv"
 
     csv_data = [
         line.split(",") for line in response.content.decode("utf-8").splitlines()
@@ -260,8 +260,8 @@ def test_cf_position_csv(cf_client):
         "attachment" in response.headers["content-disposition"]
     ), "The response should be set as an attachment to trigger download"
     assert (
-        "position.csv" in response.headers["content-disposition"]
-    ), "The file name should be position.csv"
+        "data.csv" in response.headers["content-disposition"]
+    ), "The file name should be data.csv"
 
     csv_data = [
         line.split(",") for line in response.content.decode("utf-8").splitlines()
@@ -289,8 +289,8 @@ def test_cf_position_csv_interpolate(cf_client):
         "attachment" in response.headers["content-disposition"]
     ), "The response should be set as an attachment to trigger download"
     assert (
-        "position.csv" in response.headers["content-disposition"]
-    ), "The file name should be position.csv"
+        "data.csv" in response.headers["content-disposition"]
+    ), "The file name should be data.csv"
 
     csv_data = [
         line.split(",") for line in response.content.decode("utf-8").splitlines()
@@ -336,8 +336,8 @@ def test_cf_position_nc(cf_client):
         "attachment" in response.headers["content-disposition"]
     ), "The response should be set as an attachment to trigger download"
     assert (
-        "position.nc" in response.headers["content-disposition"]
-    ), "The file name should be position.nc"
+        "data.nc" in response.headers["content-disposition"]
+    ), "The file name should be data.nc"
 
 
 def test_percent_encoded_cf_position_nc(cf_client):
@@ -353,8 +353,8 @@ def test_percent_encoded_cf_position_nc(cf_client):
         "attachment" in response.headers["content-disposition"]
     ), "The response should be set as an attachment to trigger download"
     assert (
-        "position.nc" in response.headers["content-disposition"]
-    ), "The file name should be position.nc"
+        "data.nc" in response.headers["content-disposition"]
+    ), "The file name should be data.nc"
 
 
 def test_cf_position_geojson(cf_client):
@@ -451,8 +451,8 @@ def test_cf_multiple_position_csv(cf_client):
         "attachment" in response.headers["content-disposition"]
     ), "The response should be set as an attachment to trigger download"
     assert (
-        "position.csv" in response.headers["content-disposition"]
-    ), "The file name should be position.csv"
+        "data.csv" in response.headers["content-disposition"]
+    ), "The file name should be data.csv"
 
     csv_data = [
         line.split(",") for line in response.content.decode("utf-8").splitlines()
@@ -535,8 +535,8 @@ def test_cf_area_csv_query(cf_client, cf_air_dataset):
         "attachment" in response.headers["content-disposition"]
     ), "The response should be set as an attachment to trigger download"
     assert (
-        "position.csv" in response.headers["content-disposition"]
-    ), "The file name should be position.csv"
+        "data.csv" in response.headers["content-disposition"]
+    ), "The file name should be data.csv"
 
     csv_data = [
         line.split(",") for line in response.content.decode("utf-8").splitlines()
@@ -578,5 +578,128 @@ def test_cf_area_nc_query(cf_client, cf_air_dataset):
         "attachment" in response.headers["content-disposition"]
     ), "The response should be set as an attachment to trigger download"
     assert (
-        "position.nc" in response.headers["content-disposition"]
-    ), "The file name should be position.nc"
+        "data.nc" in response.headers["content-disposition"]
+    ), "The file name should be data.nc"
+
+
+def test_cf_cube_query_covjson(cf_client, cf_air_dataset):
+    bbox = "200,40,210,50"
+    response = cf_client.get(f"/datasets/air/edr/cube?bbox={bbox}")
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "application/json" in response.headers["content-type"]
+    ), "The content type should be set as a JSON"
+
+    data = response.json()
+
+    for key in ("type", "domain", "parameters", "ranges"):
+        assert key in data, f"Key {key} is not a top level key in the CovJSON response"
+
+    axes = data["domain"]["axes"]
+
+    assert axes["x"]["values"] == [
+        200,
+        202.5,
+        205,
+        207.5,
+        210,
+    ], "X coordinates are incorrect"
+    assert axes["y"]["values"] == [
+        50,
+        47.5,
+        45,
+        42.5,
+        40,
+    ], "Y coordinates are incorrect"
+    assert (
+        len(axes["t"]["values"]) == 4
+    ), "There should be a time value for each time step"
+
+    air_param = data["parameters"]["air"]
+
+    assert (
+        air_param["unit"]["label"]["en"] == cf_air_dataset["air"].attrs["units"]
+    ), "DataArray units should be set as parameter units"
+    assert (
+        air_param["observedProperty"]["id"]
+        == cf_air_dataset["air"].attrs["standard_name"]
+    ), "DataArray standard_name should be set as the observed property id"
+    assert (
+        air_param["observedProperty"]["label"]["en"]
+        == cf_air_dataset["air"].attrs["long_name"]
+    ), "DataArray long_name should be set as parameter observed property"
+    assert (
+        air_param["description"]["en"] == cf_air_dataset["air"].attrs["long_name"]
+    ), "DataArray long_name should be set as parameter description"
+
+    air_range = data["ranges"]["air"]
+
+    assert air_range["type"] == "NdArray", "Response range should be a NdArray"
+    assert air_range["dataType"] == "float", "Air dataType should be floats"
+    assert air_range["axisNames"] == ["t", "y", "x"], "All dimensions should persist"
+    assert air_range["shape"] == [4, 5, 5], "The shape of the array should be 4x5x5"
+    assert (
+        len(air_range["values"]) == 100
+    ), "There should be 100 values (4 time steps * 5 lat points * 5 lon points)"
+
+
+def test_cf_cube_query_geojson(cf_client, cf_air_dataset):
+    bbox = "200,40,210,50"
+    response = cf_client.get(f"/datasets/air/edr/cube?bbox={bbox}&f=geojson")
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "application/json" in response.headers["content-type"]
+    ), "The content type should be set as a JSON"
+
+    data = response.json()
+
+    assert "type" in data, "GeoJSON response should have a type key"
+    assert "features" in data, "GeoJSON response should have a features key"
+
+    features = data["features"]
+
+    assert (
+        len(features) == 100
+    ), "There should be 100 data points (4 time steps * 5 lat points * 5 lon points)"
+
+
+def test_cf_cube_query_nc(cf_client, cf_air_dataset):
+    bbox = "200,40,210,50"
+    response = cf_client.get(f"/datasets/air/edr/cube?bbox={bbox}&f=nc")
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "application/netcdf" in response.headers["content-type"]
+    ), "The content type should be set as a NetCDF"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "data.nc" in response.headers["content-disposition"]
+    ), "The file name should be data.nc"
+
+
+def test_cf_cube_query_csv(cf_client, cf_air_dataset):
+    bbox = "200,40,210,50"
+    response = cf_client.get(f"/datasets/air/edr/cube?bbox={bbox}&f=csv")
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "text/csv" in response.headers["content-type"]
+    ), "The content type should be set as a CSV"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "data.csv" in response.headers["content-disposition"]
+    ), "The file name should be data.csv"
+
+    csv_data = [
+        line.split(",") for line in response.content.decode("utf-8").splitlines()
+    ]
+
+    assert len(csv_data) == 101, "There should be 100 data rows and one header row"
+    for key in ("time", "lat", "lon", "air"):
+        assert key in csv_data[0], f"column {key} should be in the header"

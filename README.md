@@ -91,6 +91,22 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 
 For `POLYGON` coordinates, points that are located within **OR** on the polygons boundary are included in the response.
 
+[8.2.4 Cube query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_c92d1888-dc80-454f-8452-e2f070b90dcd)
+
+| Query  | Compliant | Comments
+| ------------- | ------------- | ------------- |
+| `bbox`  | ✅ | Bounding box in `minx,miny,maxx,maxy` format |
+| `z`  | ✅ | |
+| `datetime`  | ✅ | |
+| `parameter-name`  | ✅ | |
+| `crs`  | ✅ | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326` |
+| `f`  | ✅ | |
+| `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
+
+> `method` is not applicable for the coordinates of cube queries, only for selecting datetime, z, or additional dimensions.
+
+Cube queries are not flattened like area queries, so the response is returned as sliced by xarray. This is particularly useful for subsetting regular grids.
+
 ## Get in touch
 
 Report bugs, suggest features or view the source code on [GitHub](https://github.com/gulfofmaine/xpublish-edr/issues).

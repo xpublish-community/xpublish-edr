@@ -12,12 +12,11 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
         os: [windows-latest, ubuntu-latest, macos-latest]
-        pydantic-version: ["<2", ">=2"]
 
     steps:
       - uses: actions/checkout@v2
 
-      - name: Setup Micromamba ${{ matrix.python-version }} Pydantic ${{ matrix.pydantic-version }}
+      - name: Setup Micromamba ${{ matrix.python-version }}
         uses: mamba-org/setup-micromamba@v1
         with:
           environment-name: TEST
@@ -27,7 +26,6 @@ jobs:
             --file requirements.txt
             --file requirements-dev.txt
             --channel conda-forge
-            pydantic${{ matrix.pydantic-version }}
 
       - name: Install xpublish-edr
         shell: bash -l {0}
