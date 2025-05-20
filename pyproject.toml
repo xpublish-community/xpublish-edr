@@ -36,6 +36,7 @@ nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
 netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
 nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
 netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+parquet = "xpublish_edr.formats.to_parquet:to_parquet"
 
 [tool.check-manifest]
 ignore = ["xpublish_edr/_version.py"]
