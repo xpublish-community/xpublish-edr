@@ -1,4 +1,7 @@
+from io import BytesIO
+
 import numpy.testing as npt
+import pandas as pd
 import pytest
 import xpublish
 from fastapi.testclient import TestClient
@@ -82,6 +85,7 @@ def test_cf_metadata_query(cf_client):
         "netcdf",
         "csv",
         "geojson",
+        "parquet",
     }, "The output formats are incorrect"
     assert (
         "position" in data["data_queries"] and "area" in data["data_queries"]
@@ -321,6 +325,54 @@ def test_cf_position_csv_interpolate(cf_client):
         ),
         "Latitude should be interpolated as 44.0",
     )
+
+
+def test_cf_position_parquet(cf_client) -> None:
+    x = 204
+    y = 44
+    response = cf_client.get(
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=parquet&parameter-name=air",
+    )
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "application/parquet" in response.headers["content-type"]
+    ), "The content type should be set as a Parquet"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "data.parquet" in response.headers["content-disposition"]
+    ), "The file name should be data.parquet"
+
+    df = pd.read_parquet(BytesIO(response.content))
+    print(df.head())
+
+    assert (
+        len(df) == 4
+    ), "There should be 4 data rows (one for each time step), and one header row"
+    assert set(df.reset_index().columns) == {"time", "lat", "lon", "air", "cell_area"}
+
+    # single time step test
+    response = cf_client.get(
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=parquet&parameter-name=air&datetime=2013-01-01T00:00:00",  # noqa
+    )
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "application/parquet" in response.headers["content-type"]
+    ), "The content type should be set as a Parquet"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "data.parquet" in response.headers["content-disposition"]
+    ), "The file name should be data.parquet"
+
+    df = pd.read_parquet(BytesIO(response.content))
+
+    assert len(df) == 1, "There should be 2 data rows, one data and one header row"
+    assert set(df.reset_index().columns) == {"time", "lat", "lon", "air", "cell_area"}
 
 
 def test_cf_position_nc(cf_client):
