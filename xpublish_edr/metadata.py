@@ -358,10 +358,40 @@ def area_query_description(
             variables=VariablesMetadata(
                 title="Area query",
                 description="Returns data in a polygon based on WKT `POLYGON(lon lat, ...)` coordinates",  # noqa
-                query_type="position",
+                query_type="area",
                 coords={
                     "type": "string",
                     "description": "WKT `POLYGON(lon lat, ...)` coordinates",
+                    "required": True,
+                },
+                output_formats=output_formats,
+                default_output_format="cf_covjson",
+                crs_details=crs_details,
+            ),
+        ),
+    )
+
+
+def cube_query_description(
+    output_formats: list[str],
+    crs_details: list[CRSDetails],
+) -> EDRQueryMetadata:
+    """
+    Return CF version of EDR Cube Query metadata
+    """
+    return EDRQueryMetadata(
+        link=Link(
+            href="/edr/cube?bbox={bbox}",
+            hreflang="en",
+            rel="data",
+            templated=True,
+            variables=VariablesMetadata(
+                title="Cube query",
+                description="Returns data in a cube based on a bounding box, with optional elevation",
+                query_type="cube",
+                bbox={
+                    "type": "string",
+                    "description": "Bounding box in the format `min_x,min_y,max_x,max_y`",
                     "required": True,
                 },
                 output_formats=output_formats,
@@ -413,6 +443,7 @@ def collection_metadata(ds: xr.Dataset, output_formats: list[str]) -> Collection
         data_queries=DataQueries(
             position=position_query_description(output_formats, supported_crs),
             area=area_query_description(output_formats, supported_crs),
+            cube=cube_query_description(output_formats, supported_crs),
         ),
         crs=[crs.to_string()],
         output_formats=output_formats,
