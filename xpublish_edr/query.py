@@ -49,25 +49,22 @@ class BaseEDRQuery(BaseModel):
         None,
         title="Datetime",
         description="Datetime for the query",
-        alias="datetime",
     )
     parameters: Optional[str] = Field(
         None,
         title="Parameters",
         description="Parameters for the query",
-        alias="parameter-name",
+        validation_alias="parameter-name",
     )
     crs: str = Field(
         "EPSG:4326",
         title="Coordinate Reference System",
         description="Coordinate Reference System for the query. Default is EPSG:4326",
-        alias="crs",
     )
     method: Literal["nearest", "linear"] = Field(
         "nearest",
         title="Method",
         description="Method for the query",
-        alias="method",
     )
 
     @field_validator("format", mode="before")

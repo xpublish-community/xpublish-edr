@@ -1,5 +1,6 @@
 from typing import Literal, Optional
 
+import pandas as pd
 import pyproj
 import xarray as xr
 from pydantic import BaseModel, Field
@@ -260,9 +261,9 @@ def temporal_extent(ds: xr.Dataset) -> Optional[TemporalExtent]:
     if "T" not in ds.cf:
         return None
 
-    t = ds.cf["T"]
-    time_min = t.min().dt.strftime("%Y-%m-%dT%H:%M:%S").values
-    time_max = t.max().dt.strftime("%Y-%m-%dT%H:%M:%S").values
+    t = pd.to_datetime(ds.cf["T"])
+    time_min = t.min().strftime("%Y-%m-%dT%H:%M:%S")
+    time_max = t.max().strftime("%Y-%m-%dT%H:%M:%S")
     return TemporalExtent(
         interval=[str(time_min), str(time_max)],
         values=[f"{time_min}/{time_max}"],
