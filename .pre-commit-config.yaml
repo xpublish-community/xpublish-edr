@@ -26,27 +26,27 @@ repos:
       - id: blackdoc
 
   - repo: https://github.com/pycqa/flake8
-    rev: 7.1.1
+    rev: 7.2.0
     hooks:
       - id: flake8
         exclude: docs/source/conf.py
         args: [--max-line-length=105]
 
   - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
+    rev: 6.0.1
     hooks:
       - id: isort
         additional_dependencies: [toml]
         args: ["--profile", "black", "--filter-files"]
 
   - repo: https://github.com/psf/black
-    rev: 24.10.0
+    rev: 25.1.0
     hooks:
       - id: black
         language_version: python3
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.14.1
+    rev: v1.15.0
     hooks:
       - id: mypy
         exclude: docs/source/conf.py
@@ -55,20 +55,20 @@ repos:
           [typing_extensions>=4.2.0, types-setuptools, types-PyYAML]
 
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.3.0
+    rev: v2.4.1
     hooks:
       - id: codespell
         args:
           - --quiet-level=2
 
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.19.1
+    rev: v3.20.0
     hooks:
       - id: pyupgrade
         args:
           - --py36-plus
 
   - repo: https://github.com/asottile/add-trailing-comma
-    rev: v3.1.0
+    rev: v3.2.0
     hooks:
       - id: add-trailing-comma
