@@ -57,6 +57,7 @@ netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
 nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
 netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
 parquet = "xpublish_edr.formats.to_parquet:to_parquet"
+geotiff = "xpublish_edr.formats.to_geotiff:to_geotiff"
 
 
 [tool.check-manifest]

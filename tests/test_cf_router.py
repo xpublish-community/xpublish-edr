@@ -48,9 +48,14 @@ def test_cf_position_formats(cf_client):
 
     data = response.json()
 
-    assert "cf_covjson" in data, "cf_covjson is not a valid format"
-    assert "nc" in data, "nc is not a valid format"
-    assert "csv" in data, "csv is not a valid format"
+    assert "cf_covjson" in data, "cf_covjson is not reported as a valid format"
+    assert "nc" in data, "nc is not reported as a valid format"
+    assert "csv" in data, "csv is not reported as a valid format"
+    assert "parquet" in data, "parquet is not reported as a valid format"
+    assert "geojson" in data, "geojson is not reported as a valid format"
+    assert (
+        "geotiff" not in data
+    ), "geotiff is reported as a valid format for position queries, but it is not"
 
 
 def test_cf_area_formats(cf_client):
@@ -60,9 +65,27 @@ def test_cf_area_formats(cf_client):
 
     data = response.json()
 
-    assert "cf_covjson" in data, "cf_covjson is not a valid format"
-    assert "nc" in data, "nc is not a valid format"
-    assert "csv" in data, "csv is not a valid format"
+    assert "cf_covjson" in data, "cf_covjson is not reported as a valid format"
+    assert "nc" in data, "nc is not reported as a valid format"
+    assert "csv" in data, "csv is not reported as a valid format"
+    assert "geojson" in data, "geojson is not reported as a valid format"
+    assert (
+        "geotiff" not in data
+    ), "geotiff is reported as a valid format for area queries, but it is not"
+
+
+def test_cf_cube_formats(cf_client):
+    response = cf_client.get("/edr/cube/formats")
+
+    assert response.status_code == 200, "Response did not return successfully"
+
+    data = response.json()
+
+    assert "cf_covjson" in data, "cf_covjson is not reported as a valid format"
+    assert "nc" in data, "nc is not reported as a valid format"
+    assert "csv" in data, "csv is not reported as a valid format"
+    assert "geojson" in data, "geojson is not reported as a valid format"
+    assert "geotiff" in data, "geotiff is not reported as a valid format"
 
 
 def test_cf_metadata_query(cf_client):
