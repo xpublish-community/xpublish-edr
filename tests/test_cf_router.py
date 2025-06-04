@@ -781,13 +781,14 @@ def test_cf_cube_query_csv(cf_client, cf_air_dataset):
 
 
 def test_cf_cube_query_geotiff(cf_client, cf_air_dataset):
+    import io
+
+    import rioxarray
+
     bbox = "200,40,210,50"
     response = cf_client.get(
         f"/datasets/air/edr/cube?bbox={bbox}&parameter-name=air&f=geotiff",
     )
-
-    print(response.content)
-    print(response.status_code)
     assert response.status_code == 200, "Response did not return successfully"
     assert (
         "image/tiff" in response.headers["content-type"]
@@ -798,3 +799,16 @@ def test_cf_cube_query_geotiff(cf_client, cf_air_dataset):
     assert (
         "data.tiff" in response.headers["content-disposition"]
     ), "The file name should be data.tiff"
+
+    # Read the GeoTIFF back in from the response content
+    da = rioxarray.open_rasterio(io.BytesIO(response.content))
+    assert da.band.shape == (
+        4,
+    ), "GeoTIFF should have 4 time steps represented as bands"
+    assert da.x.shape == (5,), "GeoTIFF should have 5 x coordinates"
+    assert da.y.shape == (5,), "GeoTIFF should have 5 y coordinates"
+    assert da.shape == (
+        4,
+        5,
+        5,
+    ), "GeoTIFF should have 4 time steps, 5 x coordinates, and 5 y coordinates"
