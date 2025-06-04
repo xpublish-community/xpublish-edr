@@ -788,6 +788,14 @@ def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset):
     response = cf_client.get(
         f"/datasets/air/edr/cube?bbox={bbox}&parameter-name=air&f=geotiff",
     )
+    assert response.status_code == 400, "Response should have returned a 400"
+    assert (
+        "GeoTIFF export only supports up to 2 dimensions" in response.json()["detail"]
+    ), "Response should have returned a 400"
+
+    response = cf_client.get(
+        f"/datasets/air/edr/cube?bbox={bbox}&parameter-name=air&f=geotiff&time=2013-01-01T00:00:00",
+    )
     assert response.status_code == 200, "Response did not return successfully"
     assert (
         "image/tiff" in response.headers["content-type"]
@@ -801,13 +809,11 @@ def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset):
 
     # Read the GeoTIFF back in from the response content
     da = rioxarray.open_rasterio(io.BytesIO(response.content))
-    assert da.band.shape == (
-        4,
-    ), "GeoTIFF should have 4 time steps represented as bands"
+    assert da.band.shape == (1,), "GeoTIFF should have 1 time step represented as bands"
     assert da.x.shape == (5,), "GeoTIFF should have 5 x coordinates"
     assert da.y.shape == (5,), "GeoTIFF should have 5 y coordinates"
     assert da.shape == (
-        4,
+        1,
         5,
         5,
-    ), "GeoTIFF should have 4 time steps, 5 x coordinates, and 5 y coordinates"
+    ), "GeoTIFF should have 1 time step, 5 x coordinates, and 5 y coordinates"

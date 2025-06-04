@@ -23,28 +23,16 @@ def to_geotiff(ds: xr.Dataset) -> Response:
             detail="No variables with x and y coordinates found.",
         )
 
-    if len(data_vars) == 1:
-        if len(ds[data_vars[0]].shape) > 3:
+    for var in data_vars:
+        if len(ds[var].shape) > 2:
             raise HTTPException(
                 status_code=400,
-                detail=f"Variable {data_vars[0]} has {ds[data_vars[0]].shape} dimensions. "
-                "GeoTIFF export only supports up to 3 dimensions when exporting a single variable. "
-                f"Found dimensions: {', '.join(ds[data_vars[0]].dims)}.",
+                detail=f"Variable {var} has {ds[var].shape} dimensions. "
+                "GeoTIFF export only supports up to 2 dimensions, "
+                "add dimensions to the query to reduce the number of dimensions. "
+                f"Found dimensions: {', '.join(ds[var].dims)}. "
+                f"Found variables: {', '.join(ds.data_vars)}.",
             )
-
-        # When a single variable is provided, we use a data array instead of a dataset
-        # to allow for exporting multiple timesteps as bands
-        ds = ds[data_vars[0]]
-    else:
-        for var in data_vars:
-            if len(ds[var].shape) > 2:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Variable {var} has {ds[var].shape} dimensions. "
-                    "GeoTIFF export only supports up to 2 dimensions when exporting multiple variables. "
-                    f"Found dimensions: {', '.join(ds[var].dims)}. "
-                    f"Found variables: {', '.join(ds.data_vars)}.",
-                )
 
     # Set the spatial dims and the crs
     axes = ds.cf.axes
