@@ -1,3 +1,7 @@
+"""
+Return response format functions from registered entry_points
+"""
+
 import importlib.metadata
 
 

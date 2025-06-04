@@ -55,12 +55,6 @@ class BaseEDRQuery(BaseModel):
         description="Method for the query",
     )
 
-    @field_validator("format", mode="before")
-    def validate_format(cls, v):
-        if v not in position_formats().keys():
-            raise ValueError(f"Invalid format: {v}")
-        return v
-
     def select(self, ds: xr.Dataset, query_params: dict) -> xr.Dataset:
         """Select data from a dataset based on the query"""
         if self.z:
@@ -149,6 +143,13 @@ class EDRPositionQuery(BaseEDRQuery):
         description="Well Known Text coordinates for the point(s) to query",
     )
 
+    @field_validator("format", mode="before")
+    def validate_format(cls, v):
+        """Validate the format is a valid position format"""
+        if v not in position_formats().keys():
+            raise ValueError(f"Invalid format: {v}")
+        return v
+
     @property
     def geometry(self) -> Geometry:
         """Shapely point from WKT query params"""
@@ -172,6 +173,13 @@ class EDRAreaQuery(BaseEDRQuery):
         description="Well Known Text coordinates",
     )
 
+    @field_validator("format", mode="before")
+    def validate_format(cls, v):
+        """Validate the format is a valid area format"""
+        if v not in area_formats().keys():
+            raise ValueError(f"Invalid format: {v}")
+        return v
+
     @property
     def geometry(self) -> Geometry:
         """Shapely polygon from WKT query params"""
@@ -193,8 +201,16 @@ class EDRCubeQuery(BaseEDRQuery):
         description="Bounding box for the query",
     )
 
+    @field_validator("format", mode="before")
+    def validate_format(cls, v):
+        """Validate the format is a valid cube format"""
+        if v not in cube_formats().keys():
+            raise ValueError(f"Invalid format: {v}")
+        return v
+
     @field_validator("bbox", mode="before")
     def validate_bbox(cls, v):
+        """Validate the bbox is a tuple of 4 floats"""
         if isinstance(v, str):
             return tuple(float(v.strip()) for v in v.split(","))
         if isinstance(v, list):
