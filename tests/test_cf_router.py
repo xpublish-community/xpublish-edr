@@ -369,7 +369,6 @@ def test_cf_position_parquet(cf_client) -> None:
     ), "The file name should be data.parquet"
 
     df = pd.read_parquet(BytesIO(response.content))
-    print(df.head())
 
     assert (
         len(df) == 4
@@ -780,7 +779,7 @@ def test_cf_cube_query_csv(cf_client, cf_air_dataset):
         assert key in csv_data[0], f"column {key} should be in the header"
 
 
-def test_cf_cube_query_geotiff(cf_client, cf_air_dataset):
+def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset):
     import io
 
     import rioxarray

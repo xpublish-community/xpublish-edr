@@ -104,7 +104,12 @@ def project_bbox(
         xx=[bbox[0], bbox[2]],
         yy=[bbox[1], bbox[3]],
     )
-    return projected_x[0], projected_y[0], projected_x[1], projected_y[1]
+
+    min_x = min(projected_x)
+    max_x = max(projected_x)
+    min_y = min(projected_y)
+    max_y = max(projected_y)
+    return min_x, min_y, max_x, max_y
 
 
 def project_dataset(ds: xr.Dataset, query_crs: Union[str, pyproj.CRS]) -> xr.Dataset:

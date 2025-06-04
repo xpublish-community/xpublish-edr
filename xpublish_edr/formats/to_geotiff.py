@@ -46,6 +46,12 @@ def to_geotiff(ds: xr.Dataset) -> Response:
                     f"Found variables: {', '.join(ds.data_vars)}.",
                 )
 
+    # Set the spatial dims and the crs
+    axes = ds.cf.axes
+    x_coord = axes["X"][0]
+    y_coord = axes["Y"][0]
+    ds = ds.rio.set_spatial_dims(x_dim=x_coord, y_dim=y_coord, inplace=True)
+
     # Create in-memory GeoTIFF
     memfile = io.BytesIO()
     ds.rio.to_raster(memfile, driver="GTiff")
