@@ -373,7 +373,14 @@ def test_cf_position_parquet(cf_client) -> None:
     assert (
         len(df) == 4
     ), "There should be 4 data rows (one for each time step), and one header row"
-    assert set(df.reset_index().columns) == {"time", "lat", "lon", "air", "cell_area"}
+    assert set(df.reset_index().columns) == {
+        "time",
+        "lat",
+        "lon",
+        "air",
+        "cell_area",
+        "spatial_ref",
+    }
 
     # single time step test
     response = cf_client.get(
@@ -394,7 +401,14 @@ def test_cf_position_parquet(cf_client) -> None:
     df = pd.read_parquet(BytesIO(response.content))
 
     assert len(df) == 1, "There should be 2 data rows, one data and one header row"
-    assert set(df.reset_index().columns) == {"time", "lat", "lon", "air", "cell_area"}
+    assert set(df.reset_index().columns) == {
+        "time",
+        "lat",
+        "lon",
+        "air",
+        "cell_area",
+        "spatial_ref",
+    }
 
 
 def test_cf_position_nc(cf_client):
