@@ -778,3 +778,23 @@ def test_cf_cube_query_csv(cf_client, cf_air_dataset):
     assert len(csv_data) == 101, "There should be 100 data rows and one header row"
     for key in ("time", "lat", "lon", "air"):
         assert key in csv_data[0], f"column {key} should be in the header"
+
+
+def test_cf_cube_query_geotiff(cf_client, cf_air_dataset):
+    bbox = "200,40,210,50"
+    response = cf_client.get(
+        f"/datasets/air/edr/cube?bbox={bbox}&parameter-name=air&f=geotiff",
+    )
+
+    print(response.content)
+    print(response.status_code)
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "image/tiff" in response.headers["content-type"]
+    ), "The content type should be set as a TIFF"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "data.tiff" in response.headers["content-disposition"]
+    ), "The file name should be data.tiff"

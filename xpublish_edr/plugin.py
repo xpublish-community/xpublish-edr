@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from shapely.errors import GEOSException
 from xpublish import Dependencies, Plugin, hookimpl
 
-from xpublish_edr.format import area_formats, cube_formats
+from xpublish_edr.format import area_formats, cube_formats, position_formats
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
@@ -17,12 +17,7 @@ from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.metadata import collection_metadata
-from xpublish_edr.query import (
-    EDRAreaQuery,
-    EDRCubeQuery,
-    EDRPositionQuery,
-    position_formats,
-)
+from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
 
 
 class CfEdrPlugin(Plugin):
