@@ -3,54 +3,53 @@ Generate GeoTIFF responses for an xarray dataset for EDR queries
 """
 
 import xarray as xr
-from fastapi import Response
+from fastapi import HTTPException, Response
 
 
 def to_geotiff(ds: xr.Dataset) -> Response:
     """Return a GeoTIFF response from an xarray dataset"""
     import io
 
-    import numpy as np
-    import rasterio
-    from rasterio.transform import from_origin
+    import rasterio  # noqa
 
-    # Get the first data variable
-    var_name = list(ds.data_vars)[0]
-    data = ds[var_name].values
+    # Get CF axes
+    axes = ds.cf.axes
+    x_coord = axes["X"][0]
+    y_coord = axes["Y"][0]
 
-    # Handle different dimensions
-    if len(data.shape) == 2:
-        # 2D data (x,y)
-        data = np.expand_dims(data, axis=0)
-    elif len(data.shape) > 3:
-        # More than 3D, take first slice
-        data = data[0]
+    # Ensure all variables have x and y coordinates
+    for var in ds.data_vars:
+        if x_coord not in ds[var].cf.axes or y_coord not in ds[var].cf.axes:
+            ds = ds.drop_vars(var)
 
-    # Get coordinates
-    x_coords = ds[ds[var_name].dims[-1]].values
-    y_coords = ds[ds[var_name].dims[-2]].values
+    # Handle data variables
+    data_vars = list(ds.data_vars)
+    if len(data_vars) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No variables with x and y coordinates found.",
+        )
 
-    # Calculate pixel size
-    x_res = (x_coords[-1] - x_coords[0]) / (len(x_coords) - 1)
-    y_res = (y_coords[-1] - y_coords[0]) / (len(y_coords) - 1)
-
-    # Create transform
-    transform = from_origin(x_coords[0], y_coords[-1], x_res, y_res)
+    if len(data_vars) == 1 and len(ds[data_vars[0]].shape) > 3:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Variable {data_vars[0]} has {ds[data_vars[0]].shape} dimensions. "
+            "GeoTIFF export only supports up to 3 dimensions when exporting a single variable. "
+            f"Found dimensions: {', '.join(ds[data_vars[0]].dims)}",
+        )
+    else:
+        for var in data_vars:
+            if len(ds[var].shape) > 2:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Variable {var} has {ds[var].shape} dimensions. "
+                    "GeoTIFF export only supports up to 2 dimensions when exporting multiple variables. "
+                    f"Found dimensions: {', '.join(ds[var].dims)}",
+                )
 
     # Create in-memory GeoTIFF
     memfile = io.BytesIO()
-    with rasterio.open(
-        memfile,
-        "w",
-        driver="GTiff",
-        height=data.shape[1],
-        width=data.shape[2],
-        count=data.shape[0],
-        dtype=data.dtype,
-        crs="EPSG:4326",
-        transform=transform,
-    ) as dst:
-        dst.write(data)
+    ds.rio.to_raster(memfile, driver="GTiff")
 
     # Reset buffer position
     memfile.seek(0)
