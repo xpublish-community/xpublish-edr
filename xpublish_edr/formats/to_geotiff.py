@@ -9,9 +9,10 @@ from fastapi import Response
 def to_geotiff(ds: xr.Dataset) -> Response:
     """Return a GeoTIFF response from an xarray dataset"""
     import io
+
+    import numpy as np
     import rasterio
     from rasterio.transform import from_origin
-    import numpy as np
 
     # Get the first data variable
     var_name = list(ds.data_vars)[0]
@@ -40,13 +41,13 @@ def to_geotiff(ds: xr.Dataset) -> Response:
     memfile = io.BytesIO()
     with rasterio.open(
         memfile,
-        'w',
-        driver='GTiff',
+        "w",
+        driver="GTiff",
         height=data.shape[1],
         width=data.shape[2],
         count=data.shape[0],
         dtype=data.dtype,
-        crs='EPSG:4326',
+        crs="EPSG:4326",
         transform=transform,
     ) as dst:
         dst.write(data)
@@ -57,8 +58,6 @@ def to_geotiff(ds: xr.Dataset) -> Response:
     # Return FastAPI response
     return Response(
         content=memfile.getvalue(),
-        media_type='image/tiff',
-        headers={
-            'Content-Disposition': 'attachment; filename=data.tiff'
-        }
+        media_type="image/tiff",
+        headers={"Content-Disposition": "attachment; filename=data.tiff"},
     )
