@@ -5,6 +5,8 @@ Generate GeoTIFF responses for an xarray dataset for EDR queries
 import xarray as xr
 from fastapi import HTTPException, Response
 
+from xpublish_edr.logger import logger
+
 
 def to_geotiff(ds: xr.Dataset) -> Response:
     """Return a GeoTIFF response from an xarray dataset"""
@@ -25,6 +27,14 @@ def to_geotiff(ds: xr.Dataset) -> Response:
 
     for var in data_vars:
         if len(ds[var].shape) > 2:
+            logger.error(
+                f"Variable {var} has {ds[var].shape} dimensions. "
+                "GeoTIFF export only supports up to 2 dimensions, "
+                "add dimensions to the query to reduce the number of dimensions. "
+                f"Found dimensions: {', '.join(ds[var].dims)}. "
+                f"Found variables: {', '.join(ds.data_vars)}.",
+            )
+            logger.error("Full dataset", ds)
             raise HTTPException(
                 status_code=400,
                 detail=f"Variable {var} has {ds[var].shape} dimensions. "
