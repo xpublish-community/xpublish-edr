@@ -38,6 +38,28 @@ nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
 netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
 parquet = "xpublish_edr.formats.to_parquet:to_parquet"
 
+[project.entry-points.xpublish_edr_area_formats]
+cf_covjson = "xpublish_edr.formats.to_covjson:to_cf_covjson"
+csv = "xpublish_edr.formats.to_csv:to_csv"
+geojson = "xpublish_edr.formats.to_geojson:to_geojson"
+nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
+netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
+nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+parquet = "xpublish_edr.formats.to_parquet:to_parquet"
+
+[project.entry-points.xpublish_edr_cube_formats]
+cf_covjson = "xpublish_edr.formats.to_covjson:to_cf_covjson"
+csv = "xpublish_edr.formats.to_csv:to_csv"
+geojson = "xpublish_edr.formats.to_geojson:to_geojson"
+nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
+netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
+nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+parquet = "xpublish_edr.formats.to_parquet:to_parquet"
+geotiff = "xpublish_edr.formats.to_geotiff:to_geotiff"
+
+
 [tool.check-manifest]
 ignore = ["xpublish_edr/_version.py"]
 

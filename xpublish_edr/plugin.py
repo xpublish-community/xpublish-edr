@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from shapely.errors import GEOSException
 from xpublish import Dependencies, Plugin, hookimpl
 
+from xpublish_edr.format import area_formats, cube_formats, position_formats
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
@@ -16,12 +17,7 @@ from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.metadata import collection_metadata
-from xpublish_edr.query import (
-    EDRAreaQuery,
-    EDRCubeQuery,
-    EDRPositionQuery,
-    output_formats,
-)
+from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
 
 
 class CfEdrPlugin(Plugin):
@@ -50,7 +46,7 @@ class CfEdrPlugin(Plugin):
             """
             Returns the various supported formats for position queries
             """
-            formats = {key: value.__doc__ for key, value in output_formats().items()}
+            formats = {key: value.__doc__ for key, value in position_formats().items()}
 
             return formats
 
@@ -62,7 +58,7 @@ class CfEdrPlugin(Plugin):
             """
             Returns the various supported formats for area queries
             """
-            formats = {key: value.__doc__ for key, value in output_formats().items()}
+            formats = {key: value.__doc__ for key, value in area_formats().items()}
 
             return formats
 
@@ -71,7 +67,7 @@ class CfEdrPlugin(Plugin):
             """
             Returns the various supported formats for cube queries
             """
-            formats = {key: value.__doc__ for key, value in output_formats().items()}
+            formats = {key: value.__doc__ for key, value in cube_formats().items()}
             return formats
 
         return router
@@ -90,7 +86,7 @@ class CfEdrPlugin(Plugin):
             for the current dataset as the a single collection. See the spec for more information:
             https://docs.ogc.org/is/19-086r6/19-086r6.html#_162817c2-ccd7-43c9-b1ea-ad3aea1b4d6b
             """
-            available_output_formats = list(output_formats().keys())
+            available_output_formats = list(position_formats().keys())
             return collection_metadata(dataset, available_output_formats).dict(
                 exclude_none=True,
             )
@@ -156,7 +152,7 @@ class CfEdrPlugin(Plugin):
 
             if query.format:
                 try:
-                    format_fn = output_formats()[query.format]
+                    format_fn = position_formats()[query.format]
                 except KeyError as e:
                     logger.error(
                         f"Error getting format function while selecting by position: {e}",
@@ -226,7 +222,7 @@ class CfEdrPlugin(Plugin):
 
             if query.format:
                 try:
-                    format_fn = output_formats()[query.format]
+                    format_fn = area_formats()[query.format]
                 except KeyError as e:
                     logger.error(f"Error getting format function: {e}")
                     raise HTTPException(
@@ -293,7 +289,7 @@ class CfEdrPlugin(Plugin):
 
             if query.format:
                 try:
-                    format_fn = output_formats()[query.format]
+                    format_fn = cube_formats()[query.format]
                 except KeyError as e:
                     logger.error(f"Error getting format function: {e}")
                     raise HTTPException(

@@ -48,9 +48,14 @@ def test_cf_position_formats(cf_client):
 
     data = response.json()
 
-    assert "cf_covjson" in data, "cf_covjson is not a valid format"
-    assert "nc" in data, "nc is not a valid format"
-    assert "csv" in data, "csv is not a valid format"
+    assert "cf_covjson" in data, "cf_covjson is not reported as a valid format"
+    assert "nc" in data, "nc is not reported as a valid format"
+    assert "csv" in data, "csv is not reported as a valid format"
+    assert "parquet" in data, "parquet is not reported as a valid format"
+    assert "geojson" in data, "geojson is not reported as a valid format"
+    assert (
+        "geotiff" not in data
+    ), "geotiff is reported as a valid format for position queries, but it is not"
 
 
 def test_cf_area_formats(cf_client):
@@ -60,9 +65,27 @@ def test_cf_area_formats(cf_client):
 
     data = response.json()
 
-    assert "cf_covjson" in data, "cf_covjson is not a valid format"
-    assert "nc" in data, "nc is not a valid format"
-    assert "csv" in data, "csv is not a valid format"
+    assert "cf_covjson" in data, "cf_covjson is not reported as a valid format"
+    assert "nc" in data, "nc is not reported as a valid format"
+    assert "csv" in data, "csv is not reported as a valid format"
+    assert "geojson" in data, "geojson is not reported as a valid format"
+    assert (
+        "geotiff" not in data
+    ), "geotiff is reported as a valid format for area queries, but it is not"
+
+
+def test_cf_cube_formats(cf_client):
+    response = cf_client.get("/edr/cube/formats")
+
+    assert response.status_code == 200, "Response did not return successfully"
+
+    data = response.json()
+
+    assert "cf_covjson" in data, "cf_covjson is not reported as a valid format"
+    assert "nc" in data, "nc is not reported as a valid format"
+    assert "csv" in data, "csv is not reported as a valid format"
+    assert "geojson" in data, "geojson is not reported as a valid format"
+    assert "geotiff" in data, "geotiff is not reported as a valid format"
 
 
 def test_cf_metadata_query(cf_client):
@@ -346,12 +369,18 @@ def test_cf_position_parquet(cf_client) -> None:
     ), "The file name should be data.parquet"
 
     df = pd.read_parquet(BytesIO(response.content))
-    print(df.head())
 
     assert (
         len(df) == 4
     ), "There should be 4 data rows (one for each time step), and one header row"
-    assert set(df.reset_index().columns) == {"time", "lat", "lon", "air", "cell_area"}
+    assert set(df.reset_index().columns) == {
+        "time",
+        "lat",
+        "lon",
+        "air",
+        "cell_area",
+        "spatial_ref",
+    }
 
     # single time step test
     response = cf_client.get(
@@ -372,7 +401,14 @@ def test_cf_position_parquet(cf_client) -> None:
     df = pd.read_parquet(BytesIO(response.content))
 
     assert len(df) == 1, "There should be 2 data rows, one data and one header row"
-    assert set(df.reset_index().columns) == {"time", "lat", "lon", "air", "cell_area"}
+    assert set(df.reset_index().columns) == {
+        "time",
+        "lat",
+        "lon",
+        "air",
+        "cell_area",
+        "spatial_ref",
+    }
 
 
 def test_cf_position_nc(cf_client):
@@ -755,3 +791,43 @@ def test_cf_cube_query_csv(cf_client, cf_air_dataset):
     assert len(csv_data) == 101, "There should be 100 data rows and one header row"
     for key in ("time", "lat", "lon", "air"):
         assert key in csv_data[0], f"column {key} should be in the header"
+
+
+def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset):
+    import io
+
+    import rioxarray
+
+    bbox = "200,40,210,50"
+    response = cf_client.get(
+        f"/datasets/air/edr/cube?bbox={bbox}&parameter-name=air&f=geotiff",
+    )
+    assert response.status_code == 400, "Response should have returned a 400"
+    assert (
+        "GeoTIFF export only supports up to 2 dimensions" in response.json()["detail"]
+    ), "Response should have returned a 400"
+
+    response = cf_client.get(
+        f"/datasets/air/edr/cube?bbox={bbox}&parameter-name=air&f=geotiff&time=2013-01-01T00:00:00",
+    )
+    assert response.status_code == 200, "Response did not return successfully"
+    assert (
+        "image/tiff" in response.headers["content-type"]
+    ), "The content type should be set as a TIFF"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "data.tiff" in response.headers["content-disposition"]
+    ), "The file name should be data.tiff"
+
+    # Read the GeoTIFF back in from the response content
+    da = rioxarray.open_rasterio(io.BytesIO(response.content))
+    assert da.band.shape == (1,), "GeoTIFF should have 1 time step represented as bands"
+    assert da.x.shape == (5,), "GeoTIFF should have 5 x coordinates"
+    assert da.y.shape == (5,), "GeoTIFF should have 5 y coordinates"
+    assert da.shape == (
+        1,
+        5,
+        5,
+    ), "GeoTIFF should have 1 time step, 5 x coordinates, and 5 y coordinates"

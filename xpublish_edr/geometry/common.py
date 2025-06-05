@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Union
 
 import pyproj
+import rioxarray  # noqa
 import xarray as xr
 from shapely import Geometry
 from shapely.ops import transform
@@ -54,7 +55,11 @@ def dataset_crs(ds: xr.Dataset) -> pyproj.CRS:
         # Default to WGS84
         keys = ds.cf.keys()
         if "latitude" in keys and "longitude" in keys:
-            return pyproj.CRS.from_epsg(4326)
+            crs = pyproj.CRS.from_epsg(4326)
+
+            # Write the crs to the dataset so it is there on export
+            ds.rio.write_crs(crs, inplace=True)
+            return crs
         else:
             raise ValueError("Unknown coordinate system")
     if len(grid_mapping_names) > 1:
@@ -104,7 +109,12 @@ def project_bbox(
         xx=[bbox[0], bbox[2]],
         yy=[bbox[1], bbox[3]],
     )
-    return projected_x[0], projected_y[0], projected_x[1], projected_y[1]
+
+    min_x = min(projected_x)
+    max_x = max(projected_x)
+    min_y = min(projected_y)
+    max_y = max(projected_y)
+    return min_x, min_y, max_x, max_y
 
 
 def project_dataset(ds: xr.Dataset, query_crs: Union[str, pyproj.CRS]) -> xr.Dataset:
@@ -193,4 +203,6 @@ def project_dataset(ds: xr.Dataset, query_crs: Union[str, pyproj.CRS]) -> xr.Dat
     if x_dim != y_dim:
         ds = ds.transpose(..., y_dim, x_dim)
 
+    # Write the crs to the dataset so it is there on export
+    ds = ds.rio.write_crs(target_crs, inplace=True)
     return ds

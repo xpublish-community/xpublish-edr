@@ -2,29 +2,15 @@
 OGC EDR Query param parsing
 """
 
-import importlib
 from typing import Literal, Optional
 
 import xarray as xr
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from shapely import Geometry, wkt
 
+from xpublish_edr.format import area_formats, cube_formats, position_formats
 from xpublish_edr.geometry.common import project_bbox, project_geometry
 from xpublish_edr.logger import logger
-
-
-def output_formats():
-    """
-    Return response format functions from registered
-    `xpublish_edr_position_formats` entry_points
-    """
-    formats = {}
-
-    entry_points = importlib.metadata.entry_points()
-    for entry_point in entry_points.select(group="xpublish_edr_position_formats"):
-        formats[entry_point.name] = entry_point.load()
-
-    return formats
 
 
 class BaseEDRQuery(BaseModel):
@@ -36,7 +22,9 @@ class BaseEDRQuery(BaseModel):
         None,
         title="Response format",
         description="The format of the response. Default is CoverageJSON. "
-        f"Valid formats are: {', '.join(output_formats().keys())}",
+        f"Valid position formats: {', '.join(position_formats().keys())}, "
+        f"valid area formats: {', '.join(area_formats().keys())}, "
+        f"valid cube formats: {', '.join(cube_formats().keys())}",
         validation_alias="f",
     )
     z: Optional[str] = Field(
@@ -66,12 +54,6 @@ class BaseEDRQuery(BaseModel):
         title="Method",
         description="Method for the query",
     )
-
-    @field_validator("format", mode="before")
-    def validate_format(cls, v):
-        if v not in output_formats().keys():
-            raise ValueError(f"Invalid format: {v}")
-        return v
 
     def select(self, ds: xr.Dataset, query_params: dict) -> xr.Dataset:
         """Select data from a dataset based on the query"""
@@ -161,6 +143,13 @@ class EDRPositionQuery(BaseEDRQuery):
         description="Well Known Text coordinates for the point(s) to query",
     )
 
+    @field_validator("format", mode="before")
+    def validate_format(cls, v):
+        """Validate the format is a valid position format"""
+        if v not in position_formats().keys():
+            raise ValueError(f"Invalid format: {v}")
+        return v
+
     @property
     def geometry(self) -> Geometry:
         """Shapely point from WKT query params"""
@@ -184,6 +173,13 @@ class EDRAreaQuery(BaseEDRQuery):
         description="Well Known Text coordinates",
     )
 
+    @field_validator("format", mode="before")
+    def validate_format(cls, v):
+        """Validate the format is a valid area format"""
+        if v not in area_formats().keys():
+            raise ValueError(f"Invalid format: {v}")
+        return v
+
     @property
     def geometry(self) -> Geometry:
         """Shapely polygon from WKT query params"""
@@ -205,8 +201,16 @@ class EDRCubeQuery(BaseEDRQuery):
         description="Bounding box for the query",
     )
 
+    @field_validator("format", mode="before")
+    def validate_format(cls, v):
+        """Validate the format is a valid cube format"""
+        if v not in cube_formats().keys():
+            raise ValueError(f"Invalid format: {v}")
+        return v
+
     @field_validator("bbox", mode="before")
     def validate_bbox(cls, v):
+        """Validate the bbox is a tuple of 4 floats"""
         if isinstance(v, str):
             return tuple(float(v.strip()) for v in v.split(","))
         if isinstance(v, list):

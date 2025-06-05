@@ -1,5 +1,6 @@
 geopandas
 pyarrow
+rioxarray
 scipy
 shapely
 xarray
