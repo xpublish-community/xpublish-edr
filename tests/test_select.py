@@ -28,6 +28,32 @@ def projected_xy_dataset():
     return rotds
 
 
+@pytest.fixture(scope="function")
+def regular_xy_dataset_with_string_dim():
+    """Loads a sample dataset with regular X and Y coordinates and a custom string dimension"""
+    ds = xr.tutorial.load_dataset("air_temperature")
+
+    # Add a new dimension for statistics
+    ds = ds.assign_coords(stat=["none", "random"])
+
+    # Add the stat dimension to the air variable
+    air_data = ds["air"].values
+    air_data = np.expand_dims(air_data, axis=0)  # Add stat dimension
+    air_data = np.repeat(air_data, 2, axis=0)  # Duplicate for second stat value
+
+    # Multiply second stat value by random values between 0.8 and 1.2
+    random_factors = np.random.uniform(0.8, 1.2, size=air_data[1].shape)
+    air_data[1] = air_data[1] * random_factors
+
+    ds["air"] = xr.DataArray(
+        air_data,
+        dims=["stat", "time", "lat", "lon"],
+        coords={"stat": ds.stat, "time": ds.time, "lat": ds.lat, "lon": ds.lon},
+    )
+
+    return ds
+
+
 def test_select_query(regular_xy_dataset):
     query = EDRPositionQuery(
         coords="POINT(200 45)",
@@ -395,3 +421,19 @@ def test_select_cube_regular_xy(regular_xy_dataset):
     assert ds["lat"].max() == 50.0, "Latitude is incorrect"
     assert ds["lon"].min() == 200.0, "Longitude is incorrect"
     assert ds["lon"].max() == 210.0, "Longitude is incorrect"
+
+
+def test_select_string_dim(regular_xy_dataset_with_string_dim):
+    query = EDRPositionQuery(
+        coords="POINT(200 45)",
+        datetime="2013-01-01T06:00:00",
+        parameters="air",
+    )
+
+    ds = query.select(
+        regular_xy_dataset_with_string_dim,
+        {
+            "stat": "none",
+        },
+    )
+    assert ds["air"].shape == (1, 25, 53), "Dataset shape is incorrect"
