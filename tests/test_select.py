@@ -436,4 +436,4 @@ def test_select_string_dim(regular_xy_dataset_with_string_dim):
             "stat": "none",
         },
     )
-    assert ds["air"].shape == (1, 1, 25, 53), "Dataset shape is incorrect"
+    assert ds["air"].shape == (1, 25, 53), "Dataset shape is incorrect"

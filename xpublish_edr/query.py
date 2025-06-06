@@ -4,6 +4,7 @@ OGC EDR Query param parsing
 
 from typing import Literal, Optional
 
+import numpy as np
 import xarray as xr
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from shapely import Geometry, wkt
@@ -95,6 +96,12 @@ class BaseEDRQuery(BaseModel):
         sel_params = {}
         sliced_sel_params = {}
         for key, value in query_params.items():
+            # String dimensions are not sliced but they cannot be interpolated so
+            # we select them directly using equality
+            if ds[key].dtype.type is np.str_:
+                sliced_sel_params[key] = value
+                continue
+
             split_value = [float(v) if v.isnumeric() else v for v in value.split("/")]
             if len(split_value) == 1:
                 sel_params[key] = [split_value[0]]
