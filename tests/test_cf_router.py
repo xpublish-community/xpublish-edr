@@ -799,14 +799,39 @@ def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset):
     import rioxarray
 
     bbox = "200,40,210,50"
+
+    # Test with multiple time steps
     response = cf_client.get(
         f"/datasets/air/edr/cube?bbox={bbox}&parameter-name=air&f=geotiff",
     )
-    assert response.status_code == 400, "Response should have returned a 400"
+    assert response.status_code == 200, "Response should have returned a 200"
     assert (
-        "GeoTIFF export only supports up to 2 dimensions" in response.json()["detail"]
-    ), "Response should have returned a 400"
+        "image/tiff" in response.headers["content-type"]
+    ), "The content type should be set as a TIFF"
+    assert (
+        "attachment" in response.headers["content-disposition"]
+    ), "The response should be set as an attachment to trigger download"
+    assert (
+        "data.tiff" in response.headers["content-disposition"]
+    ), "The file name should be data.tiff"
 
+    # Read the GeoTIFF back in from the response content
+    da = rioxarray.open_rasterio(io.BytesIO(response.content))
+    assert da.band.shape == (
+        4,
+    ), "GeoTIFF should have 4 time steps represented as bands"
+    assert da.x.shape == (5,), "GeoTIFF should have 5 x coordinates"
+    assert da.y.shape == (5,), "GeoTIFF should have 5 y coordinates"
+    assert da.shape == (
+        4,
+        5,
+        5,
+    ), "GeoTIFF should have 4 time steps, 5 x coordinates, and 5 y coordinates"
+
+    with open("test_cf_cube_query_geotiff_latlng_grid.tiff", "wb") as f:
+        f.write(response.content)
+
+    # Test with a single time step
     response = cf_client.get(
         f"/datasets/air/edr/cube?bbox={bbox}&parameter-name=air&f=geotiff&time=2013-01-01T00:00:00",
     )
