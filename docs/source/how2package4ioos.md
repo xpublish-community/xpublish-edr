@@ -91,7 +91,6 @@ setup(
         "tag_regex": r"^(?P<prefix>v)?(?P<version>[^\+]+)(?P<suffix>.*)?$",
     }
 )
-
 ```
 
 The use of `versioneer` is deprecated because PEP 518 now ignores files in the root of the package.
