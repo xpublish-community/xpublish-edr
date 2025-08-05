@@ -84,7 +84,7 @@ class BaseEDRQuery(BaseModel):
 
         if self.parameters:
             try:
-                ds = ds.cf[self.parameters.split(",")]
+                ds = ds[self.parameters.split(",")]
             except KeyError as e:
                 raise ValueError(f"Invalid variable: {e}") from e
 
