@@ -2,10 +2,13 @@
 Generate GeoTIFF responses for an xarray dataset for EDR queries
 """
 
+from typing import cast
+
 import xarray as xr
 from fastapi import HTTPException, Response
 
 from xpublish_edr.logger import logger
+from xpublish_edr.utils import to_compat_da_dtype
 
 
 def to_geotiff(ds: xr.Dataset) -> Response:
@@ -61,6 +64,13 @@ def to_geotiff(ds: xr.Dataset) -> Response:
     y_coord = axes["Y"][0]
     ds = ds.rio.set_spatial_dims(x_dim=x_coord, y_dim=y_coord, inplace=True)
     ds = ds.transpose(..., y_coord, x_coord)
+
+    # Fixup variable types for rasterio compatibility
+    if isinstance(ds, xr.Dataset):
+        ds = ds.map(to_compat_da_dtype)
+    elif isinstance(ds, xr.DataArray):
+        da = cast(xr.DataArray, ds)
+        ds = to_compat_da_dtype(da)  # type: ignore
 
     # Create in-memory GeoTIFF
     memfile = io.BytesIO()

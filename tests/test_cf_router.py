@@ -13,6 +13,9 @@ from xpublish_edr import CfEdrPlugin
 def cf_air_dataset():
     from cf_xarray.datasets import airds
 
+    # Create a float16 version of the air variable
+    airds["air_float16"] = airds["air"].astype("float16")
+
     return airds
 
 
@@ -808,7 +811,8 @@ def test_cf_cube_query_csv(cf_client, cf_air_dataset):
         assert key in csv_data[0], f"column {key} should be in the header"
 
 
-def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset):
+@pytest.mark.parametrize("parameter", ["air", "air_float16"])
+def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset, parameter):
     import io
 
     import rioxarray
@@ -817,7 +821,7 @@ def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset):
 
     # Test with multiple time steps
     response = cf_client.get(
-        f"/datasets/air/edr/cube?bbox={bbox}&parameter-name=air&f=geotiff",
+        f"/datasets/air/edr/cube?bbox={bbox}&parameter-name={parameter}&f=geotiff",
     )
     assert response.status_code == 200, "Response should have returned a 200"
     assert (
