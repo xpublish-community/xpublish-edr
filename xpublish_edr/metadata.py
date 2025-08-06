@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from xpublish_edr.geometry.common import (
     DEFAULT_CRS,
     dataset_crs,
-    project_dataset,
     spatial_bounds,
 )
 
@@ -415,11 +414,7 @@ def collection_metadata(ds: xr.Dataset, output_formats: list[str]) -> Collection
 
     crs = dataset_crs(ds)
 
-    # We will use the dataset's CRS as the default CRS, but use 4326 for the extents
-    # since it is always available
-    projected_ds = project_dataset(ds, DEFAULT_CRS)
-
-    extents = extent(projected_ds, crs)
+    extents = extent(ds, crs)
 
     parameters = extract_parameters(ds)
 

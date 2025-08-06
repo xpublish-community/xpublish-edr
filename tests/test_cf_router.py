@@ -143,6 +143,21 @@ def test_cf_metadata_query(cf_client):
     assert "lon" not in data["parameter_names"], "lon should not be present"
 
 
+def test_cf_metadata_rotated_lat_lon(cf_client):
+    response = cf_client.get("/datasets/temp/edr/")
+    assert response.status_code == 200, "Response did not return successfully"
+    data = response.json()
+
+    # We want to verify that the extents are in the correct crs and that both the rotated
+    # crs and the lat lng crs are present
+    assert data["extent"]["spatial"]["crs"] != "EPSG:4326", "Spatial CRS is incorrect"
+    npt.assert_allclose(
+        data["extent"]["spatial"]["bbox"],
+        [[17.935, 21.615, 18.155, 21.835]],
+        atol=1e-6,
+    )
+
+
 def test_cf_metadata_query_temp_smoke_test(cf_client):
     response = cf_client.get("/datasets/temp/edr/")
     assert response.status_code == 200, "Response did not return successfully"
