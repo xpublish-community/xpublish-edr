@@ -914,7 +914,18 @@ def test_cf_generic_extents_band_and_step():
         attrs={"standard_name": "big_var", "long_name": "Big variable", "units": "1"},
     )
 
+    # Add a problematic dimension whose string conversion fails to ensure it is skipped
+    class _BadRepr:
+        def __str__(self):  # type: ignore[no-redef]
+            raise ValueError("boom")
+
+        def __repr__(self):  # type: ignore[no-redef]
+            raise ValueError("boom")
+
+    bad = xr.DataArray(np.array([_BadRepr(), _BadRepr()], dtype=object), dims=("bad",))
+
     ds = xr.Dataset({"var": data, "big": big})
+    ds = ds.assign_coords(bad=bad)
     ds.attrs["_xpublish_id"] = "custom"
 
     # Stand up app with plugin
@@ -929,6 +940,9 @@ def test_cf_generic_extents_band_and_step():
     assert "extent" in meta
     assert "spatial" in meta["extent"], "spatial extent should be present"
     ext = meta["extent"]
+
+    # failing dimension should be skipped and not crash
+    assert "bad" not in ext
 
     # band: integer values and interval
     assert "band" in ext

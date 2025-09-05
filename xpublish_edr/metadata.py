@@ -11,6 +11,7 @@ from xpublish_edr.geometry.common import (
     dataset_crs,
     spatial_bounds,
 )
+from xpublish_edr.logger import logger
 
 
 class CRSDetails(BaseModel):
@@ -360,61 +361,66 @@ def generic_extents(ds: xr.Dataset) -> Optional[dict[str, GenericExtent]]:
     for dim in ds.dims:
         if dim in excluded_dims:
             continue
-        # try to get a coordinate variable with same name
-        if dim in ds.coords:
-            da = ds.coords[dim]
-            values = da.values
-            unit_attr = da.attrs.get("units")
-        else:
-            # fallback to index range
-            size = ds.sizes.get(dim, 0)
-            values = np.arange(size)
-            unit_attr = None
-
-        arr = np.asarray(values)
-        py_values = _values_to_python_list(arr)
-        if not py_values:
-            continue
-
-        # compute interval; handle timedeltas, datetimes, numeric; else first/last
-        vmin_val: int | float | str
-        vmax_val: int | float | str
-        if np.issubdtype(arr.dtype, np.timedelta64):
-            vmin_val = _timedelta_to_iso(arr.min())
-            vmax_val = _timedelta_to_iso(arr.max())
-        elif np.issubdtype(arr.dtype, np.datetime64):
-            ts = pd.to_datetime(arr)
-            min_ts = cast(pd.Timestamp, ts.min())
-            max_ts = cast(pd.Timestamp, ts.max())
-            vmin_val = min_ts.strftime("%Y-%m-%dT%H:%M:%S")
-            vmax_val = max_ts.strftime("%Y-%m-%dT%H:%M:%S")
-        elif arr.dtype.kind in "biuf":
-            amin = arr.min()
-            amax = arr.max()
-            if arr.dtype.kind in "iu":
-                vmin_val = int(amin)
-                vmax_val = int(amax)
+        try:
+            # try to get a coordinate variable with same name
+            if dim in ds.coords:
+                da = ds.coords[dim]
+                values = da.values
+                unit_attr = da.attrs.get("units")
             else:
-                vmin_val = float(amin)
-                vmax_val = float(amax)
-        else:
-            # fall back to first/last stringified values
-            vmin_val = py_values[0]
-            vmax_val = py_values[-1]
+                # fallback to index range
+                size = ds.sizes.get(dim, 0)
+                values = np.arange(size)
+                unit_attr = None
 
-        # If too many values, compress like temporal: report first/last only
-        if len(py_values) <= 100:
-            values_out: list[int | float | str] = py_values
-        else:
-            vmin_str = str(vmin_val)
-            vmax_str = str(vmax_val)
-            values_out = [f"{vmin_str}/{vmax_str}"]
+            arr = np.asarray(values)
+            py_values = _values_to_python_list(arr)
+            if not py_values:
+                continue
 
-        other[str(dim)] = GenericExtent(
-            interval=[vmin_val, vmax_val],
-            values=values_out,
-            unit=unit_attr,
-        )
+            # compute interval; handle timedeltas, datetimes, numeric; else first/last
+            vmin_val: int | float | str
+            vmax_val: int | float | str
+            if np.issubdtype(arr.dtype, np.timedelta64):
+                vmin_val = _timedelta_to_iso(arr.min())
+                vmax_val = _timedelta_to_iso(arr.max())
+            elif np.issubdtype(arr.dtype, np.datetime64):
+                ts = pd.to_datetime(arr)
+                min_ts = cast(pd.Timestamp, ts.min())
+                max_ts = cast(pd.Timestamp, ts.max())
+                vmin_val = min_ts.strftime("%Y-%m-%dT%H:%M:%S")
+                vmax_val = max_ts.strftime("%Y-%m-%dT%H:%M:%S")
+            elif arr.dtype.kind in "biuf":
+                amin = arr.min()
+                amax = arr.max()
+                if arr.dtype.kind in "iu":
+                    vmin_val = int(amin)
+                    vmax_val = int(amax)
+                else:
+                    vmin_val = float(amin)
+                    vmax_val = float(amax)
+            else:
+                # fall back to first/last stringified values
+                vmin_val = py_values[0]
+                vmax_val = py_values[-1]
+
+            # If too many values, compress like temporal: report first/last only
+            if len(py_values) <= 100:
+                values_out: list[int | float | str] = py_values
+            else:
+                vmin_str = str(vmin_val)
+                vmax_str = str(vmax_val)
+                values_out = [f"{vmin_str}/{vmax_str}"]
+
+            other[str(dim)] = GenericExtent(
+                interval=[vmin_val, vmax_val],
+                values=values_out,
+                unit=unit_attr,
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to extract generic extent for dimension '{dim}': {e}",
+            )
 
     return other or None
 
