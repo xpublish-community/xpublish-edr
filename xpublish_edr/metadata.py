@@ -1,5 +1,6 @@
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 
+import numpy as np
 import pandas as pd
 import pyproj
 import xarray as xr
@@ -32,6 +33,7 @@ class VariablesMetadata(BaseModel):
     description: Optional[str] = None
     query_type: Optional[str] = None
     coords: Optional[dict] = None
+    bbox: Optional[dict] = None
     output_formats: Optional[list[str]] = None
     default_output_format: Optional[str] = None
     crs_details: Optional[list[CRSDetails]] = None
@@ -85,6 +87,14 @@ class VerticalExtent(BaseModel):
     vrs: str
 
 
+class GenericExtent(BaseModel):
+    """Generic dimension extent for non CF-axes (e.g., band, member)."""
+
+    interval: list[int | float | str]
+    values: list[int | float | str]
+    unit: Optional[str] = None
+
+
 class Extent(BaseModel):
     """OGC EDR Extent metadata
 
@@ -94,6 +104,7 @@ class Extent(BaseModel):
     spatial: SpatialExtent
     temporal: Optional[TemporalExtent] = None
     vertical: Optional[VerticalExtent] = None
+    other: Optional[dict[str, GenericExtent]] = None
 
 
 class EDRQueryMetadata(BaseModel):
@@ -220,7 +231,7 @@ def unit(unit: str) -> UnitMetadata:
         label=unit,
         symbol=SymbolMetadata(
             value=unit,
-            type="unit",
+            type_="unit",
         ),
     )
 
@@ -239,7 +250,7 @@ def parameter(da: xr.DataArray) -> Parameter:
         label=standard_name,
         type_="Parameter",
         description=da.attrs.get("long_name", ""),
-        data_type=da.dtype.name,
+        data_type=str(da.dtype.name),
         unit=unit(da.attrs.get("units", "")),
         observed_property=observed_property,
     )
@@ -250,7 +261,7 @@ def spatial_extent(ds: xr.Dataset, crs: pyproj.CRS) -> SpatialExtent:
     bounds = spatial_bounds(ds)
 
     return SpatialExtent(
-        bbox=[bounds],
+        bbox=[list(bounds)],
         crs=crs.to_string(),
     )
 
@@ -260,7 +271,7 @@ def temporal_extent(ds: xr.Dataset) -> Optional[TemporalExtent]:
     if "T" not in ds.cf:
         return None
 
-    t = pd.to_datetime(ds.cf["T"])
+    t = pd.to_datetime(ds.cf["T"])  # type: ignore[index]
     time_min = t.min().strftime("%Y-%m-%dT%H:%M:%S")
     time_max = t.max().strftime("%Y-%m-%dT%H:%M:%S")
     return TemporalExtent(
@@ -275,18 +286,120 @@ def vertical_extent(ds: xr.Dataset) -> Optional[VerticalExtent]:
     if "Z" not in ds.cf:
         return None
 
-    z = ds.cf["Z"]
+    z = ds.cf["Z"]  # type: ignore[index]
     elevations = z.values
     units = z.attrs.get("units", "unknown")
     positive = z.attrs.get("positive", "up")
-    min_z = elevations.min()
-    max_z = elevations.max()
+    min_z = float(np.asarray(elevations).min())
+    max_z = float(np.asarray(elevations).max())
 
     return VerticalExtent(
         interval=[min_z, max_z],
-        values=elevations,
+        values=[float(v) for v in np.asarray(elevations).tolist()],
         vrs=f"VERTCRS[VERT_CS['unknown'],AXIS['Z',{positive}],UNIT[{units},1]]",  # noqa
     )
+
+
+def _timedelta_to_iso(val: object) -> str:
+    td = pd.Timedelta(val)
+    # Prefer pandas ISO-8601 when available
+    if hasattr(td, "isoformat"):
+        return td.isoformat()  # type: ignore[no-any-return]
+    # Fallback to seconds-only duration
+    total_seconds = int(td.total_seconds())
+    sign = "-" if total_seconds < 0 else ""
+    return f"{sign}PT{abs(total_seconds)}S"
+
+
+def _values_to_python_list(values: np.ndarray) -> list[int | float | str]:
+    arr = np.asarray(values)
+    # datetime-like
+    if np.issubdtype(arr.dtype, np.datetime64):
+        ts = pd.to_datetime(arr)
+        return [t.strftime("%Y-%m-%dT%H:%M:%S") for t in ts]
+    # timedelta-like
+    if np.issubdtype(arr.dtype, np.timedelta64):
+        return [_timedelta_to_iso(v) for v in arr]
+    # numeric
+    if arr.dtype.kind in "biuf":
+        return [
+            int(v) if isinstance(v, (np.integer,)) else float(v) for v in arr.tolist()
+        ]
+    # fallback to strings
+    return [str(v) for v in arr.tolist()]
+
+
+def generic_extents(ds: xr.Dataset) -> Optional[dict[str, GenericExtent]]:
+    """Build generic extents for non CF axes dimensions (e.g., band).
+
+    For each dimension not used by CF x/y/z/t, collect its coordinate values
+    and summarize as values + interval. Units come from the coordinate's attrs
+    if available.
+    """
+    excluded_dims: set[str] = set()
+    for axis in ("X", "Y", "T", "Z"):
+        if axis in ds.cf:  # type: ignore[operator]
+            try:
+                coord = ds.cf[axis]  # type: ignore[index]
+                if isinstance(coord, xr.DataArray):
+                    excluded_dims.update([str(d) for d in list(coord.dims)])
+            except Exception:
+                # Be permissive; if CF accessor fails, skip
+                pass
+
+    other: dict[str, GenericExtent] = {}
+    for dim in ds.dims:
+        if dim in excluded_dims:
+            continue
+        # try to get a coordinate variable with same name
+        if dim in ds.coords:
+            da = ds.coords[dim]
+            values = da.values
+            unit_attr = da.attrs.get("units")
+        else:
+            # fallback to index range
+            size = ds.sizes.get(dim, 0)
+            values = np.arange(size)
+            unit_attr = None
+
+        arr = np.asarray(values)
+        py_values = _values_to_python_list(arr)
+        if not py_values:
+            continue
+
+        # compute interval; handle timedeltas, datetimes, numeric; else first/last
+        vmin_val: int | float | str
+        vmax_val: int | float | str
+        if np.issubdtype(arr.dtype, np.timedelta64):
+            vmin_val = _timedelta_to_iso(arr.min())
+            vmax_val = _timedelta_to_iso(arr.max())
+        elif np.issubdtype(arr.dtype, np.datetime64):
+            ts = pd.to_datetime(arr)
+            min_ts = cast(pd.Timestamp, ts.min())
+            max_ts = cast(pd.Timestamp, ts.max())
+            vmin_val = min_ts.strftime("%Y-%m-%dT%H:%M:%S")
+            vmax_val = max_ts.strftime("%Y-%m-%dT%H:%M:%S")
+        elif arr.dtype.kind in "biuf":
+            amin = arr.min()
+            amax = arr.max()
+            if arr.dtype.kind in "iu":
+                vmin_val = int(amin)
+                vmax_val = int(amax)
+            else:
+                vmin_val = float(amin)
+                vmax_val = float(amax)
+        else:
+            # fall back to first/last stringified values
+            vmin_val = py_values[0]
+            vmax_val = py_values[-1]
+
+        other[str(dim)] = GenericExtent(
+            interval=[vmin_val, vmax_val],
+            values=py_values,
+            unit=unit_attr,
+        )
+
+    return other or None
 
 
 def extent(ds: xr.Dataset, crs: pyproj.CRS) -> Extent:
@@ -296,11 +409,13 @@ def extent(ds: xr.Dataset, crs: pyproj.CRS) -> Extent:
     spatial = spatial_extent(ds, crs)
     temporal = temporal_extent(ds)
     vertical = vertical_extent(ds)
+    other = generic_extents(ds)
 
     return Extent(
         spatial=spatial,
         temporal=temporal,
         vertical=vertical,
+        other=other,
     )
 
 
@@ -308,7 +423,9 @@ def extract_parameters(ds: xr.Dataset) -> dict[str, Parameter]:
     """
     Extract the parameters from the dataset into collection metadata specific format
     """
-    return {k: parameter(v) for k, v in ds.variables.items() if "axis" not in v.attrs}
+    return {
+        str(k): parameter(v) for k, v in ds.data_vars.items() if "axis" not in v.attrs
+    }
 
 
 def position_query_description(

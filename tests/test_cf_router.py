@@ -875,3 +875,96 @@ def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset, parameter)
         5,
         5,
     ), "GeoTIFF should have 1 time step, 5 x coordinates, and 5 y coordinates"
+
+
+def test_cf_generic_extents_band_and_step():
+    import numpy as np
+    import xarray as xr
+
+    # Build coords: lat/lon for CF spatial axes, plus band (int) and step (timedelta)
+    lat = xr.DataArray(
+        [10.0, 11.0],
+        dims=("lat",),
+        attrs={"axis": "Y", "standard_name": "latitude", "units": "degrees_north"},
+    )
+    lon = xr.DataArray(
+        [20.0, 21.5, 23.0],
+        dims=("lon",),
+        attrs={"axis": "X", "standard_name": "longitude", "units": "degrees_east"},
+    )
+
+    band = xr.DataArray([1, 2], dims=("band",))
+    step = xr.DataArray(pd.to_timedelta([0, "6h", "12h"]), dims=("step",))
+
+    data = xr.DataArray(
+        np.arange(3 * 2 * 2 * 3).reshape(3, 2, 2, 3).astype(float),
+        dims=("step", "band", "lat", "lon"),
+        coords={"step": step, "band": band, "lat": lat, "lon": lon},
+        name="var",
+        attrs={"standard_name": "test_var", "long_name": "Test variable", "units": "1"},
+    )
+
+    ds = xr.Dataset({"var": data})
+    ds.attrs["_xpublish_id"] = "custom"
+
+    # Stand up app with plugin
+    rest = xpublish.Rest({"custom": ds}, plugins={"edr": CfEdrPlugin()})
+    client = TestClient(rest.app)
+
+    # Request collection metadata
+    r = client.get("/datasets/custom/edr/")
+    assert r.status_code == 200
+    meta = r.json()
+
+    assert "extent" in meta
+    assert "spatial" in meta["extent"], "spatial extent should be present"
+    assert "other" in meta["extent"], "generic extents should be present under 'other'"
+
+    other = meta["extent"]["other"]
+
+    # band: integer values and interval
+    assert "band" in other
+    assert other["band"]["values"] == [1, 2]
+    assert other["band"]["interval"] == [1, 2]
+
+    # step: timedelta values as ISO 8601 durations and proper interval
+    expected_steps = [pd.Timedelta(x).isoformat() for x in [0, "6h", "12h"]]
+    assert other["step"]["values"] == expected_steps
+    assert other["step"]["interval"] == [expected_steps[0], expected_steps[-1]]
+
+    # Now run a position query selecting a single step and band
+    lon_pt = 21.5
+    lat_pt = 11.0
+    response = client.get(
+        f"/datasets/custom/edr/position?coords=POINT({lon_pt} {lat_pt})&parameter-name=var&step=6h&band=2&f=csv",  # noqa
+    )
+    assert response.status_code == 200, "Position query should return successfully"
+    assert "text/csv" in response.headers["content-type"], "Should return CSV"
+
+    csv_data = [
+        line.split(",") for line in response.content.decode("utf-8").splitlines()
+    ]
+    assert len(csv_data) == 2, "Single row expected with one step and one band"
+
+    header = csv_data[0]
+    row = csv_data[1]
+
+    # Locate indices for assertions
+    step_idx = header.index("step") if "step" in header else None
+    band_idx = header.index("band") if "band" in header else None
+    lon_idx = header.index("lon") if "lon" in header else None
+    lat_idx = header.index("lat") if "lat" in header else None
+    var_idx = header.index("var")
+
+    # Check coordinates and selections
+    if step_idx is not None:
+        assert row[step_idx] == str(pd.Timedelta("6h"))
+    if band_idx is not None:
+        assert int(float(row[band_idx])) == 2
+    if lon_idx is not None:
+        assert float(row[lon_idx]) == lon_pt
+    if lat_idx is not None:
+        assert float(row[lat_idx]) == lat_pt
+
+    # Data value should match the expected location
+    assert float(row[var_idx]) == 22.0
