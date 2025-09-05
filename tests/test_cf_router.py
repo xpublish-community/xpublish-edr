@@ -918,19 +918,17 @@ def test_cf_generic_extents_band_and_step():
 
     assert "extent" in meta
     assert "spatial" in meta["extent"], "spatial extent should be present"
-    assert "other" in meta["extent"], "generic extents should be present under 'other'"
-
-    other = meta["extent"]["other"]
+    ext = meta["extent"]
 
     # band: integer values and interval
-    assert "band" in other
-    assert other["band"]["values"] == [1, 2]
-    assert other["band"]["interval"] == [1, 2]
+    assert "band" in ext
+    assert ext["band"]["values"] == [1, 2]
+    assert ext["band"]["interval"] == [1, 2]
 
     # step: timedelta values as ISO 8601 durations and proper interval
     expected_steps = [pd.Timedelta(x).isoformat() for x in [0, "6h", "12h"]]
-    assert other["step"]["values"] == expected_steps
-    assert other["step"]["interval"] == [expected_steps[0], expected_steps[-1]]
+    assert ext["step"]["values"] == expected_steps
+    assert ext["step"]["interval"] == [expected_steps[0], expected_steps[-1]]
 
     # Now run a position query selecting a single step and band
     lon_pt = 21.5

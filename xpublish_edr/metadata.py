@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pyproj
 import xarray as xr
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 from xpublish_edr.geometry.common import (
     DEFAULT_CRS,
@@ -105,6 +105,15 @@ class Extent(BaseModel):
     temporal: Optional[TemporalExtent] = None
     vertical: Optional[VerticalExtent] = None
     other: Optional[dict[str, GenericExtent]] = None
+
+    @model_serializer(mode="wrap")
+    def _flatten_other(self, handler):
+        data = handler(self)
+        other = data.pop("other", None)
+        if isinstance(other, dict):
+            for k, v in other.items():
+                data[k] = v
+        return data
 
 
 class EDRQueryMetadata(BaseModel):
