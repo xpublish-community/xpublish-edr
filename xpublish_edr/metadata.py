@@ -401,12 +401,19 @@ def cube_query_description(
     )
 
 
-def collection_metadata(ds: xr.Dataset, output_formats: list[str]) -> Collection:
+def collection_metadata(
+    ds: xr.Dataset,
+    position_output_formats: list[str],
+    area_output_formats: list[str],
+    cube_output_formats: list[str],
+) -> Collection:
     """
     Returns the collection metadata for the dataset
     There is no nested hierarchy in our router right now, so instead we return the metadata
     for the current dataset as the a single collection. See the spec for more information:
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_162817c2-ccd7-43c9-b1ea-ad3aea1b4d6b
+
+    The top-level `output_formats` reflects formats common to all query types.
     """
     id = ds.attrs.get("_xpublish_id", "unknown")
     title = ds.attrs.get("title", "unknown")
@@ -428,6 +435,13 @@ def collection_metadata(ds: xr.Dataset, output_formats: list[str]) -> Collection
             crs_details(DEFAULT_CRS),
         )
 
+    # Common formats across all query types (e.g., exclude cube-only like geotiff)
+    common_output_formats = [
+        f
+        for f in position_output_formats
+        if f in area_output_formats and f in cube_output_formats
+    ]
+
     return Collection(
         links=[],
         id=id,
@@ -436,11 +450,11 @@ def collection_metadata(ds: xr.Dataset, output_formats: list[str]) -> Collection
         keywords=[],
         extent=extents,
         data_queries=DataQueries(
-            position=position_query_description(output_formats, supported_crs),
-            area=area_query_description(output_formats, supported_crs),
-            cube=cube_query_description(output_formats, supported_crs),
+            position=position_query_description(position_output_formats, supported_crs),
+            area=area_query_description(area_output_formats, supported_crs),
+            cube=cube_query_description(cube_output_formats, supported_crs),
         ),
         crs=[crs.to_string()],
-        output_formats=output_formats,
+        output_formats=common_output_formats,
         parameter_names=parameters,
     )
