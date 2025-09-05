@@ -904,7 +904,17 @@ def test_cf_generic_extents_band_and_step():
         attrs={"standard_name": "test_var", "long_name": "Test variable", "units": "1"},
     )
 
-    ds = xr.Dataset({"var": data})
+    # Add a large generic dimension (>100) to test compression
+    member = xr.DataArray(np.arange(150), dims=("member",))
+    big = xr.DataArray(
+        np.zeros((150, 2, 3), dtype=float),
+        dims=("member", "lat", "lon"),
+        coords={"member": member, "lat": lat, "lon": lon},
+        name="big",
+        attrs={"standard_name": "big_var", "long_name": "Big variable", "units": "1"},
+    )
+
+    ds = xr.Dataset({"var": data, "big": big})
     ds.attrs["_xpublish_id"] = "custom"
 
     # Stand up app with plugin

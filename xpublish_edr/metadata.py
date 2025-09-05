@@ -402,9 +402,17 @@ def generic_extents(ds: xr.Dataset) -> Optional[dict[str, GenericExtent]]:
             vmin_val = py_values[0]
             vmax_val = py_values[-1]
 
+        # If too many values, compress like temporal: report first/last only
+        if len(py_values) <= 100:
+            values_out: list[int | float | str] = py_values
+        else:
+            vmin_str = str(vmin_val)
+            vmax_str = str(vmax_val)
+            values_out = [f"{vmin_str}/{vmax_str}"]
+
         other[str(dim)] = GenericExtent(
             interval=[vmin_val, vmax_val],
-            values=py_values,
+            values=values_out,
             unit=unit_attr,
         )
 
