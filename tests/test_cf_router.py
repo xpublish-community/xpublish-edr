@@ -103,6 +103,8 @@ def test_cf_metadata_query(cf_client):
         == "Data is from NMC initialized reanalysis\n(4x/day).  These are the 0.9950 sigma level values."
     ), "The description is incorrect"
     assert data["crs"] == ["EPSG:4326"], "The crs is incorrect"
+
+    # Top-level formats should reflect formats common to all query types
     assert set(data["output_formats"]) == {
         "cf_covjson",
         "nc",
@@ -113,6 +115,47 @@ def test_cf_metadata_query(cf_client):
         "geojson",
         "parquet",
     }, "The output formats are incorrect"
+
+    # Per-query advertised formats should match supported sets
+    pos_formats = set(
+        data["data_queries"]["position"]["link"]["variables"]["output_formats"],
+    )
+    area_formats = set(
+        data["data_queries"]["area"]["link"]["variables"]["output_formats"],
+    )
+    cube_formats = set(
+        data["data_queries"]["cube"]["link"]["variables"]["output_formats"],
+    )
+
+    for fmts in (pos_formats, area_formats):
+        assert (
+            "geotiff" not in fmts
+        ), "geotiff should not be advertised for position/area"
+        for f in (
+            "cf_covjson",
+            "nc",
+            "netcdf",
+            "nc4",
+            "netcdf4",
+            "csv",
+            "geojson",
+            "parquet",
+        ):
+            assert f in fmts, f"{f} should be advertised for position/area"
+
+    assert "geotiff" in cube_formats, "geotiff should be advertised for cube"
+    for f in (
+        "cf_covjson",
+        "nc",
+        "netcdf",
+        "nc4",
+        "netcdf4",
+        "csv",
+        "geojson",
+        "parquet",
+    ):
+        assert f in cube_formats, f"{f} should be advertised for cube"
+
     assert (
         "position" in data["data_queries"] and "area" in data["data_queries"]
     ), "The data queries are incorrect"

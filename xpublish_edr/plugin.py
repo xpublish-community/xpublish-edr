@@ -86,8 +86,15 @@ class CfEdrPlugin(Plugin):
             for the current dataset as the a single collection. See the spec for more information:
             https://docs.ogc.org/is/19-086r6/19-086r6.html#_162817c2-ccd7-43c9-b1ea-ad3aea1b4d6b
             """
-            available_output_formats = list(position_formats().keys())
-            return collection_metadata(dataset, available_output_formats).dict(
+            position_output_formats = list(position_formats().keys())
+            area_output_formats = list(area_formats().keys())
+            cube_output_formats = list(cube_formats().keys())
+            return collection_metadata(
+                dataset,
+                position_output_formats,
+                area_output_formats,
+                cube_output_formats,
+            ).dict(
                 exclude_none=True,
             )
 
