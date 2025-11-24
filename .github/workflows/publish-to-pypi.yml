@@ -24,6 +24,11 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Install GDAL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev
+
       # - name: Get tags
       #   run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
 
