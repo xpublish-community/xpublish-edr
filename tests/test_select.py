@@ -2,6 +2,7 @@ import cf_xarray  # noqa
 import numpy as np
 import numpy.testing as npt
 import pandas as pd
+import pyproj
 import pytest
 import xarray as xr
 import xarray.testing as xrt
@@ -29,6 +30,23 @@ def projected_xy_dataset():
 
 
 @pytest.fixture(scope="function")
+def no_grid_mapping_projected_dataset():
+    """Loads a sample dataset with projected X and Y coordinates"""
+    ds = xr.Dataset(
+        # no grid_mapping attribute on data var
+        {
+            "foo": (("y", "x"), np.arange(6).reshape(3, 2)),
+            "spatial_ref": ((), 0, pyproj.CRS.from_epsg(3035).to_cf()),
+        },
+        coords={
+            "x": ("x", [3, 4], {"axis": "X"}),
+            "y": ("y", [7, 8, 9], {"axis": "Y"}),
+        },
+    )
+    return ds
+
+
+@pytest.fixture(scope="function")
 def regular_xy_dataset_with_string_dim():
     """Loads a sample dataset with regular X and Y coordinates and a custom string dimension"""
     ds = xr.tutorial.load_dataset("air_temperature")
@@ -52,6 +70,31 @@ def regular_xy_dataset_with_string_dim():
     )
 
     return ds
+
+
+def test_no_grid_mapping_projected_dataset(no_grid_mapping_projected_dataset):
+    ds = no_grid_mapping_projected_dataset
+    transformer = pyproj.Transformer.from_crs(3035, 4326, always_xy=True)
+    lon, lat = transformer.transform(3, 8)
+    query = EDRPositionQuery(
+        coords=f"POINT({lon} {lat})",
+        crs="epsg:4326",
+        parameters="air",
+    )
+    geom = query.project_geometry(ds)
+    actual = select_by_position(ds, geom)
+    expected = ds.isel(x=[0], y=[1])
+    xr.testing.assert_identical(actual, expected)
+
+    # same point but in native EPSG:3035
+    query = EDRPositionQuery(
+        coords="POINT(3 8)",
+        crs="epsg:3035",
+        parameters="air",
+    )
+    geom = query.project_geometry(ds)
+    actual = select_by_position(ds, geom)
+    xr.testing.assert_identical(actual, expected)
 
 
 def test_select_query(regular_xy_dataset):

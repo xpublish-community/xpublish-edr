@@ -49,25 +49,38 @@ def spatial_bounds(ds: xr.Dataset) -> tuple[float, float, float, float]:
     return min_x, min_y, max_x, max_y
 
 
+def get_default_grid_mapping(ds: xr.Dataset) -> pyproj.CRS:
+    """Get a default grid_mapping if no grid_mapping attribute is specified."""
+    if "spatial_ref" in ds.variables:
+        return pyproj.CRS.from_cf(ds["spatial_ref"].attrs)
+    if "crs" in ds.variables:
+        return pyproj.CRS.from_cf(ds["crs"].attrs)
+
+    # Default to WGS84, EPSG:4326
+    keys = ds.cf.keys()
+    if "latitude" in keys and "longitude" in keys:
+        crs = pyproj.CRS.from_epsg(4326)
+        # Write the crs to the dataset so it is there on export
+        ds.rio.write_crs(crs, inplace=True)
+        return crs
+    else:
+        raise ValueError(
+            "Unknown coordinate system. "
+            "Please set the grid_mapping attribute "
+            "on relevant data variables.",
+        )
+
+
 def dataset_crs(ds: xr.Dataset) -> pyproj.CRS:
     grid_mapping_names = ds.cf.grid_mapping_names
     if len(grid_mapping_names) == 0:
-        # Default to WGS84
-        keys = ds.cf.keys()
-        if "latitude" in keys and "longitude" in keys:
-            crs = pyproj.CRS.from_epsg(4326)
-
-            # Write the crs to the dataset so it is there on export
-            ds.rio.write_crs(crs, inplace=True)
-            return crs
-        else:
-            raise ValueError("Unknown coordinate system")
-    if len(grid_mapping_names) > 1:
+        return get_default_grid_mapping(ds)
+    elif len(grid_mapping_names) > 1:
         raise ValueError(f"Multiple grid mappings found: {grid_mapping_names!r}!")
-    (grid_mapping_var,) = tuple(itertools.chain(*ds.cf.grid_mapping_names.values()))
-
-    grid_mapping = ds[grid_mapping_var]
-    return pyproj.CRS.from_cf(grid_mapping.attrs)
+    else:
+        (grid_mapping_var,) = tuple(itertools.chain(*ds.cf.grid_mapping_names.values()))
+        grid_mapping = ds[grid_mapping_var]
+        return pyproj.CRS.from_cf(grid_mapping.attrs)
 
 
 def project_geometry(ds: xr.Dataset, geometry_crs: str, geometry: Geometry) -> Geometry:
