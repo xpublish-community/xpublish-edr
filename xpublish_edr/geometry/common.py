@@ -3,7 +3,7 @@ Common geometry handling functions
 """
 
 import itertools
-from functools import lru_cache
+from functools import lru_cache, partial
 from typing import Union
 
 import pyproj
@@ -14,8 +14,8 @@ from shapely.ops import transform
 
 VECTORIZED_DIM = "pts"
 
-# https://pyproj4.github.io/pyproj/stable/advanced_examples.html#caching-pyproj-objectshttps://pyproj4.github.io/pyproj/stable/advanced_examples.html#caching-pyproj-objects
-transformer_from_crs = lru_cache(pyproj.Transformer.from_crs)
+# https://pyproj4.github.io/pyproj/stable/advanced_examples.html#caching-pyproj-objects
+transformer_from_crs = lru_cache(partial(pyproj.Transformer.from_crs, always_xy=True))
 
 
 DEFAULT_CRS = pyproj.CRS.from_epsg(4326)
@@ -79,7 +79,6 @@ def project_geometry(ds: xr.Dataset, geometry_crs: str, geometry: Geometry) -> G
     transformer = transformer_from_crs(
         crs_from=geometry_crs,
         crs_to=data_crs,
-        always_xy=True,
     )
     return transform(transformer.transform, geometry)
 
@@ -103,7 +102,6 @@ def project_bbox(
     transformer: pyproj.Transformer = transformer_from_crs(
         crs_from=target_crs,
         crs_to=data_crs,
-        always_xy=True,
     )
     projected_x, projected_y = transformer.transform(
         xx=[bbox[0], bbox[2]],
@@ -132,7 +130,6 @@ def project_dataset(ds: xr.Dataset, query_crs: Union[str, pyproj.CRS]) -> xr.Dat
     transformer = transformer_from_crs(
         crs_from=data_crs,
         crs_to=target_crs,
-        always_xy=True,
     )
 
     # Unpack the coordinates
