@@ -1,5 +1,6 @@
 from io import BytesIO
 
+import cf_xarray  # noqa: F401
 import numpy.testing as npt
 import pandas as pd
 import pytest
@@ -1033,3 +1034,7 @@ def test_cf_generic_extents_band_and_step():
 
     # Data value should match the expected location
     assert float(row[var_idx]) == 22.0
+
+    # parameter_names includes extents
+    assert set(meta["parameter_names"]["var"]["extent"]) == {"spatial", "band", "step"}
+    assert set(meta["parameter_names"]["big"]["extent"].keys()) == {"spatial", "member"}
