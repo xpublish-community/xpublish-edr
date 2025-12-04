@@ -88,7 +88,7 @@ def test_no_grid_mapping_projected_dataset(no_grid_mapping_projected_dataset):
 
     # same point but in native EPSG:3035
     query = EDRPositionQuery(
-        coords=f"POINT(3 8)",
+        coords="POINT(3 8)",
         crs="epsg:3035",
         parameters="air",
     )
