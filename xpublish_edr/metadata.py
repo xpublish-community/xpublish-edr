@@ -246,7 +246,7 @@ def unit(unit: str) -> UnitMetadata:
     )
 
 
-def parameter(da: xr.DataArray) -> Parameter:
+def parameter(da: xr.DataArray, *, extents: Extent) -> Parameter:
     """
     Return CF version of EDR Parameter metadata for a given xarray variable
     """
@@ -256,6 +256,18 @@ def parameter(da: xr.DataArray) -> Parameter:
         label=standard_name,
         description=da.attrs.get("long_name", ""),
     )
+    cf_keys = da.cf.keys()
+    param_extents = Extent(
+        spatial=extents.spatial,
+        temporal=extents.temporal if "T" in cf_keys else None,
+        vertical=extents.vertical if "Z" in cf_keys else None,
+        other=(
+            None
+            if extents.other is None
+            else {dim: v for dim, v in extents.other.items() if dim in da.dims}
+        ),
+    )
+
     return Parameter(
         label=standard_name,
         type_="Parameter",
@@ -263,6 +275,7 @@ def parameter(da: xr.DataArray) -> Parameter:
         data_type=str(da.dtype.name),
         unit=unit(da.attrs.get("units", "")),
         observed_property=observed_property,
+        extent=param_extents,
     )
 
 
@@ -442,12 +455,14 @@ def extent(ds: xr.Dataset, crs: pyproj.CRS) -> Extent:
     )
 
 
-def extract_parameters(ds: xr.Dataset) -> dict[str, Parameter]:
+def extract_parameters(ds: xr.Dataset, *, extents: Extent) -> dict[str, Parameter]:
     """
     Extract the parameters from the dataset into collection metadata specific format
     """
     return {
-        str(k): parameter(v) for k, v in ds.data_vars.items() if "axis" not in v.attrs
+        str(k): parameter(v, extents=extents)
+        for k, v in ds.data_vars.items()
+        if "axis" not in v.attrs and v.ndim >= 2  # always 2 spatial dims
     }
 
 
@@ -563,7 +578,7 @@ def collection_metadata(
 
     extents = extent(ds, crs)
 
-    parameters = extract_parameters(ds)
+    parameters = extract_parameters(ds, extents=extents)
 
     supported_crs = [
         crs_details(crs),
