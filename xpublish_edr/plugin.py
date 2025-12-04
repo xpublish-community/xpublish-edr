@@ -137,7 +137,10 @@ class CfEdrPlugin(Plugin):
                 logger.error(f"Error selecting by position: {e}")
                 raise HTTPException(
                     status_code=404,
-                    detail="Dataset does not have CF Convention compliant metadata",
+                    detail=(
+                        f"Error selecting by position: {e}. "
+                        "Ensure that dataset has valid CF metadatad has 1D coordinates."
+                    ),
                 )
 
             logger.debug(
