@@ -106,6 +106,100 @@ class CfEdrPlugin(Plugin):
             return formats
 
         return router
+    
+    @hookimpl
+    def ogc_router(self, deps: Dependencies):
+        """Register OGC routers at the application level"""
+        router = APIRouter(tags=["OGC EDR"])
+
+        @router.get("/collections/{collection_id}/position", summary="OGC EDR Position endpoint")
+        def get_position(collection_id: str, request: Request, query: Annotated[EDRPositionQuery, Query()],):
+            """Stub for OGC EDR position endpoint"""
+            dataset = deps.dataset(collection_id)
+            try:
+                ds = query.select(dataset, dict(request.query_params))
+            except ValueError as e:
+                logger.error(
+                    f"Error selecting from query while selecting by position: {e}",
+                )
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Error selecting from query: {e.args[0]}",
+                )
+
+            logger.debug(f"Dataset filtered by query params {ds}")
+
+            try:
+                ds = select_by_position(ds, query.project_geometry(ds), query.method)
+            except GEOSException as e:
+                logger.error(
+                    f"Error parsing coordinates to geometry while selecting by position: {e}",
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not parse coordinates to geometry, "
+                    + "check the format of the 'coords' query parameter",
+                )
+            except KeyError as e:
+                logger.error(f"Error selecting by position: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Dataset does not have CF Convention compliant metadata",
+                )
+
+            logger.debug(
+                f"Dataset filtered by position ({query.geometry}): {ds}",
+            )
+
+            try:
+                ds = project_dataset(ds, query.crs)
+            except Exception as e:
+                logger.error(
+                    f"Error projecting dataset while selecting by position: {e}",
+                )
+                raise HTTPException(
+                    status_code=404,
+                    detail="Error projecting dataset",
+                )
+
+            logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+            if query.format:
+                try:
+                    format_fn = position_formats()[query.format]
+                except KeyError as e:
+                    logger.error(
+                        f"Error getting format function while selecting by position: {e}",
+                    )
+                    raise HTTPException(
+                        404,
+                        f"{query.format} is not a valid format for EDR position queries. "
+                        "Get `./position/formats` for valid formats",
+                    )
+
+                return format_fn(ds)
+
+            return to_cf_covjson(ds)
+
+        return router
+    
+    @hookimpl
+    def ogc_collection_dataqueries(self, collection_id: str, ds: xr.Dataset):
+        """Register data queries for OGC collection metadata"""
+        return {
+            "position": {
+                "link": {
+                    "href": f"/collections/{collection_id}/position",
+                    "variables": {},
+                    "rel": "alternate",
+                    "type": "application/geo+json",
+                    "hreflang": "en",
+                    "title": "OGC EDR Position Query Endpoint",
+                    "length": 0,
+                    "templated": True
+                }
+            }
+        }
 
     @hookimpl
     def dataset_router(self, deps: Dependencies):
