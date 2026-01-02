@@ -106,14 +106,20 @@ class CfEdrPlugin(Plugin):
             return formats
 
         return router
-    
+
     @hookimpl
     def ogc_router(self, deps: Dependencies):
         """Register OGC routers at the application level"""
         router = APIRouter(tags=["OGC EDR"])
 
-        @router.get("/collections/{collection_id}/position", summary="OGC EDR Position endpoint")
-        def get_position(collection_id: str, request: Request, query: Annotated[EDRPositionQuery, Query()],):
+        @router.get(
+            "/collections/{collection_id}/position", summary="OGC EDR Position endpoint",
+        )
+        def get_position(
+            collection_id: str,
+            request: Request,
+            query: Annotated[EDRPositionQuery, Query()],
+        ):
             """Stub for OGC EDR position endpoint"""
             dataset = deps.dataset(collection_id)
             try:
@@ -182,7 +188,7 @@ class CfEdrPlugin(Plugin):
             return to_cf_covjson(ds)
 
         return router
-    
+
     @hookimpl
     def ogc_collection_dataqueries(self, collection_id: str, ds: xr.Dataset):
         """Register data queries for OGC collection metadata"""
@@ -196,9 +202,9 @@ class CfEdrPlugin(Plugin):
                     "hreflang": "en",
                     "title": "OGC EDR Position Query Endpoint",
                     "length": 0,
-                    "templated": True
-                }
-            }
+                    "templated": True,
+                },
+            },
         }
 
     @hookimpl
