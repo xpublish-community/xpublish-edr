@@ -14,6 +14,24 @@ from xpublish_edr.geometry.common import (
 from xpublish_edr.logger import logger
 
 
+def cf_axis_is_indexed(ds: xr.Dataset, axis: str) -> bool:
+    """Check if a CF axis coordinate is indexed (queryable via selection).
+
+    Args:
+        ds: The dataset to check
+        axis: The CF axis name (e.g., "X", "Y", "Z", "T")
+
+    Returns:
+        True if the axis exists and is indexed, False otherwise
+    """
+    if axis not in ds.cf:
+        return False
+    coord = ds.cf[axis]
+    if isinstance(coord, xr.DataArray):
+        return coord.name in ds.indexes
+    return False
+
+
 class CRSDetails(BaseModel):
     """OGC EDR CRS metadata
 
@@ -291,7 +309,7 @@ def spatial_extent(ds: xr.Dataset, crs: pyproj.CRS) -> SpatialExtent:
 
 def temporal_extent(ds: xr.Dataset) -> Optional[TemporalExtent]:
     """Extract the temporal extent from the dataset into collection metadata specific format"""
-    if "T" not in ds.cf:
+    if not cf_axis_is_indexed(ds, "T"):
         return None
 
     t = pd.to_datetime(ds.cf["T"])  # type: ignore[index]
@@ -306,7 +324,7 @@ def temporal_extent(ds: xr.Dataset) -> Optional[TemporalExtent]:
 
 def vertical_extent(ds: xr.Dataset) -> Optional[VerticalExtent]:
     """Extract the vertical extent from the dataset into collection metadata specific format"""
-    if "Z" not in ds.cf:
+    if not cf_axis_is_indexed(ds, "Z"):
         return None
 
     z = ds.cf["Z"]  # type: ignore[index]
@@ -361,7 +379,8 @@ def generic_extents(ds: xr.Dataset) -> Optional[dict[str, GenericExtent]]:
     """
     excluded_dims: set[str] = set()
     for axis in ("X", "Y", "T", "Z"):
-        if axis in ds.cf:  # type: ignore[operator]
+        # Only exclude dimensions if the CF axis is actually indexed
+        if cf_axis_is_indexed(ds, axis):
             try:
                 coord = ds.cf[axis]  # type: ignore[index]
                 if isinstance(coord, xr.DataArray):
@@ -373,6 +392,9 @@ def generic_extents(ds: xr.Dataset) -> Optional[dict[str, GenericExtent]]:
     other: dict[str, GenericExtent] = {}
     for dim in ds.dims:
         if dim in excluded_dims:
+            continue
+        # Only include dimensions that are indexed (can be selected on)
+        if dim not in ds.indexes:
             continue
         try:
             # try to get a coordinate variable with same name

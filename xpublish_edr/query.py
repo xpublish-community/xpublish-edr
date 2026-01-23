@@ -59,10 +59,17 @@ class BaseEDRQuery(BaseModel):
     def select(self, ds: xr.Dataset, query_params: dict) -> xr.Dataset:
         """Select data from a dataset based on the query"""
         if self.z:
-            if self.method == "nearest":
-                ds = ds.cf.sel(Z=[self.z], method=self.method)
-            else:
-                ds = ds.cf.interp(Z=[self.z], method=self.method)
+            try:
+                if self.method == "nearest":
+                    ds = ds.cf.sel(Z=[self.z], method=self.method)
+                else:
+                    ds = ds.cf.interp(Z=[self.z], method=self.method)
+            except KeyError as e:
+                raise ValueError(
+                    f"Cannot select on Z axis via cf_xarray: {e}. "
+                    f"The Z coordinate may not be indexed. "
+                    f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
+                ) from e
 
         if self.datetime:
             try:
@@ -78,6 +85,12 @@ class BaseEDRQuery(BaseModel):
                     raise ValueError(
                         f"Invalid datetimes submitted - {datetimes}",
                     )
+            except KeyError as e:
+                raise ValueError(
+                    f"Cannot select on T axis via cf_xarray: {e}. "
+                    f"The T coordinate may not be indexed. "
+                    f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
+                ) from e
             except ValueError as e:
                 logger.error("Error with datetime", exc_info=True)
                 raise ValueError(f"Invalid datetime ({e})") from e

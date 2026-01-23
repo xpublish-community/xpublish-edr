@@ -35,7 +35,6 @@ import xpublish
 from xpublish.routers import base_router, zarr_router
 from xpublish_edr.cf_edr_router import cf_edr_router
 
-
 ds = xr.open_dataset("dataset.nc")
 
 rest = xpublish.Rest(
