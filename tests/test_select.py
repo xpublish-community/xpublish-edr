@@ -218,7 +218,7 @@ def test_select_query_error(regular_xy_dataset):
         z="100",
     )
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError, match="no vertical dimension"):
         query.select(regular_xy_dataset, {})
 
     with pytest.raises(ValueError):
@@ -480,3 +480,116 @@ def test_select_string_dim(regular_xy_dataset_with_string_dim):
         },
     )
     assert ds["air"].shape == (1, 25, 53), "Dataset shape is incorrect"
+
+
+@pytest.fixture(scope="function")
+def dataset_with_non_indexed_axes():
+    """Creates a dataset with non-indexed CF axis coordinates (like GFS forecast)"""
+    init_times = pd.date_range("2024-01-01", periods=4, freq="6h")
+    lead_times = pd.to_timedelta([0, 1, 2, 3], unit="h")
+    levels = [1000, 850, 500]
+
+    ds = xr.Dataset(
+        coords={
+            "init_time": init_times,
+            "lead_time": lead_times,
+            "level": levels,
+            "lat": np.arange(40, 45, dtype=float),
+            "lon": np.arange(200, 205, dtype=float),
+        },
+        data_vars={
+            "temperature": (
+                ("init_time", "lead_time", "level", "lat", "lon"),
+                np.random.rand(4, 4, 3, 5, 5),
+            ),
+        },
+    )
+    # Add CF attributes for lat/lon
+    ds.lat.attrs["axis"] = "Y"
+    ds.lon.attrs["axis"] = "X"
+
+    # Add non-indexed 2D coordinates with CF attributes
+    ds = ds.assign_coords(valid_time=ds.init_time + ds.lead_time)
+    ds.valid_time.attrs["axis"] = "T"
+    ds.valid_time.attrs["standard_name"] = "time"
+
+    # Add non-indexed Z coordinate
+    ds = ds.assign_coords(altitude=("level", [10000, 8500, 5000]))
+    ds.altitude.attrs["axis"] = "Z"
+    ds.altitude.attrs["positive"] = "up"
+
+    return ds
+
+
+def test_temporal_extent_skips_non_indexed(dataset_with_non_indexed_axes):
+    """Temporal extent should be None when T axis is not indexed"""
+    from xpublish_edr.metadata import temporal_extent
+
+    extent = temporal_extent(dataset_with_non_indexed_axes)
+    assert extent is None, "Should not report temporal extent for non-indexed T coordinate"
+
+
+def test_vertical_extent_skips_non_indexed(dataset_with_non_indexed_axes):
+    """Vertical extent should be None when Z axis is not indexed"""
+    from xpublish_edr.metadata import vertical_extent
+
+    extent = vertical_extent(dataset_with_non_indexed_axes)
+    assert extent is None, "Should not report vertical extent for non-indexed Z coordinate"
+
+
+def test_generic_extents_includes_indexed_dims_from_non_indexed_axes(
+    dataset_with_non_indexed_axes,
+):
+    """init_time, lead_time, and level should appear because T and Z axes are not indexed"""
+    from xpublish_edr.metadata import generic_extents
+
+    extents = generic_extents(dataset_with_non_indexed_axes)
+    assert extents is not None
+    assert "init_time" in extents, "init_time should be in generic extents"
+    assert "lead_time" in extents, "lead_time should be in generic extents"
+    assert "level" in extents, "level should be in generic extents"
+
+
+def test_generic_extents_excludes_non_indexed_dims():
+    """Dimensions without indexes should not appear in generic extents"""
+    from xpublish_edr.metadata import generic_extents
+
+    # Create dataset with a dimension that has no index
+    ds = xr.Dataset(
+        data_vars={
+            "data": (("x", "y", "ensemble"), np.random.rand(5, 5, 10)),
+        },
+        coords={
+            "x": np.arange(5, dtype=float),
+            "y": np.arange(5, dtype=float),
+            # "ensemble" has no coordinate, so no index
+        },
+    )
+    ds.x.attrs["axis"] = "X"
+    ds.y.attrs["axis"] = "Y"
+
+    extents = generic_extents(ds)
+    # ensemble should not be in extents because it has no index
+    assert extents is None or "ensemble" not in extents
+
+
+def test_datetime_query_error_non_indexed(dataset_with_non_indexed_axes):
+    """Datetime queries should raise clear error for non-indexed T coordinate"""
+    query = EDRPositionQuery(
+        coords="POINT(202 42)",
+        datetime="2024-01-01T06:00:00",
+        parameters="temperature",
+    )
+    with pytest.raises(ValueError, match="not indexed"):
+        query.select(dataset_with_non_indexed_axes, {})
+
+
+def test_z_query_error_non_indexed(dataset_with_non_indexed_axes):
+    """Z queries should raise clear error for non-indexed Z coordinate"""
+    query = EDRPositionQuery(
+        coords="POINT(202 42)",
+        z="8500",
+        parameters="temperature",
+    )
+    with pytest.raises(ValueError, match="not indexed"):
+        query.select(dataset_with_non_indexed_axes, {})
