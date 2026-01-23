@@ -243,8 +243,12 @@ def test_select_position_regular_xy(regular_xy_dataset):
     assert ds["air"].shape == (2920, 1, 1), "Dataset shape is incorrect"
     npt.assert_array_equal(ds["lat"], 45.0), "Latitude is incorrect"
     npt.assert_array_equal(ds["lon"], 205.0), "Longitude is incorrect"
-    npt.assert_approx_equal(ds["air"].isel(time=0).values.item(), 280.2), "Temperature is incorrect"
-    npt.assert_approx_equal(ds["air"].isel(time=-1).values.item(), 279.19), "Temperature is incorrect"
+    npt.assert_approx_equal(
+        ds["air"].isel(time=0).values.item(), 280.2,
+    ), "Temperature is incorrect"
+    npt.assert_approx_equal(
+        ds["air"].isel(time=-1).values.item(), 279.19,
+    ), "Temperature is incorrect"
 
 
 def test_select_position_projected_xy(projected_xy_dataset):
@@ -294,8 +298,12 @@ def test_select_position_regular_xy_interpolate(regular_xy_dataset):
     assert ds["air"].shape == (2920, 1, 1), "Dataset shape is incorrect"
     npt.assert_array_equal(ds["lat"], 44.0), "Latitude is incorrect"
     npt.assert_array_equal(ds["lon"], 204.0), "Longitude is incorrect"
-    npt.assert_approx_equal(ds["air"].isel(time=0).values.item(), 281.376), "Temperature is incorrect"
-    npt.assert_approx_equal(ds["air"].isel(time=-1).values.item(), 279.87), "Temperature is incorrect"
+    npt.assert_approx_equal(
+        ds["air"].isel(time=0).values.item(), 281.376,
+    ), "Temperature is incorrect"
+    npt.assert_approx_equal(
+        ds["air"].isel(time=-1).values.item(), 279.87,
+    ), "Temperature is incorrect"
 
 
 def test_select_position_regular_xy_multi(regular_xy_dataset):
