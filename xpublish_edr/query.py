@@ -66,7 +66,7 @@ class BaseEDRQuery(BaseModel):
             if isinstance(z_coord, xr.DataArray) and z_coord.name not in ds.indexes:
                 raise ValueError(
                     f"Vertical coordinate '{z_coord.name}' is not indexed and cannot "
-                    f"be queried. Available indexed dimensions: {list(ds.indexes.keys())}"
+                    f"be queried. Available indexed dimensions: {list(ds.indexes.keys())}",
                 )
             if self.method == "nearest":
                 ds = ds.cf.sel(Z=[self.z], method=self.method)
@@ -76,12 +76,14 @@ class BaseEDRQuery(BaseModel):
         if self.datetime:
             # Validate T axis exists and is indexed
             if "T" not in ds.cf:
-                raise ValueError("Dataset has no temporal dimension for datetime queries")
+                raise ValueError(
+                    "Dataset has no temporal dimension for datetime queries",
+                )
             t_coord = ds.cf["T"]
             if isinstance(t_coord, xr.DataArray) and t_coord.name not in ds.indexes:
                 raise ValueError(
                     f"Temporal coordinate '{t_coord.name}' is not indexed and cannot "
-                    f"be queried. Available indexed dimensions: {list(ds.indexes.keys())}"
+                    f"be queried. Available indexed dimensions: {list(ds.indexes.keys())}",
                 )
             try:
                 datetimes = self.datetime.split("/")

@@ -526,7 +526,9 @@ def test_temporal_extent_skips_non_indexed(dataset_with_non_indexed_axes):
     from xpublish_edr.metadata import temporal_extent
 
     extent = temporal_extent(dataset_with_non_indexed_axes)
-    assert extent is None, "Should not report temporal extent for non-indexed T coordinate"
+    assert (
+        extent is None
+    ), "Should not report temporal extent for non-indexed T coordinate"
 
 
 def test_vertical_extent_skips_non_indexed(dataset_with_non_indexed_axes):
@@ -534,7 +536,9 @@ def test_vertical_extent_skips_non_indexed(dataset_with_non_indexed_axes):
     from xpublish_edr.metadata import vertical_extent
 
     extent = vertical_extent(dataset_with_non_indexed_axes)
-    assert extent is None, "Should not report vertical extent for non-indexed Z coordinate"
+    assert (
+        extent is None
+    ), "Should not report vertical extent for non-indexed Z coordinate"
 
 
 def test_generic_extents_includes_indexed_dims_from_non_indexed_axes(
