@@ -938,7 +938,7 @@ def test_cf_generic_extents_band_and_step():
     )
 
     band = xr.DataArray([1, 2], dims=("band",))
-    step = xr.DataArray(pd.to_timedelta([0, "6h", "12h"]), dims=("step",))
+    step = xr.DataArray(pd.to_timedelta(["0h", "6h", "12h"]), dims=("step",))
 
     data = xr.DataArray(
         np.arange(3 * 2 * 2 * 3).reshape(3, 2, 2, 3).astype(float),
@@ -994,7 +994,7 @@ def test_cf_generic_extents_band_and_step():
     assert ext["band"]["interval"] == [1, 2]
 
     # step: timedelta values as ISO 8601 durations and proper interval
-    expected_steps = [pd.Timedelta(x).isoformat() for x in [0, "6h", "12h"]]
+    expected_steps = [pd.Timedelta(x).isoformat() for x in ["0h", "6h", "12h"]]
     assert ext["step"]["values"] == expected_steps
     assert ext["step"]["interval"] == [expected_steps[0], expected_steps[-1]]
 
