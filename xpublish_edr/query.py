@@ -59,32 +59,18 @@ class BaseEDRQuery(BaseModel):
     def select(self, ds: xr.Dataset, query_params: dict) -> xr.Dataset:
         """Select data from a dataset based on the query"""
         if self.z:
-            # Validate Z axis exists and is indexed
-            if "Z" not in ds.cf:
-                raise ValueError("Dataset has no vertical dimension for z queries")
-            z_coord = ds.cf["Z"]
-            if isinstance(z_coord, xr.DataArray) and z_coord.name not in ds.indexes:
+            try:
+                if self.method == "nearest":
+                    ds = ds.cf.sel(Z=[self.z], method=self.method)
+                else:
+                    ds = ds.cf.interp(Z=[self.z], method=self.method)
+            except KeyError as e:
                 raise ValueError(
-                    f"Vertical coordinate '{z_coord.name}' is not indexed and cannot "
-                    f"be queried. Available indexed dimensions: {list(ds.indexes.keys())}",
-                )
-            if self.method == "nearest":
-                ds = ds.cf.sel(Z=[self.z], method=self.method)
-            else:
-                ds = ds.cf.interp(Z=[self.z], method=self.method)
+                    f"Cannot select on Z axis: {e}. "
+                    f"Available indexed dimensions: {list(ds.indexes.keys())}",
+                ) from e
 
         if self.datetime:
-            # Validate T axis exists and is indexed
-            if "T" not in ds.cf:
-                raise ValueError(
-                    "Dataset has no temporal dimension for datetime queries",
-                )
-            t_coord = ds.cf["T"]
-            if isinstance(t_coord, xr.DataArray) and t_coord.name not in ds.indexes:
-                raise ValueError(
-                    f"Temporal coordinate '{t_coord.name}' is not indexed and cannot "
-                    f"be queried. Available indexed dimensions: {list(ds.indexes.keys())}",
-                )
             try:
                 datetimes = self.datetime.split("/")
                 if len(datetimes) == 1:
@@ -98,6 +84,11 @@ class BaseEDRQuery(BaseModel):
                     raise ValueError(
                         f"Invalid datetimes submitted - {datetimes}",
                     )
+            except KeyError as e:
+                raise ValueError(
+                    f"Cannot select on T axis: {e}. "
+                    f"Available indexed dimensions: {list(ds.indexes.keys())}",
+                ) from e
             except ValueError as e:
                 logger.error("Error with datetime", exc_info=True)
                 raise ValueError(f"Invalid datetime ({e})") from e
