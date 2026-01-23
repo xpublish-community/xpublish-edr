@@ -218,7 +218,7 @@ def test_select_query_error(regular_xy_dataset):
         z="100",
     )
 
-    with pytest.raises(ValueError, match="Cannot select on Z axis"):
+    with pytest.raises(ValueError, match="Cannot select on Z axis via cf_xarray"):
         query.select(regular_xy_dataset, {})
 
     with pytest.raises(ValueError):
@@ -593,7 +593,7 @@ def test_datetime_query_error_non_indexed(dataset_with_non_indexed_axes):
         datetime="2024-01-01T06:00:00",
         parameters="temperature",
     )
-    with pytest.raises(ValueError, match="Cannot select on T axis"):
+    with pytest.raises(ValueError, match="Cannot select on T axis via cf_xarray"):
         query.select(dataset_with_non_indexed_axes, {})
 
 
@@ -604,5 +604,5 @@ def test_z_query_error_non_indexed(dataset_with_non_indexed_axes):
         z="8500",
         parameters="temperature",
     )
-    with pytest.raises(ValueError, match="Cannot select on Z axis"):
+    with pytest.raises(ValueError, match="Cannot select on Z axis via cf_xarray"):
         query.select(dataset_with_non_indexed_axes, {})

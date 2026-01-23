@@ -66,8 +66,9 @@ class BaseEDRQuery(BaseModel):
                     ds = ds.cf.interp(Z=[self.z], method=self.method)
             except KeyError as e:
                 raise ValueError(
-                    f"Cannot select on Z axis: {e}. "
-                    f"Available indexed dimensions: {list(ds.indexes.keys())}",
+                    f"Cannot select on Z axis via cf_xarray: {e}. "
+                    f"The Z coordinate may not be indexed. "
+                    f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
                 ) from e
 
         if self.datetime:
@@ -86,8 +87,9 @@ class BaseEDRQuery(BaseModel):
                     )
             except KeyError as e:
                 raise ValueError(
-                    f"Cannot select on T axis: {e}. "
-                    f"Available indexed dimensions: {list(ds.indexes.keys())}",
+                    f"Cannot select on T axis via cf_xarray: {e}. "
+                    f"The T coordinate may not be indexed. "
+                    f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
                 ) from e
             except ValueError as e:
                 logger.error("Error with datetime", exc_info=True)
