@@ -9,15 +9,26 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from shapely.errors import GEOSException
 from xpublish import Dependencies, Plugin, hookimpl
 
-from xpublish_edr.format import area_formats, cube_formats, position_formats
+from xpublish_edr.format import (
+    area_formats,
+    cube_formats,
+    position_formats,
+    trajectory_formats,
+)
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
+from xpublish_edr.geometry.trajectory import select_by_trajectory
 from xpublish_edr.logger import logger
-from xpublish_edr.metadata import collection_metadata
-from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
+from xpublish_edr.metadata import collection_metadata, is_trajectory_capable_dataset
+from xpublish_edr.query import (
+    EDRAreaQuery,
+    EDRCubeQuery,
+    EDRPositionQuery,
+    EDRTrajectoryQuery,
+)
 
 
 class CfEdrPlugin(Plugin):
@@ -70,6 +81,19 @@ class CfEdrPlugin(Plugin):
             formats = {key: value.__doc__ for key, value in cube_formats().items()}
             return formats
 
+        @router.get(
+            "/trajectory/formats",
+            summary="Trajectory query response formats",
+        )
+        def get_trajectory_formats():
+            """
+            Returns the various supported formats for trajectory queries
+            """
+            formats = {
+                key: value.__doc__ for key, value in trajectory_formats().items()
+            }
+            return formats
+
         return router
 
     @hookimpl
@@ -89,11 +113,13 @@ class CfEdrPlugin(Plugin):
             position_output_formats = list(position_formats().keys())
             area_output_formats = list(area_formats().keys())
             cube_output_formats = list(cube_formats().keys())
+            trajectory_output_formats = list(trajectory_formats().keys())
             return collection_metadata(
                 dataset,
                 position_output_formats,
                 area_output_formats,
                 cube_output_formats,
+                trajectory_output_formats=trajectory_output_formats,
             ).dict(
                 exclude_none=True,
             )
@@ -306,6 +332,109 @@ class CfEdrPlugin(Plugin):
                         404,
                         f"{query.format} is not a valid format for EDR cube queries. "
                         "Get `./cube/formats` for valid formats",
+                    )
+
+                return format_fn(ds)
+
+            return to_cf_covjson(ds)
+
+        @router.get("/trajectory", summary="Trajectory query")
+        def get_trajectory(
+            request: Request,
+            query: Annotated[EDRTrajectoryQuery, Query()],
+            dataset: xr.Dataset = Depends(deps.dataset),
+        ):
+            """
+            Returns data along a path from WKT `LINESTRING` or `MULTILINESTRING` coordinates
+
+            Extra selecting/slicing parameters can be provided as extra query parameters
+            """
+            if not is_trajectory_capable_dataset(dataset):
+                raise HTTPException(
+                    status_code=404,
+                    detail="Trajectory queries are not supported for this collection",
+                )
+
+            try:
+                ds = query.select(dataset, dict(request.query_params))
+            except ValueError as e:
+                logger.error(
+                    f"Error selecting from query while selecting by trajectory: {e}",
+                )
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Error selecting from query: {e.args[0]}",
+                )
+
+            logger.debug(f"Dataset filtered by query params {ds}")
+
+            try:
+                projected = query.project_geometry(ds)
+            except Exception as e:
+                logger.error(
+                    f"Error projecting trajectory geometry: {e}",
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not project trajectory geometry; check 'crs' and 'coords'",
+                ) from e
+
+            try:
+                ds = select_by_trajectory(ds, projected, query.method)
+            except GEOSException as e:
+                logger.error(
+                    f"Error parsing coordinates to geometry while selecting by trajectory: {e}",
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not parse coordinates to geometry, "
+                    + "check the format of the 'coords' query parameter",
+                )
+            except NotImplementedError as e:
+                logger.error(f"Trajectory query not implemented for this grid: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=str(e),
+                )
+            except KeyError as e:
+                logger.error(f"Error selecting by trajectory: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"Error selecting by trajectory: {e}. "
+                        "Ensure the dataset has valid CF metadata and 1D X/Y coordinates."
+                    ),
+                )
+
+            logger.debug(
+                f"Dataset filtered by trajectory ({query.geometry}): {ds}",
+            )
+
+            try:
+                ds = project_dataset(ds, query.crs)
+            except Exception as e:
+                logger.error(
+                    f"Error projecting dataset while selecting by trajectory: {e}",
+                )
+                raise HTTPException(
+                    status_code=404,
+                    detail="Error projecting dataset",
+                )
+
+            logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+            if query.format:
+                try:
+                    format_fn = trajectory_formats()[query.format]
+                except KeyError as e:
+                    logger.error(
+                        f"Error getting format function while selecting by trajectory: {e}",
+                    )
+                    raise HTTPException(
+                        404,
+                        f"{query.format} is not a valid format for EDR trajectory queries. "
+                        "Get `./trajectory/formats` for valid formats",
                     )
 
                 return format_fn(ds)

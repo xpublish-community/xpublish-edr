@@ -1,3 +1,5 @@
+"""OGC API–EDR collection metadata models and helpers."""
+
 from typing import Literal, Optional, cast
 
 import numpy as np
@@ -9,6 +11,7 @@ from pydantic import BaseModel, Field, model_serializer
 from xpublish_edr.geometry.common import (
     DEFAULT_CRS,
     dataset_crs,
+    is_regular_xy_coords,
     spatial_bounds,
 )
 from xpublish_edr.logger import logger
@@ -127,6 +130,7 @@ class Extent(BaseModel):
 
     @model_serializer(mode="wrap")
     def _flatten_other(self, handler):
+        """Merge ``other`` extent keys into the serialized top-level dict."""
         data = handler(self)
         other = data.pop("other", None)
         if isinstance(other, dict):
@@ -342,6 +346,7 @@ def vertical_extent(ds: xr.Dataset) -> Optional[VerticalExtent]:
 
 
 def _timedelta_to_iso(val: object) -> str:
+    """Format a timedelta-like value as an ISO-8601 duration string."""
     td = pd.Timedelta(val)
     # Prefer pandas ISO-8601 when available
     if hasattr(td, "isoformat"):
@@ -353,6 +358,7 @@ def _timedelta_to_iso(val: object) -> str:
 
 
 def _values_to_python_list(values: np.ndarray) -> list[int | float | str]:
+    """Convert axis coordinate values to JSON-friendly Python scalars or strings."""
     arr = np.asarray(values)
     # datetime-like
     if np.issubdtype(arr.dtype, np.datetime64):
@@ -578,11 +584,65 @@ def cube_query_description(
     )
 
 
+def trajectory_query_description(
+    output_formats: list[str],
+    crs_details: list[CRSDetails],
+) -> EDRQueryMetadata:
+    """
+    Return CF version of EDR Trajectory Query metadata
+    """
+    return EDRQueryMetadata(
+        link=Link(
+            href="/edr/trajectory?coords={coords}",
+            hreflang="en",
+            rel="data",
+            templated=True,
+            variables=VariablesMetadata(
+                title="Trajectory query",
+                description="Returns data along a path from WKT `LINESTRING` or `MULTILINESTRING`",
+                query_type="trajectory",
+                coords={
+                    "type": "string",
+                    "description": "WKT `LINESTRING` or `MULTILINESTRING` coordinates",
+                    "required": True,
+                },
+                output_formats=output_formats,
+                default_output_format="cf_covjson",
+                crs_details=crs_details,
+            ),
+        ),
+    )
+
+
+def is_trajectory_capable_dataset(ds: xr.Dataset) -> bool:
+    """
+    Return True if the dataset can be served by the trajectory implementation.
+
+    Trajectory selection requires a regular one-dimensional CF X axis and Y axis
+    (the same constraint as position and area queries on rectilinear grids), and
+    at least two coordinate values on each spatial axis so a pixel grid can be
+    constructed for rasterization.
+    """
+    try:
+        if not is_regular_xy_coords(ds):
+            return False
+        x_dim = ds.cf["X"].dims[0]
+        y_dim = ds.cf["Y"].dims[0]
+        return ds.sizes.get(x_dim, 0) >= 2 and ds.sizes.get(y_dim, 0) >= 2
+    except Exception:
+        logger.debug(
+            "Trajectory capability check failed for dataset",
+            exc_info=True,
+        )
+        return False
+
+
 def collection_metadata(
     ds: xr.Dataset,
     position_output_formats: list[str],
     area_output_formats: list[str],
     cube_output_formats: list[str],
+    trajectory_output_formats: list[str] | None = None,
 ) -> Collection:
     """
     Returns the collection metadata for the dataset
@@ -618,6 +678,17 @@ def collection_metadata(
         for f in position_output_formats
         if f in area_output_formats and f in cube_output_formats
     ]
+    if trajectory_output_formats is not None:
+        common_output_formats = [
+            f for f in common_output_formats if f in trajectory_output_formats
+        ]
+
+    trajectory_query_meta = None
+    if trajectory_output_formats is not None and is_trajectory_capable_dataset(ds):
+        trajectory_query_meta = trajectory_query_description(
+            trajectory_output_formats,
+            supported_crs,
+        )
 
     return Collection(
         links=[],
@@ -630,6 +701,7 @@ def collection_metadata(
             position=position_query_description(position_output_formats, supported_crs),
             area=area_query_description(area_output_formats, supported_crs),
             cube=cube_query_description(cube_output_formats, supported_crs),
+            trajectory=trajectory_query_meta,
         ),
         crs=[crs.to_string()],
         output_formats=common_output_formats,
