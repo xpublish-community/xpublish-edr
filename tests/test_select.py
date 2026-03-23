@@ -4,6 +4,7 @@ import numpy.testing as npt
 import pandas as pd
 import pyproj
 import pytest
+import rioxarray  # noqa: F401  # registers xarray.rio accessor
 import xarray as xr
 import xarray.testing as xrt
 from shapely import MultiPoint, Point, from_wkt
@@ -12,7 +13,12 @@ from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import project_dataset
 from xpublish_edr.geometry.position import select_by_position
-from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
+from xpublish_edr.geometry.trajectory import select_by_trajectory
+from xpublish_edr.query import (
+    EDRAreaQuery,
+    EDRCubeQuery,
+    EDRPositionQuery,
+)
 
 
 @pytest.fixture(scope="function")
@@ -208,7 +214,7 @@ def test_select_query_error(regular_xy_dataset):
         parameters="air",
     )
 
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError, match="Invalid datetime"):
         query.select(regular_xy_dataset, {})
 
     query = EDRPositionQuery(
@@ -606,3 +612,15 @@ def test_z_query_error_non_indexed(dataset_with_non_indexed_axes):
     )
     with pytest.raises(ValueError, match="Cannot select on Z axis via cf_xarray"):
         query.select(dataset_with_non_indexed_axes, {})
+
+
+def test_select_trajectory_order_along_line(regular_xy_dataset):
+    """Along-path order matches increasing distance along the WKT line (stable sort)."""
+    line = from_wkt("LINESTRING(200 40, 210 50)")
+    ds = select_by_trajectory(regular_xy_dataset, line)
+    xs = ds.cf["X"].values
+    ys = ds.cf["Y"].values
+    dists = [
+        line.project(Point(float(x), float(y))) for x, y in zip(xs, ys, strict=True)
+    ]
+    assert dists == sorted(dists)

@@ -1,9 +1,15 @@
 from io import BytesIO
+from urllib.parse import quote
 
 import cf_xarray  # noqa: F401
+import numpy as np
 import numpy.testing as npt
 import pandas as pd
+import pyproj
+import pyproj.exceptions
 import pytest
+import rioxarray
+import xarray as xr
 import xpublish
 from fastapi.testclient import TestClient
 
@@ -28,9 +34,26 @@ def cf_temp_dataset():
 
 
 @pytest.fixture(scope="session")
-def cf_xpublish(cf_air_dataset, cf_temp_dataset):
+def cf_single_cell_dataset(cf_air_dataset):
+    """Single lat/lon grid cell: metadata works but trajectory raster needs 2+ pixels/side."""
+    ds = cf_air_dataset.isel(lat=0, lon=0, drop=False)
+    ds.attrs = dict(cf_air_dataset.attrs)
+    ds.attrs["_xpublish_id"] = "single_cell"
+    return ds
+
+
+@pytest.fixture(scope="session")
+def cf_xpublish(
+    cf_air_dataset,
+    cf_temp_dataset,
+    cf_single_cell_dataset,
+):
     rest = xpublish.Rest(
-        {"air": cf_air_dataset, "temp": cf_temp_dataset},
+        {
+            "air": cf_air_dataset,
+            "temp": cf_temp_dataset,
+            "single_cell": cf_single_cell_dataset,
+        },
         plugins={"edr": CfEdrPlugin()},
     )
 
@@ -90,6 +113,23 @@ def test_cf_cube_formats(cf_client):
     assert "csv" in data, "csv is not reported as a valid format"
     assert "geojson" in data, "geojson is not reported as a valid format"
     assert "geotiff" in data, "geotiff is not reported as a valid format"
+
+
+def test_cf_trajectory_formats(cf_client):
+    response = cf_client.get("/edr/trajectory/formats")
+
+    assert response.status_code == 200, "Response did not return successfully"
+
+    data = response.json()
+
+    assert "cf_covjson" in data, "cf_covjson is not reported as a valid format"
+    assert "nc" in data, "nc is not reported as a valid format"
+    assert "csv" in data, "csv is not reported as a valid format"
+    assert "parquet" in data, "parquet is not reported as a valid format"
+    assert "geojson" in data, "geojson is not reported as a valid format"
+    assert (
+        "geotiff" not in data
+    ), "geotiff should not be advertised for trajectory queries"
 
 
 def test_cf_metadata_query(cf_client):
@@ -160,6 +200,17 @@ def test_cf_metadata_query(cf_client):
     assert (
         "position" in data["data_queries"] and "area" in data["data_queries"]
     ), "The data queries are incorrect"
+
+    assert (
+        "trajectory" in data["data_queries"]
+    ), "trajectory should be advertised for air"
+    traj = data["data_queries"]["trajectory"]
+    assert traj["link"]["href"] == "/edr/trajectory?coords={coords}"
+    assert traj["link"]["variables"]["query_type"] == "trajectory"
+    traj_formats = set(traj["link"]["variables"]["output_formats"])
+    assert "geotiff" not in traj_formats
+    for f in ("cf_covjson", "nc", "csv", "geojson", "parquet"):
+        assert f in traj_formats, f"{f} should be advertised for trajectory"
 
     assert (
         "temporal" and "spatial" in data["extent"]
@@ -857,10 +908,6 @@ def test_cf_cube_query_csv(cf_client, cf_air_dataset):
 
 @pytest.mark.parametrize("parameter", ["air", "air_float16"])
 def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset, parameter):
-    import io
-
-    import rioxarray
-
     bbox = "200,40,210,50"
 
     # Test with multiple time steps
@@ -879,7 +926,7 @@ def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset, parameter)
     ), "The file name should be data.tiff"
 
     # Read the GeoTIFF back in from the response content
-    da = rioxarray.open_rasterio(io.BytesIO(response.content))
+    da = rioxarray.open_rasterio(BytesIO(response.content))
     assert da.band.shape == (
         4,
     ), "GeoTIFF should have 4 time steps represented as bands"
@@ -890,9 +937,6 @@ def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset, parameter)
         5,
         5,
     ), "GeoTIFF should have 4 time steps, 5 x coordinates, and 5 y coordinates"
-
-    with open("test_cf_cube_query_geotiff_latlng_grid.tiff", "wb") as f:
-        f.write(response.content)
 
     # Test with a single time step
     response = cf_client.get(
@@ -910,7 +954,7 @@ def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset, parameter)
     ), "The file name should be data.tiff"
 
     # Read the GeoTIFF back in from the response content
-    da = rioxarray.open_rasterio(io.BytesIO(response.content))
+    da = rioxarray.open_rasterio(BytesIO(response.content))
     assert da.band.shape == (1,), "GeoTIFF should have 1 time step represented as bands"
     assert da.x.shape == (5,), "GeoTIFF should have 5 x coordinates"
     assert da.y.shape == (5,), "GeoTIFF should have 5 y coordinates"
@@ -922,9 +966,6 @@ def test_cf_cube_query_geotiff_latlng_grid(cf_client, cf_air_dataset, parameter)
 
 
 def test_cf_generic_extents_band_and_step():
-    import numpy as np
-    import xarray as xr
-
     # Build coords: lat/lon for CF spatial axes, plus band (int) and step (timedelta)
     lat = xr.DataArray(
         [10.0, 11.0],
@@ -1038,3 +1079,133 @@ def test_cf_generic_extents_band_and_step():
     # parameter_names includes extents
     assert set(meta["parameter_names"]["var"]["extent"]) == {"spatial", "band", "step"}
     assert set(meta["parameter_names"]["big"]["extent"].keys()) == {"spatial", "member"}
+
+
+def test_cf_trajectory_query_success(cf_client):
+    coords = "LINESTRING(204 44, 208 46)"
+    response = cf_client.get(f"/datasets/air/edr/trajectory?coords={coords}")
+    assert response.status_code == 200
+    assert "application/json" in response.headers["content-type"]
+    data = response.json()
+    assert "ranges" in data and "air" in data["ranges"]
+    assert data["ranges"]["air"]["axisNames"] == ["t", "pts"]
+
+
+def test_cf_trajectory_query_non_default_request_crs(cf_client):
+    """Request `coords` in Web Mercator (`crs=EPSG:3857`) against a geographic grid."""
+    tf = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+    x1, y1 = tf.transform(204.0, 44.0)
+    x2, y2 = tf.transform(208.0, 46.0)
+    wkt = f"LINESTRING({x1} {y1}, {x2} {y2})"
+    response = cf_client.get(
+        f"/datasets/air/edr/trajectory?coords={quote(wkt)}&crs=EPSG:3857",
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "air" in data["ranges"]
+
+
+def test_cf_trajectory_query_parameter_name(cf_client):
+    coords = "LINESTRING(204 44, 205 45)"
+    response = cf_client.get(
+        f"/datasets/air/edr/trajectory?coords={coords}&parameter-name=air",
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "air" in data["ranges"]
+    assert "air_float16" not in data["ranges"]
+
+
+def test_cf_trajectory_query_incapable(cf_client):
+    response = cf_client.get(
+        "/datasets/single_cell/edr/trajectory?coords=LINESTRING(200 15, 322 75)",
+    )
+    assert response.status_code == 404
+    assert "not supported" in response.json()["detail"].lower()
+
+
+@pytest.mark.parametrize("ds_id", ["air", "temp"])
+def test_cf_trajectory_metadata_on_capable_collections(cf_client, ds_id):
+    response = cf_client.get(f"/datasets/{ds_id}/edr/")
+    assert response.status_code == 200
+    data = response.json()
+    assert "trajectory" in data["data_queries"]
+    traj = data["data_queries"]["trajectory"]
+    assert traj["link"]["href"] == "/edr/trajectory?coords={coords}"
+    assert traj["link"]["variables"]["query_type"] == "trajectory"
+
+
+def test_cf_trajectory_metadata_crs_parity_with_position_air(cf_client):
+    """Trajectory discovery should advertise the same CRS list as position for a collection."""
+    response = cf_client.get("/datasets/air/edr/")
+    assert response.status_code == 200
+    data = response.json()
+    pos_crs = data["data_queries"]["position"]["link"]["variables"]["crs_details"]
+    traj_crs = data["data_queries"]["trajectory"]["link"]["variables"]["crs_details"]
+    assert pos_crs == traj_crs
+
+
+def test_cf_trajectory_metadata_absent_on_incapable_collection(cf_client):
+    response = cf_client.get("/datasets/single_cell/edr/")
+    assert response.status_code == 200
+    data = response.json()
+    assert "trajectory" not in data.get("data_queries", {})
+
+
+@pytest.mark.parametrize(
+    ("path", "expect_status"),
+    [
+        ("/datasets/air/edr/trajectory", 422),
+        ("/datasets/air/edr/trajectory?coords=POINT(204 44)", 422),
+        (
+            "/datasets/air/edr/trajectory?coords=LINESTRING(204 44, 205 45)&crs=not-a-crs",
+            422,
+        ),
+    ],
+)
+def test_cf_trajectory_client_errors(cf_client, path, expect_status):
+    response = cf_client.get(path)
+    assert response.status_code == expect_status
+
+
+def test_cf_trajectory_projection_failure_returns_422(cf_client, monkeypatch):
+    """If coordinate projection fails (e.g. pyproj), respond with client error, not 500."""
+
+    def _raise_proj_error(*_args, **_kwargs):
+        raise pyproj.exceptions.ProjError("simulated coordinate transform failure")
+
+    monkeypatch.setattr(
+        "xpublish_edr.geometry.common.transformer_from_crs",
+        _raise_proj_error,
+    )
+    response = cf_client.get(
+        "/datasets/air/edr/trajectory?coords=LINESTRING(204%2044,205%2045)",
+    )
+    assert response.status_code == 422
+    assert "crs" in response.json()["detail"].lower()
+
+
+def test_cf_trajectory_unsupported_format(cf_client):
+    response = cf_client.get(
+        "/datasets/air/edr/trajectory?coords=LINESTRING(204 44, 205 45)&f=geotiff",
+    )
+    assert response.status_code == 422
+
+
+def test_cf_trajectory_outside_extent_empty(cf_client):
+    """Path outside the grid: 200 with empty spatial slice (no intersected cells)."""
+    response = cf_client.get(
+        "/datasets/air/edr/trajectory?coords=LINESTRING(-170 10, -169 11)",
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ranges"]["air"]["shape"] == [4, 0, 0]
+    assert data["ranges"]["air"]["values"] == []
+
+
+def test_cf_trajectory_multilinestring(cf_client):
+    wkt = "MULTILINESTRING ((204 44, 205 45), (207 46, 208 47))"
+    response = cf_client.get(f"/datasets/air/edr/trajectory?coords={wkt}")
+    assert response.status_code == 200
+    data = response.json()
+    assert "air" in data["ranges"]

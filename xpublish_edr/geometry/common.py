@@ -72,6 +72,7 @@ def get_default_grid_mapping(ds: xr.Dataset) -> pyproj.CRS:
 
 
 def dataset_crs(ds: xr.Dataset) -> pyproj.CRS:
+    """Return the dataset CRS from CF ``grid_mapping``, or a sensible default."""
     grid_mapping_names = ds.cf.grid_mapping_names
     if len(grid_mapping_names) == 0:
         return get_default_grid_mapping(ds)

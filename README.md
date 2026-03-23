@@ -106,6 +106,20 @@ For `POLYGON` coordinates, points that are located within **OR** on the polygons
 
 Cube queries are not flattened like area queries, so the response is returned as sliced by xarray. This is particularly useful for subsetting regular grids.
 
+[8.2.5 Trajectory query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_5181b3c7-ada4-40d9-bcf0-4c890a6087f1)
+
+| Query  | Compliant | Comments |
+| ------------- | ------------- | ------------- |
+| `coords`  | ✅ | `LINESTRING` and `MULTILINESTRING` (including Z/M/ZM where allowed); same CRS rules as other queries |
+| `z`  | ✅ | Must not duplicate a vertical (Z) dimension already present in WKT |
+| `datetime`  | ✅ | Must not duplicate M (measure) already present in WKT |
+| `parameter-name`  | ✅ | |
+| `crs`  | ✅ | Default `EPSG:4326` |
+| `f`  | ✅ | Same registry as position/area for trajectory (`cf_covjson`, `csv`, etc.); not `geotiff` |
+| `method`  | ➕ | Spatial indexing uses grid cells intersected by the path; `linear` does not interpolate along the path |
+
+**Sampling semantics:** the service rasterizes the path against the dataset’s regular 1D X/Y grid (via [rasterix](https://pypi.org/project/rasterix/)), takes **all grid cells touched** by the line, and returns them in **increasing distance along the line** measured at **cell center** points (ties keep a stable order). Collections need **at least two coordinates on each spatial axis** so a grid can be built; smaller grids are not advertised as trajectory-capable. Paths that miss the grid yield an empty spatial slice (HTTP 200 with empty coverage data).
+
 ## Get in touch
 
 Report bugs, suggest features or view the source code on [GitHub](https://github.com/gulfofmaine/xpublish-edr/issues).

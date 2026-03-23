@@ -2,14 +2,20 @@
 OGC EDR Query param parsing
 """
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Self
 
 import numpy as np
+import pyproj
 import xarray as xr
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from shapely import Geometry, wkt
 
-from xpublish_edr.format import area_formats, cube_formats, position_formats
+from xpublish_edr.format import (
+    area_formats,
+    cube_formats,
+    position_formats,
+    trajectory_formats,
+)
 from xpublish_edr.geometry.common import project_bbox, project_geometry
 from xpublish_edr.logger import logger
 
@@ -64,7 +70,7 @@ class BaseEDRQuery(BaseModel):
                     ds = ds.cf.sel(Z=[self.z], method=self.method)
                 else:
                     ds = ds.cf.interp(Z=[self.z], method=self.method)
-            except KeyError as e:
+            except (KeyError, TypeError) as e:
                 raise ValueError(
                     f"Cannot select on Z axis via cf_xarray: {e}. "
                     f"The Z coordinate may not be indexed. "
@@ -85,6 +91,19 @@ class BaseEDRQuery(BaseModel):
                     raise ValueError(
                         f"Invalid datetimes submitted - {datetimes}",
                     )
+            except TypeError as e:
+                err_msg = str(e)
+                if (
+                    "Timestamp" in err_msg
+                    and "not supported between instances" in err_msg
+                ):
+                    logger.error("Error with datetime", exc_info=True)
+                    raise ValueError(f"Invalid datetime ({e})") from e
+                raise ValueError(
+                    f"Cannot select on T axis via cf_xarray: {e}. "
+                    f"The T coordinate may not be indexed. "
+                    f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
+                ) from e
             except KeyError as e:
                 raise ValueError(
                     f"Cannot select on T axis via cf_xarray: {e}. "
@@ -92,6 +111,15 @@ class BaseEDRQuery(BaseModel):
                     f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
                 ) from e
             except ValueError as e:
+                err_msg = str(e)
+                if "Invalid datetimes submitted" in err_msg:
+                    raise
+                if "PandasIndex" in err_msg or "set_xindex" in err_msg:
+                    raise ValueError(
+                        f"Cannot select on T axis via cf_xarray: {e}. "
+                        f"The T coordinate may not be indexed. "
+                        f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
+                    ) from e
                 logger.error("Error with datetime", exc_info=True)
                 raise ValueError(f"Invalid datetime ({e})") from e
 
@@ -240,6 +268,82 @@ class EDRCubeQuery(BaseEDRQuery):
     def project_bbox(self, ds: xr.Dataset) -> tuple[float, float, float, float]:
         """Project the bbox to the dataset's CRS"""
         return project_bbox(ds, self.crs, self.bbox)
+
+
+class EDRTrajectoryQuery(BaseEDRQuery):
+    """
+    Capture query parameters for EDR trajectory queries
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    format: Optional[str] = Field(
+        None,
+        title="Response format",
+        description="Trajectory response format key. "
+        f"Valid keys: {', '.join(sorted(trajectory_formats().keys()))}.",
+        validation_alias="f",
+    )
+    coords: str = Field(
+        ...,
+        title="Line(s) in WKT format",
+        description="Well Known Text coordinates for LINESTRING or MULTILINESTRING",
+    )
+
+    @field_validator("format", mode="before")
+    @classmethod
+    def validate_format(cls, v):
+        """Validate the format is a registered trajectory format."""
+        if v is None:
+            return v
+        if v not in trajectory_formats().keys():
+            raise ValueError(f"Invalid format: {v}")
+        return v
+
+    @field_validator("crs", mode="after")
+    @classmethod
+    def validate_crs(cls, v: str) -> str:
+        """Reject CRS strings that pyproj cannot interpret."""
+        try:
+            pyproj.CRS.from_user_input(v)
+        except Exception as e:
+            raise ValueError(f"Unsupported CRS: {v!r}") from e
+        return v
+
+    @field_validator("coords", mode="after")
+    @classmethod
+    def validate_line_geometry(cls, v: str) -> str:
+        """Ensure WKT is a supported line geometry for trajectory queries."""
+        geom = validate_wkt(v)
+        if geom.geom_type not in ("LineString", "MultiLineString"):
+            raise ValueError(
+                f"Trajectory coords must be LINESTRING or MULTILINESTRING, got {geom.geom_type}",
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_fr004_vertical_temporal(self) -> Self:
+        """Enforce OGC EDR rules for Z/M vs query parameters (FR-004)."""
+        geom = wkt.loads(self.coords)
+        if geom.has_z and self.z is not None:
+            raise ValueError(
+                "Cannot use query parameter 'z' when coordinates include a Z dimension",
+            )
+        if getattr(geom, "has_m", False) and self.datetime is not None:
+            raise ValueError(
+                "Cannot use query parameter 'datetime' when coordinates include an M "
+                "(measure) dimension",
+            )
+        return self
+
+    @property
+    def geometry(self) -> Geometry:
+        """Shapely line geometry from WKT query params."""
+        return wkt.loads(self.coords)
+
+    def project_geometry(self, ds: xr.Dataset) -> Geometry:
+        """Project the geometry to the dataset's CRS"""
+        return project_geometry(ds, self.crs, self.geometry)
 
 
 edr_query_params = {

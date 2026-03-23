@@ -45,3 +45,17 @@ def cube_formats():
         formats[entry_point.name] = entry_point.load()
 
     return formats
+
+
+def trajectory_formats():
+    """
+    Return response format functions from registered
+    `xpublish_edr_trajectory_formats` entry_points
+    """
+    formats = {}
+
+    entry_points = importlib.metadata.entry_points()
+    for entry_point in entry_points.select(group="xpublish_edr_trajectory_formats"):
+        formats[entry_point.name] = entry_point.load()
+
+    return formats
