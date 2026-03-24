@@ -10,3 +10,4 @@ dist/
 docs/source/tutorial.ipynb
 xpublish_edr/_version.py
 docs/_build
+.pixi/
