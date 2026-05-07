@@ -615,6 +615,45 @@ def test_cf_multiple_position_csv(cf_client):
         assert key in csv_data[0], f"column {key} should be in the header"
 
 
+def test_cf_post_position_csv_body(cf_client):
+    response = cf_client.post(
+        "/datasets/air/edr/position",
+        content="lon,lat\n202,43\n205,45\n",
+        headers={"content-type": "text/csv"},
+    )
+    assert response.status_code == 200, response.text
+    axes = response.json()["domain"]["axes"]
+    assert axes["x"] == {"values": [202.5, 205.0]}
+    assert axes["y"] == {"values": [42.5, 45.0]}
+
+
+def test_cf_post_position_geojson_body(cf_client):
+    body = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [202, 43]},
+                "properties": {},
+            },
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [205, 45]},
+                "properties": {},
+            },
+        ],
+    }
+    response = cf_client.post(
+        "/datasets/air/edr/position",
+        json=body,
+        headers={"content-type": "application/geo+json"},
+    )
+    assert response.status_code == 200, response.text
+    axes = response.json()["domain"]["axes"]
+    assert axes["x"] == {"values": [202.5, 205.0]}
+    assert axes["y"] == {"values": [42.5, 45.0]}
+
+
 def test_cf_area_query(cf_client, cf_air_dataset):
     coords = "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))"
     response = cf_client.get(f"/datasets/air/edr/area?coords={coords}&f=cf_covjson")

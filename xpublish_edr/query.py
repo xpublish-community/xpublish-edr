@@ -157,10 +157,11 @@ class EDRPositionQuery(BaseEDRQuery):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    coords: str = Field(
-        ...,
+    coords: Optional[str] = Field(
+        None,
         title="Point(s) in WKT format",
-        description="Well Known Text coordinates for the point(s) to query",
+        description="Well Known Text coordinates for the point(s) to query. "
+        "Required for GET; for POST the points are read from the request body.",
     )
 
     @field_validator("format", mode="before")
@@ -173,6 +174,8 @@ class EDRPositionQuery(BaseEDRQuery):
     @property
     def geometry(self) -> Geometry:
         """Shapely point from WKT query params"""
+        if self.coords is None:
+            raise ValueError("coords query parameter is required")
         return wkt.loads(self.coords)
 
     def project_geometry(self, ds: xr.Dataset) -> Geometry:
