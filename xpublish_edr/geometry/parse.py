@@ -88,6 +88,7 @@ def _collect_point_coords(
     obj: object,
     out: list[tuple[float, float]],
 ) -> None:
+    """Recursively collect (x, y) pairs from a GeoJSON object into ``out``."""
     if not isinstance(obj, dict):
         raise ValueError("GeoJSON must be an object")
     obj_type = obj.get("type")
@@ -114,12 +115,14 @@ def _collect_point_coords(
 
 
 def _coord_pair(c: object) -> tuple[float, float]:
+    """Validate a GeoJSON coordinate sequence and return it as an (x, y) tuple."""
     if not isinstance(c, (list, tuple)) or len(c) < 2:
         raise ValueError(f"Invalid GeoJSON coordinate: {c!r}")
     return float(c[0]), float(c[1])
 
 
 def _find_column(header: list[str], aliases: Iterable[str]) -> int | None:
+    """Return the index of the first alias present in ``header``, or None."""
     for alias in aliases:
         if alias in header:
             return header.index(alias)
@@ -129,6 +132,7 @@ def _find_column(header: list[str], aliases: Iterable[str]) -> int | None:
 def _points_to_geometry(
     coords: list[tuple[float, float]],
 ) -> shapely.Point | shapely.MultiPoint:
+    """Build a Point if there is exactly one coord, otherwise a MultiPoint."""
     if not coords:
         raise ValueError("No coordinates provided")
     if len(coords) == 1:

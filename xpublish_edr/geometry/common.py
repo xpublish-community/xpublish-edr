@@ -6,11 +6,12 @@ import itertools
 from functools import lru_cache, partial
 from typing import Union
 
+import numpy as np
 import pyproj
 import rioxarray  # noqa
+import shapely
 import xarray as xr
 from shapely import Geometry
-from shapely.ops import transform
 
 VECTORIZED_DIM = "pts"
 
@@ -93,7 +94,13 @@ def project_geometry(ds: xr.Dataset, geometry_crs: str, geometry: Geometry) -> G
         crs_from=geometry_crs,
         crs_to=data_crs,
     )
-    return transform(transformer.transform, geometry)
+
+    def _transform(coords: np.ndarray) -> np.ndarray:
+        """Vectorized callback for shapely.transform: project all coords in one call."""
+        x, y = transformer.transform(coords[:, 0], coords[:, 1])
+        return np.column_stack([x, y])
+
+    return shapely.transform(geometry, _transform)
 
 
 def project_bbox(
