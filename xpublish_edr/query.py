@@ -190,10 +190,11 @@ class EDRAreaQuery(BaseEDRQuery):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    coords: str = Field(
-        ...,
+    coords: Optional[str] = Field(
+        None,
         title="Polygon in WKT format",
-        description="Well Known Text coordinates",
+        description="Well Known Text coordinates. "
+        "Required for GET; for POST the polygon is read from the request body.",
     )
 
     @field_validator("format", mode="before")
@@ -206,6 +207,8 @@ class EDRAreaQuery(BaseEDRQuery):
     @property
     def geometry(self) -> Geometry:
         """Shapely polygon from WKT query params"""
+        if self.coords is None:
+            raise ValueError("coords query parameter is required")
         return wkt.loads(self.coords)
 
     def project_geometry(self, ds: xr.Dataset) -> Geometry:

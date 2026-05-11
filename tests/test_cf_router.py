@@ -1,3 +1,4 @@
+import json
 from io import BytesIO
 
 import cf_xarray  # noqa: F401
@@ -753,6 +754,56 @@ def test_cf_area_geojson_query(cf_client, cf_air_dataset):
     features = data["features"]
 
     assert len(features) == 36, "There should be 36 data points"
+
+
+@pytest.mark.parametrize(
+    "content_type,body,expected_status",
+    [
+        (
+            "application/geo+json",
+            json.dumps(
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [[201, 41], [201, 49], [209, 49], [209, 41], [201, 41]],
+                        ],
+                    },
+                    "properties": {},
+                },
+            ),
+            200,
+        ),
+        (
+            "application/wkt",
+            "POLYGON((201 41, 201 49, 209 49, 209 41, 201 41))",
+            200,
+        ),
+        ("application/geo+json", "", 422),
+        (
+            "application/geo+json",
+            json.dumps({"type": "Point", "coordinates": [202, 43]}),
+            422,
+        ),
+    ],
+    ids=["geojson_feature", "wkt", "empty_body", "point_rejected"],
+)
+def test_cf_post_area_body(cf_client, content_type, body, expected_status):
+    response = cf_client.post(
+        "/datasets/air/edr/area",
+        content=body,
+        headers={"content-type": content_type},
+    )
+    assert response.status_code == expected_status, response.text
+    if expected_status == 200:
+        axes = response.json()["domain"]["axes"]
+        assert axes["x"] == {
+            "values": [202.5, 205.0, 207.5, 202.5, 205.0, 207.5, 202.5, 205.0, 207.5],
+        }
+        assert axes["y"] == {
+            "values": [47.5, 47.5, 47.5, 45.0, 45.0, 45.0, 42.5, 42.5, 42.5],
+        }
 
 
 def test_cf_area_nc_query(cf_client, cf_air_dataset):

@@ -15,7 +15,7 @@ from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import project_dataset, project_geometry
-from xpublish_edr.geometry.parse import parse_position_body
+from xpublish_edr.geometry.parse import parse_area_body, parse_position_body
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
 from xpublish_edr.metadata import collection_metadata
@@ -235,19 +235,15 @@ class CfEdrPlugin(Plugin):
                 dict(request.query_params),
             )
 
-        @router.get("/area", summary="Area query")
-        def get_area(
-            request: Request,
-            query: Annotated[EDRAreaQuery, Query()],
-            dataset: xr.Dataset = Depends(deps.dataset),
+        def _run_area_query(
+            dataset: xr.Dataset,
+            query: EDRAreaQuery,
+            geometry: shapely.Geometry,
+            query_params: dict,
         ):
-            """
-            Returns vectorized area data based on WKT `Polygon(lon lat)` coordinates
-
-            Extra selecting/slicing parameters can be provided as extra query parameters
-            """
+            """Shared select/project/format pipeline for GET and POST area queries."""
             try:
-                ds = query.select(dataset, dict(request.query_params))
+                ds = query.select(dataset, query_params)
             except ValueError as e:
                 logger.error(f"Error selecting from query while selecting by area: {e}")
                 raise HTTPException(
@@ -258,7 +254,8 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by query params {ds}")
 
             try:
-                ds = select_by_area(ds, query.project_geometry(ds))
+                projected_geometry = project_geometry(ds, query.crs, geometry)
+                ds = select_by_area(ds, projected_geometry)
             except GEOSException as e:
                 logger.error(
                     f"Error parsing coordinates to geometry while selecting by area: {e}",
@@ -275,7 +272,7 @@ class CfEdrPlugin(Plugin):
                     detail="Dataset does not have CF Convention compliant metadata",
                 )
 
-            logger.debug(f"Dataset filtered by polygon {query.geometry.boundary}: {ds}")
+            logger.debug(f"Dataset filtered by polygon {geometry.boundary}: {ds}")
 
             try:
                 ds = project_dataset(ds, query.crs)
@@ -302,6 +299,67 @@ class CfEdrPlugin(Plugin):
                 return format_fn(ds)
 
             return to_cf_covjson(ds)
+
+        @router.api_route(
+            "/area",
+            methods=["GET", "POST"],
+            summary="Area query",
+        )
+        async def area(
+            request: Request,
+            query: Annotated[EDRAreaQuery, Query()],
+            dataset: xr.Dataset = Depends(deps.dataset),
+        ):
+            """
+            Returns vectorized area data for a Polygon or MultiPolygon.
+
+            For GET, the polygon is passed as WKT via the `coords` query parameter.
+
+            For POST, the polygon is submitted in the request body as either
+            GeoJSON (Content-Type: application/geo+json) -- Polygon, MultiPolygon,
+            Feature, FeatureCollection, or GeometryCollection -- or raw WKT
+            (Content-Type: application/wkt or text/plain).
+
+            All other selection parameters (datetime, z, parameter-name, crs, f,
+            method) are passed as query string parameters in both cases.
+            """
+            if request.method == "POST":
+                body = await request.body()
+                if not body:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="POST /area requires a non-empty request body",
+                    )
+                try:
+                    geometry = parse_area_body(
+                        body,
+                        request.headers.get("content-type"),
+                    )
+                except ValueError as e:
+                    logger.error(f"Error parsing area body: {e}")
+                    raise HTTPException(status_code=422, detail=str(e))
+            else:
+                if query.coords is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="coords query parameter is required for GET; "
+                        "use POST /area to submit the polygon in the request body",
+                    )
+                try:
+                    geometry = query.geometry
+                except GEOSException:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Could not parse coordinates to geometry, "
+                        "check the format of the 'coords' query parameter",
+                    )
+
+            return _run_area_query(
+                dataset,
+                query,
+                geometry,
+                dict(request.query_params),
+            )
 
         @router.get("/cube", summary="Cube query")
         def get_cube(
