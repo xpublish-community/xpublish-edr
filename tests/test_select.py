@@ -208,7 +208,7 @@ def test_select_query_error(regular_xy_dataset):
         parameters="air",
     )
 
-    with pytest.raises(ValueError, match="Cannot select on T axis via cf_xarray"):
+    with pytest.raises(ValueError, match="Invalid datetime"):
         query.select(regular_xy_dataset, {})
 
     query = EDRPositionQuery(

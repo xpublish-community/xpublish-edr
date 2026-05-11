@@ -15,7 +15,7 @@ from shapely import wkt as shapely_wkt
 CSV_X_ALIASES = ("x", "lon", "longitude")
 CSV_Y_ALIASES = ("y", "lat", "latitude")
 
-JSON_MEDIA_TYPES = ("application/geo+json", "application/json", "")
+JSON_MEDIA_TYPES = ("application/geo+json", "application/json")
 WKT_MEDIA_TYPES = ("application/wkt", "text/wkt", "text/plain")
 
 

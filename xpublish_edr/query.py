@@ -5,6 +5,7 @@ OGC EDR Query param parsing
 from typing import Literal, Optional
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from shapely import Geometry, wkt
@@ -56,44 +57,50 @@ class BaseEDRQuery(BaseModel):
         description="Method for the query",
     )
 
+    def _require_indexed_axis(self, ds: xr.Dataset, axis: str) -> None:
+        """Raise ValueError if cf axis ``axis`` (e.g. "T", "Z") is absent or unindexed."""
+        try:
+            coord_names = ds.cf.axes[axis]
+        except KeyError:
+            coord_names = []
+        if not any(name in ds.indexes for name in coord_names):
+            raise ValueError(
+                f"Cannot select on {axis} axis via cf_xarray: "
+                f"no indexed {axis} coordinate found. "
+                f"The {axis} coordinate may not be indexed. "
+                f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
+            )
+
     def select(self, ds: xr.Dataset, query_params: dict) -> xr.Dataset:
         """Select data from a dataset based on the query"""
         if self.z:
             try:
-                if self.method == "nearest":
-                    ds = ds.cf.sel(Z=[self.z], method=self.method)
-                else:
-                    ds = ds.cf.interp(Z=[self.z], method=self.method)
-            except (KeyError, TypeError) as e:
-                raise ValueError(
-                    f"Cannot select on Z axis via cf_xarray: {e}. "
-                    f"The Z coordinate may not be indexed. "
-                    f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
-                ) from e
+                z_value = float(self.z)
+            except ValueError as e:
+                raise ValueError(f"Invalid z value {self.z!r}: {e}") from e
+            self._require_indexed_axis(ds, "Z")
+            if self.method == "nearest":
+                ds = ds.cf.sel(Z=[z_value], method=self.method)
+            else:
+                ds = ds.cf.interp(Z=[z_value], method=self.method)
 
         if self.datetime:
+            datetimes = self.datetime.split("/")
+            if len(datetimes) > 2:
+                raise ValueError(f"Invalid datetimes submitted - {datetimes}")
             try:
-                datetimes = self.datetime.split("/")
-                if len(datetimes) == 1:
-                    if self.method == "nearest":
-                        ds = ds.cf.sel(T=datetimes, method=self.method)
-                    else:
-                        ds = ds.cf.interp(T=datetimes, method=self.method)
-                elif len(datetimes) == 2:
-                    ds = ds.cf.sel(T=slice(datetimes[0], datetimes[1]))
-                else:
-                    raise ValueError(
-                        f"Invalid datetimes submitted - {datetimes}",
-                    )
-            except (KeyError, TypeError) as e:
-                raise ValueError(
-                    f"Cannot select on T axis via cf_xarray: {e}. "
-                    f"The T coordinate may not be indexed. "
-                    f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
-                ) from e
+                parsed_datetimes = [pd.Timestamp(d) for d in datetimes]
             except ValueError as e:
                 logger.error("Error with datetime", exc_info=True)
                 raise ValueError(f"Invalid datetime ({e})") from e
+            self._require_indexed_axis(ds, "T")
+            if len(parsed_datetimes) == 1:
+                if self.method == "nearest":
+                    ds = ds.cf.sel(T=parsed_datetimes, method=self.method)
+                else:
+                    ds = ds.cf.interp(T=parsed_datetimes, method=self.method)
+            else:
+                ds = ds.cf.sel(T=slice(parsed_datetimes[0], parsed_datetimes[1]))
 
         if self.parameters:
             try:
