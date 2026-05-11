@@ -64,7 +64,7 @@ class BaseEDRQuery(BaseModel):
                     ds = ds.cf.sel(Z=[self.z], method=self.method)
                 else:
                     ds = ds.cf.interp(Z=[self.z], method=self.method)
-            except KeyError as e:
+            except (KeyError, TypeError) as e:
                 raise ValueError(
                     f"Cannot select on Z axis via cf_xarray: {e}. "
                     f"The Z coordinate may not be indexed. "
@@ -85,7 +85,7 @@ class BaseEDRQuery(BaseModel):
                     raise ValueError(
                         f"Invalid datetimes submitted - {datetimes}",
                     )
-            except KeyError as e:
+            except (KeyError, TypeError) as e:
                 raise ValueError(
                     f"Cannot select on T axis via cf_xarray: {e}. "
                     f"The T coordinate may not be indexed. "
