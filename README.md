@@ -52,6 +52,8 @@ rest = xpublish.Rest(
 
 This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-086r6.html) where reasonable, adding functionality where the value is demonstrable.
 
+> **Note:** `POST` is supported on `/position` and `/area` as a non-spec extension so that requests with large geometries (many points, complex polygons) can submit them in the request body instead of being limited by URL length. All selection parameters (`datetime`, `z`, `parameter-name`, `crs`, `f`, `method`) are still passed as query string parameters. See the per-query tables below for supported body content types.
+
 ### [collections](https://docs.ogc.org/is/19-086r6/19-086r6.html#_e55ba0f5-8f24-4f1b-a7e3-45775e39ef2e) and Resource Paths Support
 
 `xpublish-edr` does not currently support the `/collections/{collectionId}/query` path template described in the spec. Instead the path resource appears as `/{dataset_id}/edr/{query}`. This is because of the path structure of xpublish. In the future, if `xpublish` supports [`DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html) it could provide a path to supporting the spec compliant `collections` resource path.
@@ -64,13 +66,14 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 
 | Query  | Compliant | Comments
 | ------------- | ------------- | ------------- |
-| `coords`  | ✅ | |
+| `coords`  | ✅ | Required for `GET`; for `POST` the points are read from the request body |
 | `z`  | ✅ | |
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅   | |
 | `crs`  | ✅  | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326` |
 | `f`  | ✅ | Supports `cf_covjson`, `csv`, `geojson` `netcdf`, `parquet` |
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
+| `POST` body  | ➕ | Non-spec extension. Supported content types: `text/csv` (columns `x`/`y`, `lon`/`lat`, or `longitude`/`latitude`); `application/geo+json` (Point, MultiPoint, Feature, FeatureCollection, or GeometryCollection) |
 
 > Any additional query parameters are assumed to be additional selections to make on the dimensions/coordinates. These queries will use the specified selections `method`.
 
@@ -78,13 +81,14 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 
 | Query  | Compliant | Comments
 | ------------- | ------------- | ------------- |
-| `coords`  | ✅ | Only `POLYGON` supported currently |
+| `coords`  | ✅ | `POLYGON` and `MULTIPOLYGON` supported. Required for `GET`; for `POST` the polygon is read from the request body |
 | `z`  | ✅   | |
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅   | |
 | `crs`  | ✅  | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326` |
 | `f`  | ✅   | Supports `cf_covjson`, `csv`, `geojson` `netcdf`, `parquet` |
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
+| `POST` body  | ➕ | Non-spec extension. Supported content types: `application/geo+json` (Polygon, MultiPolygon, Feature, FeatureCollection, or GeometryCollection); `application/wkt` / `text/plain` (raw WKT Polygon or MultiPolygon) |
 
 > `method` is not applicable for the coordinates of area queries, only for selecting datetime, z, or additional dimensions.
 
