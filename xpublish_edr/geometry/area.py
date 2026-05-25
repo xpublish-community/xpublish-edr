@@ -30,7 +30,7 @@ def _select_area_regular_xy_grid(
     Return a dataset with the area within the given polygon
     """
     # To minimize performance impact, we first subset the dataset to the bounding box of the polygon
-    (minx, miny, maxx, maxy) = polygon.bounds
+    minx, miny, maxx, maxy = polygon.bounds
     indexes = ds.cf.indexes
     if indexes["X"].is_monotonic_increasing:
         x_sel = slice(minx, maxx)
