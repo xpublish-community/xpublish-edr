@@ -22,6 +22,18 @@ from xpublish_edr.metadata import collection_metadata
 from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
 
 
+async def _raw_body(request: Request) -> bytes:
+    """Read the raw request body as bytes.
+
+    Used as a FastAPI dependency so the position/area endpoints can stay
+    synchronous (`def`) handlers that run in the threadpool: the body is read
+    here in the async layer -- correctly returning raw bytes regardless of
+    content-type -- and the result is passed to the sync endpoint. Returns an
+    empty ``bytes`` for GET requests, which have no body.
+    """
+    return await request.body()
+
+
 class CfEdrPlugin(Plugin):
     """
     OGC EDR compatible endpoints for Xpublish datasets
@@ -179,9 +191,10 @@ class CfEdrPlugin(Plugin):
             methods=["GET", "POST"],
             summary="Position query",
         )
-        async def position(
+        def position(
             request: Request,
             query: Annotated[EDRPositionQuery, Query()],
+            body: Annotated[bytes, Depends(_raw_body)],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
@@ -196,9 +209,14 @@ class CfEdrPlugin(Plugin):
 
             All other selection parameters (datetime, z, parameter-name, crs, f,
             method) are passed as query string parameters in both cases.
+
+            This endpoint is intentionally a synchronous (`def`) handler so that
+            Starlette runs it in the threadpool. The select/project/format
+            pipeline is CPU-bound and blocking; running it on the event loop
+            would starve other requests (e.g. ``/health``). The request body is
+            injected via FastAPI's ``Body`` so we never need ``await`` here.
             """
             if request.method == "POST":
-                body = await request.body()
                 if not body:
                     raise HTTPException(
                         status_code=422,
@@ -305,9 +323,10 @@ class CfEdrPlugin(Plugin):
             methods=["GET", "POST"],
             summary="Area query",
         )
-        async def area(
+        def area(
             request: Request,
             query: Annotated[EDRAreaQuery, Query()],
+            body: Annotated[bytes, Depends(_raw_body)],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
@@ -322,9 +341,13 @@ class CfEdrPlugin(Plugin):
 
             All other selection parameters (datetime, z, parameter-name, crs, f,
             method) are passed as query string parameters in both cases.
+
+            Synchronous (`def`) for the same reason as ``position``: the query
+            pipeline is blocking CPU work and must run in the threadpool rather
+            than on the event loop. The body is injected via ``Body`` so no
+            ``await`` is needed.
             """
             if request.method == "POST":
-                body = await request.body()
                 if not body:
                     raise HTTPException(
                         status_code=422,
