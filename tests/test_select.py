@@ -772,7 +772,7 @@ def geotransform_affine_dataset():
                 ("y", "x"),
                 np.arange(12).reshape(4, 3).astype(float),
                 {"grid_mapping": "spatial_ref"},
-            )
+            ),
         },
         coords={
             "spatial_ref": (

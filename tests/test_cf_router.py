@@ -1191,7 +1191,7 @@ def geozarr_affine_dataset():
                 ("y", "x"),
                 np.arange(12).reshape(4, 3).astype(float),
                 {"standard_name": "air_temperature"},
-            )
+            ),
         },
         attrs={
             "proj:code": "EPSG:3857",
