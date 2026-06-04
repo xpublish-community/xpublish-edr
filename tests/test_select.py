@@ -10,7 +10,11 @@ from shapely import MultiPoint, Point, from_wkt
 
 from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
-from xpublish_edr.geometry.common import project_dataset
+from xpublish_edr.geometry.common import (
+    dataset_crs,
+    dataset_spatial_ref,
+    project_dataset,
+)
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
 
@@ -606,3 +610,146 @@ def test_z_query_error_non_indexed(dataset_with_non_indexed_axes):
     )
     with pytest.raises(ValueError, match="Cannot select on Z axis via cf_xarray"):
         query.select(dataset_with_non_indexed_axes, {})
+
+
+@pytest.fixture(scope="function")
+def geozarr_proj_code_dataset():
+    """A GeoZarr dataset declaring its CRS/coords via the proj:/spatial: conventions.
+
+    Uses ``proj:code`` for the CRS and ``spatial:dimensions`` ([Y, X] order) for
+    the coordinate identification. The 1D coordinate variables carry *no* CF
+    axis/standard_name attributes, so detection must come from the conventions.
+    """
+    foo = np.arange(12).reshape(4, 3).astype(float)
+    return xr.Dataset(
+        {"foo": (("y", "x"), foo)},
+        coords={
+            "x": ("x", [0.0, 1000.0, 2000.0]),
+            "y": ("y", [0.0, 1000.0, 2000.0, 3000.0]),
+        },
+        attrs={"proj:code": "EPSG:3857", "spatial:dimensions": ["y", "x"]},
+    )
+
+
+@pytest.fixture(scope="function")
+def geozarr_proj_wkt2_dataset():
+    """A GeoZarr dataset declaring its CRS via the proj:wkt2 attribute."""
+    foo = np.arange(6).reshape(3, 2).astype(float)
+    return xr.Dataset(
+        {"foo": (("y", "x"), foo)},
+        coords={
+            "x": ("x", [0.0, 1000.0]),
+            "y": ("y", [0.0, 1000.0, 2000.0]),
+        },
+        attrs={
+            "proj:wkt2": pyproj.CRS.from_epsg(27700).to_wkt(),
+            "spatial:dimensions": ["y", "x"],
+        },
+    )
+
+
+@pytest.fixture(scope="function")
+def multiple_grid_mapping_dataset():
+    """A dataset with multiple CF grid mappings (GeoZarr alternate CRS pattern).
+
+    Native grid is EPSG:27700 with 1D indexed x/y; an alternate EPSG:4326 grid
+    mapping references 2D longitude/latitude. The resolver must pick the native
+    1D grid (the old ``dataset_crs`` raised on multiple grid mappings).
+    """
+    return xr.Dataset(
+        {
+            "foo": (
+                ("y", "x"),
+                np.arange(6).reshape(2, 3).astype(float),
+                {"grid_mapping": "spatial_ref: x y crs_4326: longitude latitude"},
+            ),
+        },
+        coords={
+            "x": (
+                "x",
+                [400000.0, 401000.0, 402000.0],
+                {"axis": "X", "standard_name": "projection_x_coordinate"},
+            ),
+            "y": (
+                "y",
+                [100000.0, 101000.0],
+                {"axis": "Y", "standard_name": "projection_y_coordinate"},
+            ),
+            "longitude": (("y", "x"), np.zeros((2, 3)), {"standard_name": "longitude"}),
+            "latitude": (("y", "x"), np.zeros((2, 3)), {"standard_name": "latitude"}),
+            "spatial_ref": ((), 0, pyproj.CRS.from_epsg(27700).to_cf()),
+            "crs_4326": ((), 0, pyproj.CRS.from_epsg(4326).to_cf()),
+        },
+    )
+
+
+def test_geozarr_proj_code_spatial_ref(geozarr_proj_code_dataset):
+    """proj:code + spatial:dimensions resolve to the right CRS and X/Y names."""
+    sr = dataset_spatial_ref(geozarr_proj_code_dataset)
+    assert sr.crs == pyproj.CRS.from_epsg(3857)
+    assert (sr.X, sr.Y) == ("x", "y")
+
+
+def test_geozarr_proj_wkt2_spatial_ref(geozarr_proj_wkt2_dataset):
+    """proj:wkt2 resolves to the right CRS."""
+    sr = dataset_spatial_ref(geozarr_proj_wkt2_dataset)
+    assert sr.crs == pyproj.CRS.from_epsg(27700)
+    assert (sr.X, sr.Y) == ("x", "y")
+
+
+def test_geozarr_position_native_crs(geozarr_proj_code_dataset):
+    """A position query in the dataset's native CRS selects the nearest cell."""
+    query = EDRPositionQuery(coords="POINT(1000 2000)", crs="EPSG:3857")
+    geom = query.project_geometry(geozarr_proj_code_dataset)
+    ds = select_by_position(geozarr_proj_code_dataset, geom)
+    npt.assert_array_equal(ds["x"], 1000.0)
+    npt.assert_array_equal(ds["y"], 2000.0)
+    # foo = arange(12).reshape(4, 3) -> value at y-index 2, x-index 1 == 7
+    npt.assert_array_equal(ds["foo"].values.ravel(), [7.0])
+
+
+def test_geozarr_position_reprojected(geozarr_proj_code_dataset):
+    """A position query in EPSG:4326 is projected into the native CRS and back."""
+    transformer = pyproj.Transformer.from_crs(3857, 4326, always_xy=True)
+    lon, lat = transformer.transform(1000.0, 2000.0)
+    query = EDRPositionQuery(coords=f"POINT({lon} {lat})", crs="EPSG:4326")
+    geom = query.project_geometry(geozarr_proj_code_dataset)
+    ds = select_by_position(geozarr_proj_code_dataset, geom)
+    npt.assert_array_equal(ds["foo"].values.ravel(), [7.0])
+
+    projected = project_dataset(ds, query.crs)
+    # Output carries CF longitude/latitude after projection to a geographic CRS
+    npt.assert_approx_equal(projected.cf["X"].values.item(), lon, significant=5)
+    npt.assert_approx_equal(projected.cf["Y"].values.item(), lat, significant=5)
+
+
+def test_geozarr_cube_native_crs(geozarr_proj_code_dataset):
+    """A cube/bbox query subsets a GeoZarr dataset by its native coordinates."""
+    ds = select_by_bbox(geozarr_proj_code_dataset, (0.0, 0.0, 1000.0, 2000.0))
+    npt.assert_array_equal(ds["x"].values, [0.0, 1000.0])
+    npt.assert_array_equal(ds["y"].values, [0.0, 1000.0, 2000.0])
+
+
+def test_geozarr_area_native_crs(geozarr_proj_code_dataset):
+    """An area query masks a GeoZarr dataset to points within a polygon."""
+    polygon = from_wkt("POLYGON((0 0, 1000 0, 1000 1000, 0 1000, 0 0))")
+    ds = select_by_area(geozarr_proj_code_dataset, polygon)
+    # The 2x2 block of cells with x in {0, 1000} and y in {0, 1000}
+    assert ds.sizes["pts"] == 4
+    assert set(np.unique(ds["x"].values)) == {0.0, 1000.0}
+    assert set(np.unique(ds["y"].values)) == {0.0, 1000.0}
+
+
+def test_multiple_grid_mappings_pick_native(multiple_grid_mapping_dataset):
+    """Datasets with multiple grid mappings resolve to the native 1D grid."""
+    # Previously dataset_crs raised "Multiple grid mappings found".
+    assert dataset_crs(multiple_grid_mapping_dataset) == pyproj.CRS.from_epsg(27700)
+    sr = dataset_spatial_ref(multiple_grid_mapping_dataset)
+    assert sr.crs == pyproj.CRS.from_epsg(27700)
+    assert (sr.X, sr.Y) == ("x", "y")
+
+    query = EDRPositionQuery(coords="POINT(401000 100000)", crs="EPSG:27700")
+    geom = query.project_geometry(multiple_grid_mapping_dataset)
+    ds = select_by_position(multiple_grid_mapping_dataset, geom)
+    npt.assert_array_equal(ds["x"], 401000.0)
+    npt.assert_array_equal(ds["y"], 100000.0)

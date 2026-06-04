@@ -1128,3 +1128,52 @@ def test_cf_generic_extents_band_and_step():
     # parameter_names includes extents
     assert set(meta["parameter_names"]["var"]["extent"]) == {"spatial", "band", "step"}
     assert set(meta["parameter_names"]["big"]["extent"].keys()) == {"spatial", "member"}
+
+
+@pytest.fixture(scope="session")
+def geozarr_dataset():
+    """A GeoZarr dataset declaring CRS/coords via the proj:/spatial: conventions."""
+    import numpy as np
+    import xarray as xr
+
+    foo = np.arange(12).reshape(4, 3).astype(float)
+    return xr.Dataset(
+        {"foo": (("y", "x"), foo, {"standard_name": "air_temperature"})},
+        coords={
+            "x": ("x", [0.0, 1000.0, 2000.0]),
+            "y": ("y", [0.0, 1000.0, 2000.0, 3000.0]),
+        },
+        attrs={"proj:code": "EPSG:3857", "spatial:dimensions": ["y", "x"]},
+    )
+
+
+@pytest.fixture(scope="session")
+def geozarr_client(geozarr_dataset):
+    rest = xpublish.Rest(
+        {"geozarr": geozarr_dataset},
+        plugins={"edr": CfEdrPlugin()},
+    )
+    return TestClient(rest.app)
+
+
+def test_geozarr_metadata_query(geozarr_client):
+    """Collection metadata resolves the CRS from the proj: convention."""
+    response = geozarr_client.get("/datasets/geozarr/edr/")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert "EPSG:3857" in data["crs"], "Native CRS from proj:code is missing"
+    assert "foo" in data["parameter_names"], "foo parameter is missing"
+
+
+def test_geozarr_position_query(geozarr_client):
+    """A position query against a GeoZarr dataset returns CoverageJSON."""
+    response = geozarr_client.get(
+        "/datasets/geozarr/edr/position",
+        params={"coords": "POINT(1000 2000)", "crs": "EPSG:3857"},
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["type"] == "Coverage", "Expected a CoverageJSON document"
+    # foo = arange(12).reshape(4, 3) -> value at y-index 2, x-index 1 == 7
+    values = data["ranges"]["foo"]["values"]
+    assert values == [7.0], f"Unexpected coverage values: {values}"
