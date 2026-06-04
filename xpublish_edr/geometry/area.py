@@ -10,6 +10,7 @@ from xpublish_edr.geometry.common import (
     VECTORIZED_DIM,
     dataset_xy_names,
     is_regular_xy_coords,
+    with_spatial_coords,
 )
 
 
@@ -20,6 +21,7 @@ def select_by_area(
     """
     Return a dataset with the area within the given polygon
     """
+    ds = with_spatial_coords(ds)
     if not is_regular_xy_coords(ds):
         # TODO: Handle 2D coordinates
         raise NotImplementedError("Only 1D coordinates are supported")

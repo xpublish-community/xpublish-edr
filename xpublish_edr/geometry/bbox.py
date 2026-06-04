@@ -4,7 +4,7 @@ Handle selection and formatting for cube queries
 
 import xarray as xr
 
-from xpublish_edr.geometry.common import dataset_xy_names
+from xpublish_edr.geometry.common import dataset_xy_names, with_spatial_coords
 
 
 def select_by_bbox(
@@ -16,6 +16,7 @@ def select_by_bbox(
 
     Assumes that the dataset is in the same CRS as the bbox
     """
+    ds = with_spatial_coords(ds)
     X, Y = dataset_xy_names(ds)
     indexes = ds.indexes
     if indexes[X].is_monotonic_increasing:

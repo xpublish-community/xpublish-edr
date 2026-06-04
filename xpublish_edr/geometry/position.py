@@ -14,6 +14,7 @@ from xpublish_edr.geometry.common import (
     VECTORIZED_DIM,
     dataset_xy_names,
     is_regular_xy_coords,
+    with_spatial_coords,
 )
 
 
@@ -25,6 +26,7 @@ def select_by_position(
     """
     Return a dataset with the position nearest to the given coordinates
     """
+    ds = with_spatial_coords(ds)
     if not is_regular_xy_coords(ds):
         # TODO: Handle 2D coordinates
         raise NotImplementedError("Only 1D coordinates are supported")

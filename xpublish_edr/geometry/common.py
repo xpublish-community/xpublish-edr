@@ -10,9 +10,11 @@ from typing import Mapping, Optional, Union
 import cf_xarray  # noqa: F401  (registers the ``.cf`` dataset accessor)
 import numpy as np
 import pyproj
+import rasterix
 import rioxarray  # noqa
 import shapely
 import xarray as xr
+from rasterix.rioxarray_compat import guess_dims
 from shapely import Geometry
 
 from xpublish_edr.logger import logger
@@ -92,6 +94,19 @@ def _geozarr_spatial_dimensions(ds: xr.Dataset) -> Optional[tuple[str, str]]:
     return None
 
 
+def _geozarr_spatial_transform(ds: xr.Dataset) -> Optional[list]:
+    """Return the GeoZarr ``spatial:transform`` affine coefficients, if present.
+
+    Array-level attrs override group (dataset) level attrs, per the ``spatial:``
+    convention.
+    """
+    for var in ds.data_vars:
+        transform = ds[var].attrs.get("spatial:transform")
+        if transform is not None:
+            return transform
+    return ds.attrs.get("spatial:transform")
+
+
 def _xy_from_cf(
     ds: xr.Dataset,
     crs: pyproj.CRS,
@@ -156,12 +171,40 @@ def _resolve_xy_names(
 
     try:
         return str(ds.cf["X"].name), str(ds.cf["Y"].name)
-    except KeyError as e:
-        raise ValueError(
-            "Could not determine X/Y coordinate variables for the dataset. "
-            "Provide CF axis/standard_name attributes, a grid_mapping variable, "
-            "or GeoZarr 'proj:'/'spatial:' convention attributes.",
-        ) from e
+    except KeyError:
+        pass
+
+    # Fall back to rasterix's rioxarray-style dimension guessing. This catches
+    # affine/GeoTransform datasets whose x/y *dimensions* carry no coordinate
+    # variables yet (rasterix materializes them in ``with_spatial_coords``).
+    try:
+        guessed_x, guessed_y = guess_dims(ds)
+        if guessed_x in ds.dims and guessed_y in ds.dims:
+            return str(guessed_x), str(guessed_y)
+    except Exception:
+        pass
+
+    raise ValueError(
+        "Could not determine X/Y coordinate variables for the dataset. "
+        "Provide CF axis/standard_name attributes, a grid_mapping variable, "
+        "or GeoZarr 'proj:'/'spatial:' convention attributes.",
+    )
+
+
+def _mapping_coordinate_names(mapping) -> tuple[str, ...]:
+    """Flatten a cf_xarray grid mapping's ``coordinates`` to string names.
+
+    cf_xarray may report ``coordinates`` as ``([], [])`` (or otherwise nested)
+    when it cannot resolve coordinate variables for a grid mapping; flatten to a
+    plain tuple of strings so the value is safe to use as a lookup/restrict set.
+    """
+    names: list[str] = []
+    for item in mapping.coordinates or ():
+        if isinstance(item, str):
+            names.append(item)
+        elif isinstance(item, (list, tuple)):
+            names.extend(c for c in item if isinstance(c, str))
+    return tuple(names)
 
 
 def _select_grid_mapping(ds: xr.Dataset, grid_mappings):
@@ -174,11 +217,11 @@ def _select_grid_mapping(ds: xr.Dataset, grid_mappings):
     if len(grid_mappings) == 1:
         return grid_mappings[0]
     for mapping in grid_mappings:
-        coords = mapping.coordinates or ()
+        coords = _mapping_coordinate_names(mapping)
         if coords and all(c in ds.indexes for c in coords):
             return mapping
     for mapping in grid_mappings:
-        coords = mapping.coordinates or ()
+        coords = _mapping_coordinate_names(mapping)
         if coords and all(
             c in ds.variables and coord_is_regular(ds[c]) for c in coords
         ):
@@ -207,7 +250,7 @@ def _resolve_crs(
     if grid_mappings:
         mapping = _select_grid_mapping(ds, grid_mappings)
         if mapping.crs is not None:
-            return mapping.crs, mapping.coordinates
+            return mapping.crs, _mapping_coordinate_names(mapping) or None
 
     crs = _parse_proj_convention_crs(ds.attrs)
     if crs is not None:
@@ -229,6 +272,66 @@ def dataset_xy_names(ds: xr.Dataset) -> tuple[str, str]:
     return spatial_ref.X, spatial_ref.Y
 
 
+def _with_geotransform_from_spatial(ds: xr.Dataset) -> xr.Dataset:
+    """Translate a GeoZarr ``spatial:transform`` into a GDAL ``GeoTransform``.
+
+    rasterix materializes affine coordinates from a GDAL ``GeoTransform`` but
+    does not (yet) read the GeoZarr ``spatial:transform`` attribute. When only
+    the latter is present, synthesize an equivalent ``GeoTransform`` on a
+    ``spatial_ref`` variable so rasterix can do the materialization.
+
+    The ``spatial:transform`` is in rasterio/Affine order ``[a, b, c, d, e, f]``
+    (``x = a*col + b*row + c``; ``y = d*col + e*row + f``); the GDAL
+    ``GeoTransform`` string is ``"c a b f d e"``.
+    """
+    transform = _geozarr_spatial_transform(ds)
+    if transform is None or len(transform) != 6:
+        return ds
+    # Prefer an existing GDAL GeoTransform if one is already present.
+    for name in ("spatial_ref", "crs"):
+        if name in ds.variables and "GeoTransform" in ds[name].attrs:
+            return ds
+    a, b, c, d, e, f = (float(v) for v in transform)
+    geotransform = f"{c} {a} {b} {f} {d} {e}"
+    return ds.assign_coords(spatial_ref=((), 0, {"GeoTransform": geotransform}))
+
+
+def with_spatial_coords(ds: xr.Dataset) -> xr.Dataset:
+    """Ensure the X/Y axes are materialized as 1D coordinate variables.
+
+    Datasets that describe their grid via an affine transform (a CF/GDAL
+    ``GeoTransform`` on the grid mapping variable, or a GeoZarr
+    ``spatial:transform``) may carry no explicit x/y coordinate arrays.
+    ``rasterix.assign_index`` materializes those coordinates from the transform;
+    we then normalize back to plain (pandas) indexes so the rest of the
+    selection/projection pipeline -- which expects regular 1D coordinates --
+    works unchanged.
+
+    Datasets that already have 1D X/Y coordinate variables are returned as-is.
+    """
+    try:
+        X, Y = dataset_xy_names(ds)
+    except ValueError:
+        return ds
+
+    have_coords = (
+        X in ds.variables and Y in ds.variables and ds[X].ndim == 1 and ds[Y].ndim == 1
+    )
+    if have_coords:
+        return ds
+
+    try:
+        # deep=False keeps data shared; rasterix only mutates the (copied) grid
+        # mapping attrs (it clears GeoTransform), so the original is untouched.
+        candidate = _with_geotransform_from_spatial(ds.copy(deep=False))
+        indexed = rasterix.assign_index(candidate, x_dim=X, y_dim=Y, crs=False)
+    except Exception as e:
+        logger.debug(f"Could not materialize coordinates for {X!r}/{Y!r}: {e}")
+        return ds
+
+    return ds.assign_coords({X: (X, indexed[X].values), Y: (Y, indexed[Y].values)})
+
+
 def is_regular_xy_coords(ds: xr.Dataset) -> bool:
     """
     Check if the dataset has regular (1D) X and Y coordinates
@@ -236,8 +339,8 @@ def is_regular_xy_coords(ds: xr.Dataset) -> bool:
     try:
         X, Y = dataset_xy_names(ds)
     except ValueError:
-        # X/Y coordinate variables could not be resolved (e.g. an affine-only
-        # or 2D grid); not a regular 1D grid we can select on.
+        # X/Y coordinate variables could not be resolved (e.g. a 2D curvilinear
+        # grid); not a regular 1D grid we can select on.
         return False
     if X not in ds.variables or Y not in ds.variables:
         return False
@@ -248,6 +351,7 @@ def spatial_bounds(ds: xr.Dataset) -> tuple[float, float, float, float]:
     """
     Get the spatial bounds of the dataset, naively, in whatever CRS it is in
     """
+    ds = with_spatial_coords(ds)
     X, Y = dataset_xy_names(ds)
     x = ds[X]
     min_x = float(x.min().values)
@@ -367,6 +471,7 @@ def project_dataset(ds: xr.Dataset, query_crs: Union[str, pyproj.CRS]) -> xr.Dat
     """
     Project the dataset to the given CRS
     """
+    ds = with_spatial_coords(ds)
     data_crs = dataset_crs(ds)
     if isinstance(query_crs, pyproj.CRS):
         target_crs = query_crs

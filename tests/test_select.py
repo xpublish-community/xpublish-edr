@@ -13,7 +13,9 @@ from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import (
     dataset_crs,
     dataset_spatial_ref,
+    is_regular_xy_coords,
     project_dataset,
+    with_spatial_coords,
 )
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
@@ -753,3 +755,92 @@ def test_multiple_grid_mappings_pick_native(multiple_grid_mapping_dataset):
     ds = select_by_position(multiple_grid_mapping_dataset, geom)
     npt.assert_array_equal(ds["x"], 401000.0)
     npt.assert_array_equal(ds["y"], 100000.0)
+
+
+@pytest.fixture(scope="function")
+def geotransform_affine_dataset():
+    """An affine (raster) dataset: a CF/GDAL ``GeoTransform`` and no coordinate arrays.
+
+    rasterix materializes the x/y coordinates from the transform. The transform
+    ``"0 1000 0 3000 0 -1000"`` gives 1km pixels with origin (0, 3000) and a
+    north-up (descending y) orientation, i.e. pixel centers x=[500, 1500, 2500]
+    and y=[2500, 1500, 500, -500].
+    """
+    return xr.Dataset(
+        {
+            "foo": (
+                ("y", "x"),
+                np.arange(12).reshape(4, 3).astype(float),
+                {"grid_mapping": "spatial_ref"},
+            )
+        },
+        coords={
+            "spatial_ref": (
+                (),
+                0,
+                {
+                    **pyproj.CRS.from_epsg(3857).to_cf(),
+                    "GeoTransform": "0 1000 0 3000 0 -1000",
+                },
+            ),
+        },
+    )
+
+
+@pytest.fixture(scope="function")
+def geozarr_spatial_transform_dataset():
+    """An affine GeoZarr dataset using ``proj:`` + ``spatial:transform`` (no coords).
+
+    ``spatial:transform`` is rasterio/Affine order ``[a, b, c, d, e, f]``;
+    here it matches the GeoTransform fixture (1km pixels, north-up).
+    """
+    return xr.Dataset(
+        {"foo": (("y", "x"), np.arange(12).reshape(4, 3).astype(float))},
+        attrs={
+            "proj:code": "EPSG:3857",
+            "spatial:dimensions": ["y", "x"],
+            "spatial:transform": [1000.0, 0.0, 0.0, 0.0, -1000.0, 3000.0],
+        },
+    )
+
+
+def test_geotransform_affine_materializes_coords(geotransform_affine_dataset):
+    """rasterix materializes 1D coordinates from a CF GeoTransform (plain index)."""
+    ds = geotransform_affine_dataset
+    assert "x" not in ds.coords and "y" not in ds.coords  # affine-only to start
+    materialized = with_spatial_coords(ds)
+    npt.assert_array_equal(materialized["x"].values, [500.0, 1500.0, 2500.0])
+    npt.assert_array_equal(materialized["y"].values, [2500.0, 1500.0, 500.0, -500.0])
+    assert is_regular_xy_coords(materialized)
+    # The original dataset is not mutated (GeoTransform preserved, no new coords)
+    assert "GeoTransform" in ds["spatial_ref"].attrs
+    assert "x" not in ds.coords
+
+
+def test_geotransform_affine_position_and_cube(geotransform_affine_dataset):
+    """Position and cube selection work on a GeoTransform-only dataset."""
+    ds = geotransform_affine_dataset
+    assert dataset_crs(ds) == pyproj.CRS.from_epsg(3857)
+    point = Point((1500, 1500))  # center cell -> foo == 4
+    sel = select_by_position(ds, point)
+    npt.assert_array_equal(sel["foo"].values.ravel(), [4.0])
+
+    cube = select_by_bbox(ds, (0.0, 0.0, 1600.0, 1600.0))
+    npt.assert_array_equal(cube["x"].values, [500.0, 1500.0])
+
+
+def test_geozarr_spatial_transform_affine(geozarr_spatial_transform_dataset):
+    """proj: + spatial:transform (no coords) resolve and select correctly."""
+    ds = geozarr_spatial_transform_dataset
+    sr = dataset_spatial_ref(ds)
+    assert sr.crs == pyproj.CRS.from_epsg(3857)
+    assert (sr.X, sr.Y) == ("x", "y")
+
+    materialized = with_spatial_coords(ds)
+    npt.assert_array_equal(materialized["x"].values, [500.0, 1500.0, 2500.0])
+    assert is_regular_xy_coords(materialized)
+    # Original untouched (still affine-only)
+    assert "x" not in ds.coords
+
+    sel = select_by_position(ds, Point((1500, 1500)))
+    npt.assert_array_equal(sel["foo"].values.ravel(), [4.0])
