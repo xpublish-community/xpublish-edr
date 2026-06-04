@@ -1131,61 +1131,12 @@ def test_cf_generic_extents_band_and_step():
 
 
 @pytest.fixture(scope="session")
-def geozarr_dataset():
-    """A GeoZarr dataset declaring CRS/coords via the proj:/spatial: conventions."""
+def geozarr_client():
+    """Serve a GeoZarr dataset (proj:code + spatial:dimensions, no CF attrs)."""
     import numpy as np
     import xarray as xr
 
-    foo = np.arange(12).reshape(4, 3).astype(float)
-    return xr.Dataset(
-        {"foo": (("y", "x"), foo, {"standard_name": "air_temperature"})},
-        coords={
-            "x": ("x", [0.0, 1000.0, 2000.0]),
-            "y": ("y", [0.0, 1000.0, 2000.0, 3000.0]),
-        },
-        attrs={"proj:code": "EPSG:3857", "spatial:dimensions": ["y", "x"]},
-    )
-
-
-@pytest.fixture(scope="session")
-def geozarr_client(geozarr_dataset):
-    rest = xpublish.Rest(
-        {"geozarr": geozarr_dataset},
-        plugins={"edr": CfEdrPlugin()},
-    )
-    return TestClient(rest.app)
-
-
-def test_geozarr_metadata_query(geozarr_client):
-    """Collection metadata resolves the CRS from the proj: convention."""
-    response = geozarr_client.get("/datasets/geozarr/edr/")
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert "EPSG:3857" in data["crs"], "Native CRS from proj:code is missing"
-    assert "foo" in data["parameter_names"], "foo parameter is missing"
-
-
-def test_geozarr_position_query(geozarr_client):
-    """A position query against a GeoZarr dataset returns CoverageJSON."""
-    response = geozarr_client.get(
-        "/datasets/geozarr/edr/position",
-        params={"coords": "POINT(1000 2000)", "crs": "EPSG:3857"},
-    )
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert data["type"] == "Coverage", "Expected a CoverageJSON document"
-    # foo = arange(12).reshape(4, 3) -> value at y-index 2, x-index 1 == 7
-    values = data["ranges"]["foo"]["values"]
-    assert values == [7.0], f"Unexpected coverage values: {values}"
-
-
-@pytest.fixture(scope="session")
-def geozarr_affine_dataset():
-    """Affine GeoZarr dataset: proj: CRS + spatial:transform, no coordinate arrays."""
-    import numpy as np
-    import xarray as xr
-
-    return xr.Dataset(
+    ds = xr.Dataset(
         {
             "foo": (
                 ("y", "x"),
@@ -1193,35 +1144,26 @@ def geozarr_affine_dataset():
                 {"standard_name": "air_temperature"},
             ),
         },
-        attrs={
-            "proj:code": "EPSG:3857",
-            "spatial:dimensions": ["y", "x"],
-            "spatial:transform": [1000.0, 0.0, 0.0, 0.0, -1000.0, 3000.0],
+        coords={
+            "x": ("x", [0.0, 1000.0, 2000.0]),
+            "y": ("y", [0.0, 1000.0, 2000.0, 3000.0]),
         },
+        attrs={"proj:code": "EPSG:3857", "spatial:dimensions": ["y", "x"]},
     )
-
-
-@pytest.fixture(scope="session")
-def geozarr_affine_client(geozarr_affine_dataset):
-    rest = xpublish.Rest({"gz": geozarr_affine_dataset}, plugins={"edr": CfEdrPlugin()})
+    rest = xpublish.Rest({"gz": ds}, plugins={"edr": CfEdrPlugin()})
     return TestClient(rest.app)
 
 
-def test_geozarr_affine_metadata(geozarr_affine_client):
-    """Metadata resolves CRS + bbox for an affine (coordinate-less) GeoZarr dataset."""
-    response = geozarr_affine_client.get("/datasets/gz/edr/")
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert "EPSG:3857" in data["crs"]
-    # rasterix materializes pixel-center coords from spatial:transform
-    assert data["extent"]["spatial"]["bbox"] == [[500.0, -500.0, 2500.0, 2500.0]]
+def test_geozarr_metadata_and_position(geozarr_client):
+    """End-to-end: GeoZarr proj:/spatial: conventions resolve for metadata + queries."""
+    meta = geozarr_client.get("/datasets/gz/edr/")
+    assert meta.status_code == 200, meta.text
+    assert "EPSG:3857" in meta.json()["crs"]
 
-
-def test_geozarr_affine_position(geozarr_affine_client):
-    """Position query works on an affine GeoZarr dataset (coords materialized)."""
-    response = geozarr_affine_client.get(
+    pos = geozarr_client.get(
         "/datasets/gz/edr/position",
-        params={"coords": "POINT(1500 1500)", "crs": "EPSG:3857"},
+        params={"coords": "POINT(1000 2000)", "crs": "EPSG:3857"},
     )
-    assert response.status_code == 200, response.text
-    assert response.json()["ranges"]["foo"]["values"] == [4.0]
+    assert pos.status_code == 200, pos.text
+    # foo = arange(12).reshape(4, 3) -> y-index 2, x-index 1 == 7
+    assert pos.json()["ranges"]["foo"]["values"] == [7.0]

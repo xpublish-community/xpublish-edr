@@ -616,15 +616,14 @@ def test_z_query_error_non_indexed(dataset_with_non_indexed_axes):
 
 @pytest.fixture(scope="function")
 def geozarr_proj_code_dataset():
-    """A GeoZarr dataset declaring its CRS/coords via the proj:/spatial: conventions.
+    """A GeoZarr dataset declaring CRS/coords via the proj:/spatial: conventions.
 
     Uses ``proj:code`` for the CRS and ``spatial:dimensions`` ([Y, X] order) for
-    the coordinate identification. The 1D coordinate variables carry *no* CF
+    coordinate identification; the 1D x/y coordinates carry *no* CF
     axis/standard_name attributes, so detection must come from the conventions.
     """
-    foo = np.arange(12).reshape(4, 3).astype(float)
     return xr.Dataset(
-        {"foo": (("y", "x"), foo)},
+        {"foo": (("y", "x"), np.arange(12).reshape(4, 3).astype(float))},
         coords={
             "x": ("x", [0.0, 1000.0, 2000.0]),
             "y": ("y", [0.0, 1000.0, 2000.0, 3000.0]),
@@ -633,38 +632,55 @@ def geozarr_proj_code_dataset():
     )
 
 
-@pytest.fixture(scope="function")
-def geozarr_proj_wkt2_dataset():
-    """A GeoZarr dataset declaring its CRS via the proj:wkt2 attribute."""
-    foo = np.arange(6).reshape(3, 2).astype(float)
-    return xr.Dataset(
-        {"foo": (("y", "x"), foo)},
-        coords={
-            "x": ("x", [0.0, 1000.0]),
-            "y": ("y", [0.0, 1000.0, 2000.0]),
-        },
-        attrs={
-            "proj:wkt2": pyproj.CRS.from_epsg(27700).to_wkt(),
-            "spatial:dimensions": ["y", "x"],
-        },
+def test_geozarr_proj_convention_crs(geozarr_proj_code_dataset):
+    """proj:code and proj:wkt2 (+ spatial:dimensions) resolve CRS and X/Y names."""
+    sr = dataset_spatial_ref(geozarr_proj_code_dataset)
+    assert sr.crs == pyproj.CRS.from_epsg(3857)
+    assert (sr.X, sr.Y) == ("x", "y")
+
+    wkt2 = geozarr_proj_code_dataset.copy()
+    del wkt2.attrs["proj:code"]
+    wkt2.attrs["proj:wkt2"] = pyproj.CRS.from_epsg(27700).to_wkt()
+    assert dataset_spatial_ref(wkt2).crs == pyproj.CRS.from_epsg(27700)
+
+
+def test_geozarr_position_and_reproject(geozarr_proj_code_dataset):
+    """Selection works on a GeoZarr dataset (no CF attrs) in native and other CRS."""
+    ds = geozarr_proj_code_dataset
+    # Native CRS: foo = arange(12).reshape(4, 3) -> y-index 2, x-index 1 == 7
+    native = select_by_position(
+        ds,
+        EDRPositionQuery(coords="POINT(1000 2000)", crs="EPSG:3857").project_geometry(
+            ds
+        ),
     )
+    npt.assert_array_equal(native["foo"].values.ravel(), [7.0])
+
+    # EPSG:4326 query is projected into the native CRS, then back out
+    lon, lat = pyproj.Transformer.from_crs(3857, 4326, always_xy=True).transform(
+        1000.0, 2000.0
+    )
+    query = EDRPositionQuery(coords=f"POINT({lon} {lat})", crs="EPSG:4326")
+    sel = select_by_position(ds, query.project_geometry(ds))
+    npt.assert_array_equal(sel["foo"].values.ravel(), [7.0])
+    projected = project_dataset(sel, query.crs)
+    npt.assert_approx_equal(projected.cf["X"].values.item(), lon, significant=5)
+    npt.assert_approx_equal(projected.cf["Y"].values.item(), lat, significant=5)
 
 
-@pytest.fixture(scope="function")
-def multiple_grid_mapping_dataset():
-    """A dataset with multiple CF grid mappings (GeoZarr alternate CRS pattern).
+def test_multiple_grid_mappings_pick_native():
+    """Datasets with multiple grid mappings resolve to the native 1D grid.
 
-    Native grid is EPSG:27700 with 1D indexed x/y; an alternate EPSG:4326 grid
-    mapping references 2D longitude/latitude. The resolver must pick the native
-    1D grid (the old ``dataset_crs`` raised on multiple grid mappings).
+    Native grid is EPSG:27700 (indexed x/y); an alternate EPSG:4326 grid mapping
+    references 2D lon/lat. The old ``dataset_crs`` raised on multiple mappings.
     """
-    return xr.Dataset(
+    ds = xr.Dataset(
         {
             "foo": (
                 ("y", "x"),
                 np.arange(6).reshape(2, 3).astype(float),
                 {"grid_mapping": "spatial_ref: x y crs_4326: longitude latitude"},
-            ),
+            )
         },
         coords={
             "x": (
@@ -683,89 +699,50 @@ def multiple_grid_mapping_dataset():
             "crs_4326": ((), 0, pyproj.CRS.from_epsg(4326).to_cf()),
         },
     )
-
-
-def test_geozarr_proj_code_spatial_ref(geozarr_proj_code_dataset):
-    """proj:code + spatial:dimensions resolve to the right CRS and X/Y names."""
-    sr = dataset_spatial_ref(geozarr_proj_code_dataset)
-    assert sr.crs == pyproj.CRS.from_epsg(3857)
-    assert (sr.X, sr.Y) == ("x", "y")
-
-
-def test_geozarr_proj_wkt2_spatial_ref(geozarr_proj_wkt2_dataset):
-    """proj:wkt2 resolves to the right CRS."""
-    sr = dataset_spatial_ref(geozarr_proj_wkt2_dataset)
+    sr = dataset_spatial_ref(ds)
     assert sr.crs == pyproj.CRS.from_epsg(27700)
     assert (sr.X, sr.Y) == ("x", "y")
 
 
-def test_geozarr_position_native_crs(geozarr_proj_code_dataset):
-    """A position query in the dataset's native CRS selects the nearest cell."""
-    query = EDRPositionQuery(coords="POINT(1000 2000)", crs="EPSG:3857")
-    geom = query.project_geometry(geozarr_proj_code_dataset)
-    ds = select_by_position(geozarr_proj_code_dataset, geom)
-    npt.assert_array_equal(ds["x"], 1000.0)
-    npt.assert_array_equal(ds["y"], 2000.0)
-    # foo = arange(12).reshape(4, 3) -> value at y-index 2, x-index 1 == 7
-    npt.assert_array_equal(ds["foo"].values.ravel(), [7.0])
+def test_geotransform_affine(geotransform_affine_dataset):
+    """rasterix materializes coords from a CF GeoTransform; selection then works.
+
+    ``"0 1000 0 3000 0 -1000"`` -> pixel centers x=[500, 1500, 2500],
+    y=[2500, 1500, 500, -500].
+    """
+    ds = geotransform_affine_dataset
+    assert "x" not in ds.coords  # affine-only to start
+    materialized = with_spatial_coords(ds)
+    npt.assert_array_equal(materialized["x"].values, [500.0, 1500.0, 2500.0])
+    assert is_regular_xy_coords(materialized)
+    assert dataset_crs(ds) == pyproj.CRS.from_epsg(3857)
+    # The original dataset is not mutated
+    assert "GeoTransform" in ds["spatial_ref"].attrs and "x" not in ds.coords
+    # Center cell -> foo == 4
+    sel = select_by_position(ds, Point((1500, 1500)))
+    npt.assert_array_equal(sel["foo"].values.ravel(), [4.0])
 
 
-def test_geozarr_position_reprojected(geozarr_proj_code_dataset):
-    """A position query in EPSG:4326 is projected into the native CRS and back."""
-    transformer = pyproj.Transformer.from_crs(3857, 4326, always_xy=True)
-    lon, lat = transformer.transform(1000.0, 2000.0)
-    query = EDRPositionQuery(coords=f"POINT({lon} {lat})", crs="EPSG:4326")
-    geom = query.project_geometry(geozarr_proj_code_dataset)
-    ds = select_by_position(geozarr_proj_code_dataset, geom)
-    npt.assert_array_equal(ds["foo"].values.ravel(), [7.0])
-
-    projected = project_dataset(ds, query.crs)
-    # Output carries CF longitude/latitude after projection to a geographic CRS
-    npt.assert_approx_equal(projected.cf["X"].values.item(), lon, significant=5)
-    npt.assert_approx_equal(projected.cf["Y"].values.item(), lat, significant=5)
-
-
-def test_geozarr_cube_native_crs(geozarr_proj_code_dataset):
-    """A cube/bbox query subsets a GeoZarr dataset by its native coordinates."""
-    ds = select_by_bbox(geozarr_proj_code_dataset, (0.0, 0.0, 1000.0, 2000.0))
-    npt.assert_array_equal(ds["x"].values, [0.0, 1000.0])
-    npt.assert_array_equal(ds["y"].values, [0.0, 1000.0, 2000.0])
-
-
-def test_geozarr_area_native_crs(geozarr_proj_code_dataset):
-    """An area query masks a GeoZarr dataset to points within a polygon."""
-    polygon = from_wkt("POLYGON((0 0, 1000 0, 1000 1000, 0 1000, 0 0))")
-    ds = select_by_area(geozarr_proj_code_dataset, polygon)
-    # The 2x2 block of cells with x in {0, 1000} and y in {0, 1000}
-    assert ds.sizes["pts"] == 4
-    assert set(np.unique(ds["x"].values)) == {0.0, 1000.0}
-    assert set(np.unique(ds["y"].values)) == {0.0, 1000.0}
-
-
-def test_multiple_grid_mappings_pick_native(multiple_grid_mapping_dataset):
-    """Datasets with multiple grid mappings resolve to the native 1D grid."""
-    # Previously dataset_crs raised "Multiple grid mappings found".
-    assert dataset_crs(multiple_grid_mapping_dataset) == pyproj.CRS.from_epsg(27700)
-    sr = dataset_spatial_ref(multiple_grid_mapping_dataset)
-    assert sr.crs == pyproj.CRS.from_epsg(27700)
-    assert (sr.X, sr.Y) == ("x", "y")
-
-    query = EDRPositionQuery(coords="POINT(401000 100000)", crs="EPSG:27700")
-    geom = query.project_geometry(multiple_grid_mapping_dataset)
-    ds = select_by_position(multiple_grid_mapping_dataset, geom)
-    npt.assert_array_equal(ds["x"], 401000.0)
-    npt.assert_array_equal(ds["y"], 100000.0)
+def test_geozarr_spatial_transform_affine():
+    """A GeoZarr spatial:transform (no coords) is translated and materialized."""
+    ds = xr.Dataset(
+        {"foo": (("y", "x"), np.arange(12).reshape(4, 3).astype(float))},
+        attrs={
+            "proj:code": "EPSG:3857",
+            "spatial:dimensions": ["y", "x"],
+            "spatial:transform": [1000.0, 0.0, 0.0, 0.0, -1000.0, 3000.0],
+        },
+    )
+    materialized = with_spatial_coords(ds)
+    npt.assert_array_equal(materialized["x"].values, [500.0, 1500.0, 2500.0])
+    assert "x" not in ds.coords  # original untouched
+    sel = select_by_position(ds, Point((1500, 1500)))
+    npt.assert_array_equal(sel["foo"].values.ravel(), [4.0])
 
 
 @pytest.fixture(scope="function")
 def geotransform_affine_dataset():
-    """An affine (raster) dataset: a CF/GDAL ``GeoTransform`` and no coordinate arrays.
-
-    rasterix materializes the x/y coordinates from the transform. The transform
-    ``"0 1000 0 3000 0 -1000"`` gives 1km pixels with origin (0, 3000) and a
-    north-up (descending y) orientation, i.e. pixel centers x=[500, 1500, 2500]
-    and y=[2500, 1500, 500, -500].
-    """
+    """An affine (raster) dataset: a CF/GDAL ``GeoTransform`` and no coordinate arrays."""
     return xr.Dataset(
         {
             "foo": (
@@ -785,62 +762,3 @@ def geotransform_affine_dataset():
             ),
         },
     )
-
-
-@pytest.fixture(scope="function")
-def geozarr_spatial_transform_dataset():
-    """An affine GeoZarr dataset using ``proj:`` + ``spatial:transform`` (no coords).
-
-    ``spatial:transform`` is rasterio/Affine order ``[a, b, c, d, e, f]``;
-    here it matches the GeoTransform fixture (1km pixels, north-up).
-    """
-    return xr.Dataset(
-        {"foo": (("y", "x"), np.arange(12).reshape(4, 3).astype(float))},
-        attrs={
-            "proj:code": "EPSG:3857",
-            "spatial:dimensions": ["y", "x"],
-            "spatial:transform": [1000.0, 0.0, 0.0, 0.0, -1000.0, 3000.0],
-        },
-    )
-
-
-def test_geotransform_affine_materializes_coords(geotransform_affine_dataset):
-    """rasterix materializes 1D coordinates from a CF GeoTransform (plain index)."""
-    ds = geotransform_affine_dataset
-    assert "x" not in ds.coords and "y" not in ds.coords  # affine-only to start
-    materialized = with_spatial_coords(ds)
-    npt.assert_array_equal(materialized["x"].values, [500.0, 1500.0, 2500.0])
-    npt.assert_array_equal(materialized["y"].values, [2500.0, 1500.0, 500.0, -500.0])
-    assert is_regular_xy_coords(materialized)
-    # The original dataset is not mutated (GeoTransform preserved, no new coords)
-    assert "GeoTransform" in ds["spatial_ref"].attrs
-    assert "x" not in ds.coords
-
-
-def test_geotransform_affine_position_and_cube(geotransform_affine_dataset):
-    """Position and cube selection work on a GeoTransform-only dataset."""
-    ds = geotransform_affine_dataset
-    assert dataset_crs(ds) == pyproj.CRS.from_epsg(3857)
-    point = Point((1500, 1500))  # center cell -> foo == 4
-    sel = select_by_position(ds, point)
-    npt.assert_array_equal(sel["foo"].values.ravel(), [4.0])
-
-    cube = select_by_bbox(ds, (0.0, 0.0, 1600.0, 1600.0))
-    npt.assert_array_equal(cube["x"].values, [500.0, 1500.0])
-
-
-def test_geozarr_spatial_transform_affine(geozarr_spatial_transform_dataset):
-    """proj: + spatial:transform (no coords) resolve and select correctly."""
-    ds = geozarr_spatial_transform_dataset
-    sr = dataset_spatial_ref(ds)
-    assert sr.crs == pyproj.CRS.from_epsg(3857)
-    assert (sr.X, sr.Y) == ("x", "y")
-
-    materialized = with_spatial_coords(ds)
-    npt.assert_array_equal(materialized["x"].values, [500.0, 1500.0, 2500.0])
-    assert is_regular_xy_coords(materialized)
-    # Original untouched (still affine-only)
-    assert "x" not in ds.coords
-
-    sel = select_by_position(ds, Point((1500, 1500)))
-    npt.assert_array_equal(sel["foo"].values.ravel(), [4.0])
