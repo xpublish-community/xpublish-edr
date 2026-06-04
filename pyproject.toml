@@ -25,6 +25,11 @@ classifiers = [
 
 dynamic = ["version", "dependencies"]
 
+[project.optional-dependencies]
+# rasterix (not yet on conda-forge) enables affine "raster" datasets that define
+# only a GeoTransform / GeoZarr spatial:transform and carry no coordinate arrays.
+affine = ["rasterix>=0.2.2"]
+
 [project.entry-points."xpublish.plugin"]
 cf_edr = "xpublish_edr.plugin:CfEdrPlugin"
 

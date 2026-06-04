@@ -658,7 +658,8 @@ def test_geozarr_position_and_reproject(geozarr_proj_code_dataset):
 
     # EPSG:4326 query is projected into the native CRS, then back out
     lon, lat = pyproj.Transformer.from_crs(3857, 4326, always_xy=True).transform(
-        1000.0, 2000.0,
+        1000.0,
+        2000.0,
     )
     query = EDRPositionQuery(coords=f"POINT({lon} {lat})", crs="EPSG:4326")
     sel = select_by_position(ds, query.project_geometry(ds))
@@ -710,6 +711,7 @@ def test_geotransform_affine(geotransform_affine_dataset):
     ``"0 1000 0 3000 0 -1000"`` -> pixel centers x=[500, 1500, 2500],
     y=[2500, 1500, 500, -500].
     """
+    pytest.importorskip("rasterix")
     ds = geotransform_affine_dataset
     assert "x" not in ds.coords  # affine-only to start
     materialized = with_spatial_coords(ds)
@@ -725,6 +727,7 @@ def test_geotransform_affine(geotransform_affine_dataset):
 
 def test_geozarr_spatial_transform_affine():
     """A GeoZarr spatial:transform (no coords) is translated and materialized."""
+    pytest.importorskip("rasterix")
     ds = xr.Dataset(
         {"foo": (("y", "x"), np.arange(12).reshape(4, 3).astype(float))},
         attrs={
