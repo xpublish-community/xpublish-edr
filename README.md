@@ -140,15 +140,23 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 
 ### [collections](https://docs.ogc.org/is/19-086r6/19-086r6.html#_e55ba0f5-8f24-4f1b-a7e3-45775e39ef2e) and Resource Paths Support
 
-`xpublish-edr` does not currently support the `/collections/{collectionId}/query` path template described in the spec. Instead the path resource appears as `/{dataset_id}/edr/{query}`. This is because of the path structure of xpublish. In the future, if `xpublish` supports [`DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html) it could provide a path to supporting the spec compliant `collections` resource path.
+On its own, `xpublish-edr` serves queries at `/{dataset_id}/edr/{query}` rather than the `/collections/{collectionId}/{query}` path template described in the spec, because of the path structure of xpublish. [Collection metadata](https://docs.ogc.org/is/19-086r6/19-086r6.html#_5d07dde9-231a-4652-a1f3-dd036c337bdc) is available at the dataset level through the `/{dataset_id}/edr/` resource.
 
-However, despite the collections resource not existing, this implementation supports [collection metadata](https://docs.ogc.org/is/19-086r6/19-086r6.html#_5d07dde9-231a-4652-a1f3-dd036c337bdc) at the dataset level through the `/{dataset_id}/edr/` resource.
+When composed with [xpublish-ogc-core](https://github.com/xpublish-community/xpublish-ogc-core), the spec compliant resource paths are also served — see below.
+
+### OGC API integration via xpublish-ogc-core
+
+If [xpublish-ogc-core](https://github.com/xpublish-community/xpublish-ogc-core) is installed alongside `xpublish-edr` (both load automatically through their `xpublish.plugin` entry points), this plugin implements its OGC hookspecs so that the composed app serves:
+
+- `/collections/{collection_id}/position`, `/collections/{collection_id}/area`, and `/collections/{collection_id}/cube` — every supported geometry query at the spec compliant resource paths, sharing the query handling with the dataset level routes.
+- `/collections/{collection_id}` carrying the full EDR collection metadata (`extent`, `parameter_names`, `crs`, `output_formats`) and a [`data_queries`](https://docs.ogc.org/is/19-086r6/19-086r6.html#_df2c080b-949c-40c3-ad14-d20228270c2d) member describing each query with collection scoped hrefs.
+- `/conformance` declaring the [EDR 1.1 conformance classes](https://docs.ogc.org/is/19-086r6/19-086r6.html) (`core`, `collections`, `json`, `geojson`, `covjson`, and `queries`).
+
+The integration is validated end to end in `tests/test_ogc_core_integration.py` against the official OGC schemas vendored by `xpublish-ogc-core`, plus a [Schemathesis](https://schemathesis.readthedocs.io/) fuzz of the composed app's OpenAPI description. Those tests are skipped when `xpublish_ogc_core` isn't importable, and run with the rest of the suite via `uv run pytest`.
 
 ### Supported Queries
 
 [8.2.1 Position query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_bbda46d4-04c5-426b-bea3-230d592fe1c2)
-
-\<<\<<\<<< New base: Secure actions with zizmor
 
 | Query            | Compliant     | Comments                                                                                                                                                                                                         |
 | ---------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -183,13 +191,10 @@ However, despite the collections resource not existing, this implementation supp
 | `method`         | ➕            | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified                                                         |
 | `POST` body      | ➕            | Non-spec extension. Supported content types: `text/csv` (columns `x`/`y`, `lon`/`lat`, or `longitude`/`latitude`); `application/geo+json` (Point, MultiPoint, Feature, FeatureCollection, or GeometryCollection) |
 
-> > > > > > > Current commit: Switch to ruff, mdformat, pyproj-fmt, and repo review
-
 > Any additional query parameters are assumed to be additional selections to make on the dimensions/coordinates. These queries will use the specified selections `method`.
 
 [8.2.3 Area query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_c92d1888-dc80-454f-8452-e2f070b90dcd)
 
-\<<\<<\<<< New base: Secure actions with zizmor
 
 | Query            | Compliant     | Comments                                                                                                                                                                                                           |
 | ---------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -224,7 +229,6 @@ However, despite the collections resource not existing, this implementation supp
 | `method`         | ➕            | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified                                                           |
 | `POST` body      | ➕            | Non-spec extension. Supported content types: `application/geo+json` (Polygon, MultiPolygon, Feature, FeatureCollection, or GeometryCollection); `application/wkt` / `text/plain` (raw WKT Polygon or MultiPolygon) |
 
-> > > > > > > Current commit: Switch to ruff, mdformat, pyproj-fmt, and repo review
 
 > `method` is not applicable for the coordinates of area queries, only for selecting datetime, z, or additional dimensions.
 
@@ -232,7 +236,6 @@ For `POLYGON` coordinates, points that are located within **OR** on the polygons
 
 [8.2.4 Cube query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_c92d1888-dc80-454f-8452-e2f070b90dcd)
 
-\<<\<<\<<< New base: Secure actions with zizmor
 
 | Query            | Compliant     | Comments                                                                                                                                                 |
 | ---------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -263,8 +266,6 @@ For `POLYGON` coordinates, points that are located within **OR** on the polygons
 | `crs`            | ✅            | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326`      |
 | `f`              | ✅            | Supports `cf_covjson`, `csv`, `geojson` `netcdf`, `parquet`, `geotiff`                                                                                   |
 | `method`         | ➕            | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
-
-> > > > > > > Current commit: Switch to ruff, mdformat, pyproj-fmt, and repo review
 
 > `method` is not applicable for the coordinates of cube queries, only for selecting datetime, z, or additional dimensions.
 
