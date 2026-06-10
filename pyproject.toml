@@ -87,3 +87,20 @@ exclude = ["setup.py", "docs", "tests"]
 verbose = 1
 quiet = false
 color = true
+
+[dependency-groups]
+dev = [
+    "cf_xarray",
+    "dask",
+    "httpx",
+    "jsonschema",
+    "netcdf4",
+    "pooch",
+    "pytest",
+    "referencing",
+    "schemathesis>=4.9.2",
+    "xpublish-ogc-core",
+]
+
+[tool.uv.sources]
+xpublish-ogc-core = { path = "../xpublish-ogc-core", editable = true }
