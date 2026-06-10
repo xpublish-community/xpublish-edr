@@ -137,3 +137,17 @@ log_level = "INFO"
 minversion = "9"
 strict = true
 testpaths = [ "tests" ]
+
+[dependency-groups]
+dev = [
+    "cf_xarray",
+    "dask",
+    "httpx",
+    "jsonschema",
+    "netcdf4",
+    "pooch",
+    "pytest",
+    "referencing",
+    "schemathesis>=4.9.2",
+    "xpublish-ogc-core",
+]

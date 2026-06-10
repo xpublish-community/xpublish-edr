@@ -24,8 +24,223 @@ from xpublish_edr.geometry.common import (
 from xpublish_edr.geometry.parse import parse_area_body, parse_position_body
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
-from xpublish_edr.metadata import collection_metadata
+from xpublish_edr.metadata import (
+    area_query_description,
+    collection_metadata,
+    cube_query_description,
+    dataset_height_units,
+    position_query_description,
+    supported_crs_details,
+)
 from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
+
+EDR_CONFORMANCE_CLASSES = [
+    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/core",
+    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/collections",
+    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/json",
+    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/geojson",
+    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/covjson",
+    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/queries",
+]
+
+
+def handle_position_query(
+    dataset: xr.Dataset,
+    query: EDRPositionQuery,
+    query_params: dict,
+):
+    """Select and format data for an EDR position query"""
+    try:
+        ds = query.select(dataset, query_params)
+    except ValueError as e:
+        logger.error(
+            f"Error selecting from query while selecting by position: {e}",
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=f"Error selecting from query: {e.args[0]}",
+        )
+
+    logger.debug(f"Dataset filtered by query params {ds}")
+
+    try:
+        ds = select_by_position(ds, query.project_geometry(ds), query.method)
+    except GEOSException as e:
+        logger.error(
+            f"Error parsing coordinates to geometry while selecting by position: {e}",
+        )
+        raise HTTPException(
+            status_code=422,
+            detail="Could not parse coordinates to geometry, "
+            + "check the format of the 'coords' query parameter",
+        )
+    except KeyError as e:
+        logger.error(f"Error selecting by position: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset does not have CF Convention compliant metadata",
+        )
+
+    logger.debug(
+        f"Dataset filtered by position ({query.geometry}): {ds}",
+    )
+
+    try:
+        ds = project_dataset(ds, query.crs)
+    except Exception as e:
+        logger.error(
+            f"Error projecting dataset while selecting by position: {e}",
+        )
+        raise HTTPException(
+            status_code=404,
+            detail="Error projecting dataset",
+        )
+
+    logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+    if query.format:
+        try:
+            format_fn = position_formats()[query.format]
+        except KeyError as e:
+            logger.error(
+                f"Error getting format function while selecting by position: {e}",
+            )
+            raise HTTPException(
+                404,
+                f"{query.format} is not a valid format for EDR position queries. "
+                "Get `./position/formats` for valid formats",
+            )
+
+        return format_fn(ds)
+
+    return to_cf_covjson(ds)
+
+
+def handle_area_query(
+    dataset: xr.Dataset,
+    query: EDRAreaQuery,
+    query_params: dict,
+):
+    """Select and format data for an EDR area query"""
+    try:
+        ds = query.select(dataset, query_params)
+    except ValueError as e:
+        logger.error(f"Error selecting from query while selecting by area: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Error selecting from query: {e.args[0]}",
+        )
+
+    logger.debug(f"Dataset filtered by query params {ds}")
+
+    try:
+        ds = select_by_area(ds, query.project_geometry(ds))
+    except GEOSException as e:
+        logger.error(
+            f"Error parsing coordinates to geometry while selecting by area: {e}",
+        )
+        raise HTTPException(
+            status_code=422,
+            detail="Could not parse coordinates to geometry, "
+            + "check the format of the 'coords' query parameter",
+        )
+    except KeyError as e:
+        logger.error(f"Error selecting by area: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset does not have CF Convention compliant metadata",
+        )
+
+    logger.debug(f"Dataset filtered by polygon {query.geometry.boundary}: {ds}")
+
+    try:
+        ds = project_dataset(ds, query.crs)
+    except Exception as e:
+        logger.error(f"Error projecting dataset while selecting by area: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail="Error projecting dataset",
+        )
+
+    logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+    if query.format:
+        try:
+            format_fn = area_formats()[query.format]
+        except KeyError as e:
+            logger.error(f"Error getting format function: {e}")
+            raise HTTPException(
+                404,
+                f"{query.format} is not a valid format for EDR area queries. "
+                "Get `./area/formats` for valid formats",
+            )
+
+        return format_fn(ds)
+
+    return to_cf_covjson(ds)
+
+
+def handle_cube_query(
+    dataset: xr.Dataset,
+    query: EDRCubeQuery,
+    query_params: dict,
+):
+    """Select and format data for an EDR cube query"""
+    try:
+        ds = query.select(dataset, query_params)
+    except ValueError as e:
+        logger.error(f"Error selecting from query while selecting by cube: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Error selecting from query: {e.args[0]}",
+        )
+
+    logger.debug(f"Dataset filtered by query params {ds}")
+
+    try:
+        ds = select_by_bbox(ds, query.project_bbox(ds))
+    except KeyError as e:
+        logger.error(f"Error selecting by bbox: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset does not have CF Convention compliant metadata",
+        )
+    except ValueError as e:
+        logger.error(f"Error selecting by bbox: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail="Error selecting by bbox, see logs for more details",
+        )
+
+    logger.debug(
+        f"Dataset filtered by bbox ({query.bbox}): {ds}",
+    )
+
+    try:
+        ds = project_dataset(ds, query.crs)
+    except Exception as e:
+        logger.error(f"Error projecting dataset while selecting by area: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail="Error projecting dataset",
+        )
+
+    logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+    if query.format:
+        try:
+            format_fn = cube_formats()[query.format]
+        except KeyError as e:
+            logger.error(f"Error getting format function: {e}")
+            raise HTTPException(
+                404,
+                f"{query.format} is not a valid format for EDR cube queries. "
+                "Get `./cube/formats` for valid formats",
+            )
+
+        return format_fn(ds)
+
+    return to_cf_covjson(ds)
 
 
 async def _raw_body(request: Request) -> bytes:
@@ -113,99 +328,133 @@ class CfEdrPlugin(Plugin):
         router = APIRouter(tags=["OGC EDR"])
 
         @router.get(
-            "/collections/{collection_id}/position", summary="OGC EDR Position endpoint",
+            "/collections/{collection_id}/position",
+            summary="OGC EDR Position endpoint",
+            responses={404: {"description": "Collection or position not found"}},
         )
         def get_position(
             collection_id: str,
             request: Request,
             query: Annotated[EDRPositionQuery, Query()],
         ):
-            """Stub for OGC EDR position endpoint"""
+            """
+            Returns position data for a collection based on WKT `Point(lon lat)` coordinates
+
+            Extra selecting/slicing parameters can be provided as extra query parameters
+            """
             dataset = deps.dataset(collection_id)
-            try:
-                ds = query.select(dataset, dict(request.query_params))
-            except ValueError as e:
-                logger.error(
-                    f"Error selecting from query while selecting by position: {e}",
-                )
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Error selecting from query: {e.args[0]}",
-                )
+            return handle_position_query(dataset, query, dict(request.query_params))
 
-            logger.debug(f"Dataset filtered by query params {ds}")
+        @router.get(
+            "/collections/{collection_id}/area",
+            summary="OGC EDR Area endpoint",
+            responses={404: {"description": "Collection or area not found"}},
+        )
+        def get_area(
+            collection_id: str,
+            request: Request,
+            query: Annotated[EDRAreaQuery, Query()],
+        ):
+            """
+            Returns area data for a collection based on WKT `Polygon(lon lat)` coordinates
 
-            try:
-                ds = select_by_position(ds, query.project_geometry(ds), query.method)
-            except GEOSException as e:
-                logger.error(
-                    f"Error parsing coordinates to geometry while selecting by position: {e}",
-                )
-                raise HTTPException(
-                    status_code=422,
-                    detail="Could not parse coordinates to geometry, "
-                    + "check the format of the 'coords' query parameter",
-                )
-            except KeyError as e:
-                logger.error(f"Error selecting by position: {e}")
-                raise HTTPException(
-                    status_code=404,
-                    detail="Dataset does not have CF Convention compliant metadata",
-                )
+            Extra selecting/slicing parameters can be provided as extra query parameters
+            """
+            dataset = deps.dataset(collection_id)
+            return handle_area_query(dataset, query, dict(request.query_params))
 
-            logger.debug(
-                f"Dataset filtered by position ({query.geometry}): {ds}",
-            )
+        @router.get(
+            "/collections/{collection_id}/cube",
+            summary="OGC EDR Cube endpoint",
+            responses={404: {"description": "Collection or cube not found"}},
+        )
+        def get_cube(
+            collection_id: str,
+            request: Request,
+            query: Annotated[EDRCubeQuery, Query()],
+        ):
+            """
+            Returns cube data for a collection based on bbox coordinates and optional elevation
 
-            try:
-                ds = project_dataset(ds, query.crs)
-            except Exception as e:
-                logger.error(
-                    f"Error projecting dataset while selecting by position: {e}",
-                )
-                raise HTTPException(
-                    status_code=404,
-                    detail="Error projecting dataset",
-                )
-
-            logger.debug(f"Dataset projected to {query.crs}: {ds}")
-
-            if query.format:
-                try:
-                    format_fn = position_formats()[query.format]
-                except KeyError as e:
-                    logger.error(
-                        f"Error getting format function while selecting by position: {e}",
-                    )
-                    raise HTTPException(
-                        404,
-                        f"{query.format} is not a valid format for EDR position queries. "
-                        "Get `./position/formats` for valid formats",
-                    )
-
-                return format_fn(ds)
-
-            return to_cf_covjson(ds)
+            Extra selecting/slicing parameters can be provided as extra query parameters
+            """
+            dataset = deps.dataset(collection_id)
+            return handle_cube_query(dataset, query, dict(request.query_params))
 
         return router
 
     @hookimpl
+    def ogc_conformance_classes(self) -> List[str]:
+        """Declare the OGC EDR conformance classes implemented by this plugin"""
+        return EDR_CONFORMANCE_CLASSES
+
+    @hookimpl
     def ogc_collection_dataqueries(self, collection_id: str, ds: xr.Dataset):
-        """Register data queries for OGC collection metadata"""
-        return {
-            "position": {
-                "link": {
-                    "href": f"/collections/{collection_id}/position",
-                    "variables": {},
-                    "rel": "alternate",
-                    "type": "application/geo+json",
-                    "hreflang": "en",
-                    "title": "OGC EDR Position Query Endpoint",
-                    "length": 0,
-                    "templated": True,
-                },
-            },
+        """Register data queries for OGC collection metadata
+
+        Every supported EDR geometry query (position, area, and cube) is
+        described, reusing the metadata machinery from `xpublish_edr.metadata`.
+        """
+        try:
+            supported_crs = supported_crs_details(ds)
+        except Exception as e:
+            logger.warning(
+                f"Can not describe EDR data queries for {collection_id}: {e}",
+            )
+            return None
+
+        data_queries = {
+            "position": position_query_description(
+                list(position_formats().keys()),
+                supported_crs,
+                href=f"/collections/{collection_id}/position?coords={{coords}}",
+            ),
+            "area": area_query_description(
+                list(area_formats().keys()),
+                supported_crs,
+                href=f"/collections/{collection_id}/area?coords={{coords}}",
+            ),
+            "cube": cube_query_description(
+                list(cube_formats().keys()),
+                supported_crs,
+                href=f"/collections/{collection_id}/cube?bbox={{bbox}}",
+                height_units=dataset_height_units(ds),
+            ),
         }
+
+        return {
+            name: query.model_dump(exclude_none=True, by_alias=True)
+            for name, query in data_queries.items()
+        }
+
+    @hookimpl
+    def ogc_collection_metadata(self, collection_id: str, ds: xr.Dataset):
+        """Contribute EDR collection metadata to OGC collection objects
+
+        Reuses `collection_metadata` so `/collections/{collection_id}` served by
+        xpublish-ogc-core carries the same extent, parameter_names, crs, and
+        output_formats as the dataset level EDR metadata endpoint.
+        """
+        try:
+            metadata = collection_metadata(
+                ds,
+                list(position_formats().keys()),
+                list(area_formats().keys()),
+                list(cube_formats().keys()),
+            ).model_dump(exclude_none=True, by_alias=True)
+        except Exception as e:
+            logger.warning(
+                f"Can not build EDR collection metadata for {collection_id}: {e}",
+            )
+            return None
+
+        # links and data queries are built by ogc-core (the data queries via the
+        # ogc_collection_dataqueries hook, with collection scoped hrefs), and the
+        # id is the dataset id rather than the `_xpublish_id` attr
+        for key in ("id", "links", "data_queries"):
+            metadata.pop(key, None)
+
+        return metadata
 
     @hookimpl
     def dataset_router(self, deps: Dependencies):
