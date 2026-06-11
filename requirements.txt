@@ -3,5 +3,5 @@ pyarrow
 rioxarray
 scipy
 shapely
-xarray
+xarray>=2025.08.0
 xpublish>=0.4.1
