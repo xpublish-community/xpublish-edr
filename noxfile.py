@@ -1,20 +1,17 @@
-"""Test against the same matrix as Github Actions"""
+"""Test sessions using nox.
+
+With pixi managing environments, nox sessions delegate to
+``pixi run`` so that they use the same locked dependencies as CI.
+"""
 
 import nox
-import yaml
 
-with open("./.github/workflows/tests.yml") as f:
-    workflow = yaml.safe_load(f)
-
-python_versions = workflow["jobs"]["run"]["strategy"]["matrix"]["python-version"]
-pydantic_versions = workflow["jobs"]["run"]["strategy"]["matrix"]["pydantic-version"]
+PYTHON_VERSIONS = ["3.11", "3.12", "3.13"]
 
 
-@nox.session(python=python_versions)
-@nox.parametrize("pydantic", pydantic_versions)
-def tests(session: nox.Session, pydantic: str):
-    """Run py.test against Github Actions matrix"""
-    session.install("-r", "requirements-dev.txt")
-    session.install(".")
-    session.install(f"pydantic{pydantic}")
-    session.run("pytest", "--verbose")
+@nox.session(python=PYTHON_VERSIONS)
+def tests(session: nox.Session):
+    """Run py.test via the matching pixi environment."""
+    env_map = {"3.11": "py311", "3.12": "py312", "3.13": "py313"}
+    pixi_env = env_map[session.python]
+    session.run("pixi", "run", "-e", pixi_env, "test", external=True)

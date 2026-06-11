@@ -23,7 +23,16 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
-dynamic = ["version", "dependencies"]
+dynamic = ["version"]
+dependencies = [
+    "geopandas",
+    "pyarrow",
+    "rioxarray",
+    "scipy",
+    "shapely",
+    "xarray",
+    "xpublish>=0.4.1",
+]
 
 [project.entry-points."xpublish.plugin"]
 cf_edr = "xpublish_edr.plugin:CfEdrPlugin"
@@ -66,9 +75,6 @@ ignore = ["xpublish_edr/_version.py"]
 [tool.setuptools]
 packages = ["xpublish_edr"]
 
-[tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
-
 [tool.setuptools_scm]
 write_to = "xpublish_edr/_version.py"
 
@@ -84,3 +90,75 @@ exclude = ["setup.py", "docs", "tests"]
 verbose = 1
 quiet = false
 color = true
+
+# ── Pixi ──────────────────────────────────────────────────────────────────────
+# https://pixi.sh/latest/reference/project_configuration/
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+
+# Runtime dependencies (resolved via conda-forge)
+[tool.pixi.dependencies]
+python = ">=3.11,<3.14"
+geopandas = ">=0.9"
+pyarrow = ">=10"
+rioxarray = "*"
+scipy = ">=1.9"
+shapely = ">=2.0"
+xarray = ">=2023.1"
+pip = "*"
+
+# The package itself is installed as an editable PyPI dependency
+[tool.pixi.pypi-dependencies]
+xpublish-edr = { path = ".", editable = true }
+
+# ── feature: test ─────────────────────────────────────────────────────────────
+[tool.pixi.feature.test.dependencies]
+cf_xarray = "*"
+httpx = "*"
+netcdf4 = "*"
+pooch = "*"
+pytest = ">=7"
+pytest-cov = "*"
+pytest-xdist = "*"
+uvicorn = "*"
+
+[tool.pixi.feature.test.pypi-dependencies]
+zarr = ">=3.0.7"
+pytest-github-actions-annotate-failures = "*"
+
+[tool.pixi.feature.test.tasks]
+test = "pytest -rxs --cov=xpublish_edr --cov-report=xml tests"
+
+# ── feature: lint ─────────────────────────────────────────────────────────────
+[tool.pixi.feature.lint.dependencies]
+pre-commit = "*"
+ruff = "*"
+black = "*"
+
+[tool.pixi.feature.lint.tasks]
+lint = "pre-commit run --all-files"
+lint-ci = "pre-commit run --all-files --show-diff-on-failure"
+
+# ── Python-version features (used to pin Python in multi-version environments) ─
+[tool.pixi.feature.py311.dependencies]
+python = "3.11.*"
+
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
+# ── environments ──────────────────────────────────────────────────────────────
+[tool.pixi.environments]
+# Default: latest supported Python + test dependencies
+default = { features = ["test"], solve-group = "default" }
+
+# Per-Python-version test environments
+py311 = { features = ["test", "py311"], solve-group = "py311" }
+py312 = { features = ["test", "py312"], solve-group = "py312" }
+py313 = { features = ["test", "py313"], solve-group = "py313" }
+
+# Lint environment (separate to keep it lean)
+lint = { features = ["lint"], solve-group = "lint" }
