@@ -1,8 +1,8 @@
 """
 OGC EDR router for datasets with CF convention metadata
 """
-import asyncio
 
+import asyncio
 from typing import Annotated, List
 
 import shapely
