@@ -162,3 +162,87 @@ def test_cube_query(client):
 
     data = response.json()
     assert data["type"] == "Coverage", "Response should be a CoverageJSON Coverage"
+
+
+def test_invalid_query_returns_ogc_exception(client):
+    """A request validation error returns an OGC exception body, not FastAPI's
+    default ``{"detail": [...]}``.
+
+    The official OGC EDR schema requires error responses to be OGC exception
+    objects (with a string ``code`` member). FastAPI rejects the empty ``f``
+    here with a 422 before the handler runs; OGCExceptionRoute reshapes it.
+    """
+    response = client.get("/collections/air/position?coords=POINT(204 44)&f=")
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["code"] == "422", "OGC exception requires a string `code` member"
+    validate_response("exception", data)
+
+
+def test_malformed_coords_returns_422_not_500(client):
+    """Coords that WKT parsing cannot handle return a 422, not a 500.
+
+    ``shapely.wkt.loads`` raises non-``GEOSException`` errors for some inputs
+    (e.g. ``UnicodeDecodeError`` for a string GEOS cannot encode); these must
+    be caught and surfaced as an OGC exception rather than an unhandled 500.
+    """
+    # "%C0" is an invalid UTF-8 byte; shapely raises UnicodeDecodeError on it
+    response = client.get("/collections/air/position?coords=%C0")
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["code"] == "422"
+    validate_response("exception", data)
+
+
+def test_position_post_query(client):
+    """The collection-level position route accepts POST with points in the body.
+
+    Without a POST handler, the GET-only route would return 405 (with a body
+    that violates the OGC exception schema); the points are submitted in the
+    body instead of via the (GET-only) required ``coords`` query parameter.
+    """
+    response = client.post(
+        "/collections/air/position?f=cf_covjson",
+        content="lon,lat\n202,43\n205,45\n",
+        headers={"content-type": "text/csv"},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["type"] == "Coverage"
+    assert "air" in data["ranges"]
+
+
+def test_area_post_query(client):
+    """The collection-level area route accepts POST with a polygon in the body."""
+    polygon = "POLYGON((200 40, 200 50, 210 50, 210 40, 200 40))"
+    response = client.post(
+        "/collections/air/area?f=cf_covjson",
+        content=polygon,
+        headers={"content-type": "text/plain"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["type"] == "Coverage"
+
+
+@pytest.mark.parametrize("query_type", ["position", "area"])
+def test_coords_parameter_is_required(client, query_type):
+    """The OGC EDR ``coords`` query parameter must be declared ``required``.
+
+    These endpoints are GET-only (POST submits geometry in the body lives on
+    the dataset router), so coords is mandatory; the CITE suite's
+    ``{position,area}CoordsParameterDefinition`` tests assert ``required: true``.
+    """
+    schema = client.get("/openapi.json").json()
+    operation = schema["paths"][f"/collections/{{collection_id}}/{query_type}"]["get"]
+    coords = next(p for p in operation["parameters"] if p["name"] == "coords")
+
+    assert coords["required"] is True
+
+    # and at runtime omitting coords is a (well-shaped) 422, not a 200
+    response = client.get(f"/collections/air/{query_type}")
+    assert response.status_code == 422
+    assert response.json()["code"] == "422"

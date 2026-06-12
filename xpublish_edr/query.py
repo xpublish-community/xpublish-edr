@@ -9,6 +9,7 @@ import pandas as pd
 import xarray as xr
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from shapely import Geometry, wkt
+from shapely.errors import GEOSException
 
 from xpublish_edr.format import area_formats, cube_formats, position_formats
 from xpublish_edr.geometry.common import project_bbox, project_geometry
@@ -149,6 +150,22 @@ class BaseEDRQuery(BaseModel):
         return ds
 
 
+def load_wkt(value: str) -> Geometry:
+    """Parse WKT, normalizing any parse failure to ``GEOSException``.
+
+    ``shapely.wkt.loads`` raises ``GEOSException`` for malformed WKT, but other
+    error types leak through for some inputs (e.g. ``UnicodeDecodeError`` for a
+    string GEOS cannot encode). Callers catch ``GEOSException`` to return a 422,
+    so collapse everything else into it rather than letting it escape as a 500.
+    """
+    try:
+        return wkt.loads(value)
+    except GEOSException:
+        raise
+    except Exception as e:
+        raise GEOSException(f"Invalid WKT coordinates: {e}") from e
+
+
 def validate_wkt(v: str) -> Geometry:
     """Validate WKT"""
     try:
@@ -157,9 +174,12 @@ def validate_wkt(v: str) -> Geometry:
         raise ValueError(f"Invalid WKT: {e}")
 
 
-class EDRPositionQuery(BaseEDRQuery):
-    """
-    Capture query parameters for EDR position queries
+class EDRPositionQueryPost(BaseEDRQuery):
+    """Position query selection parameters with no ``coords``.
+
+    On POST the point(s) are read from the request body, so ``coords`` is not a
+    query parameter; this carries only the shared selection parameters and the
+    position format validation. The GET/dataset variants add ``coords`` on top.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -178,21 +198,37 @@ class EDRPositionQuery(BaseEDRQuery):
             raise ValueError(f"Invalid format: {v}")
         return v
 
+
+class EDRPositionQuery(EDRPositionQueryPost):
+    """
+    Capture query parameters for EDR position queries
+    """
+
+    coords: str | None = Field(
+        None,
+        title="Point(s) in WKT format",
+        description="Well Known Text coordinates for the point(s) to query. "
+        "Required for GET; for POST the points are read from the request body.",
+    )
+
     @property
     def geometry(self) -> Geometry:
         """Shapely point from WKT query params"""
         if self.coords is None:
             raise ValueError("coords query parameter is required")
-        return wkt.loads(self.coords)
+        return load_wkt(self.coords)
 
     def project_geometry(self, ds: xr.Dataset) -> Geometry:
         """Project the geometry to the dataset's CRS"""
         return project_geometry(ds, self.crs, self.geometry)
 
 
-class EDRAreaQuery(BaseEDRQuery):
-    """
-    Capture query parameters for EDR area queries
+class EDRAreaQueryPost(BaseEDRQuery):
+    """Area query selection parameters with no ``coords``.
+
+    On POST the polygon is read from the request body, so ``coords`` is not a
+    query parameter; this carries only the shared selection parameters and the
+    area format validation. The GET/dataset variants add ``coords`` on top.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -211,16 +247,60 @@ class EDRAreaQuery(BaseEDRQuery):
             raise ValueError(f"Invalid format: {v}")
         return v
 
+
+class EDRAreaQuery(EDRAreaQueryPost):
+    """
+    Capture query parameters for EDR area queries
+    """
+
+    coords: str | None = Field(
+        None,
+        title="Polygon in WKT format",
+        description="Well Known Text coordinates. "
+        "Required for GET; for POST the polygon is read from the request body.",
+    )
+
     @property
     def geometry(self) -> Geometry:
         """Shapely polygon from WKT query params"""
         if self.coords is None:
             raise ValueError("coords query parameter is required")
-        return wkt.loads(self.coords)
+        return load_wkt(self.coords)
 
     def project_geometry(self, ds: xr.Dataset) -> Geometry:
         """Project the geometry to the dataset's CRS"""
         return project_geometry(ds, self.crs, self.geometry)
+
+
+class EDRPositionQueryGet(EDRPositionQuery):
+    """Position query for GET-only endpoints, where ``coords`` is mandatory.
+
+    The shared :class:`EDRPositionQuery` keeps ``coords`` optional because the
+    GET+POST dataset route reads the points from the request body on POST. The
+    OGC ``/collections/{id}/position`` endpoint is GET-only, and the OGC EDR
+    schema (and the CITE suite) require its ``coords`` parameter to be declared
+    ``required: true``, so this subclass redeclares it as mandatory.
+    """
+
+    coords: str = Field(
+        ...,
+        title="Point(s) in WKT format",
+        description="Well Known Text coordinates for the point(s) to query.",
+    )
+
+
+class EDRAreaQueryGet(EDRAreaQuery):
+    """Area query for GET-only endpoints, where ``coords`` is mandatory.
+
+    See :class:`EDRPositionQueryGet`; the OGC ``/collections/{id}/area``
+    endpoint is GET-only and its ``coords`` parameter must be ``required: true``.
+    """
+
+    coords: str = Field(
+        ...,
+        title="Polygon in WKT format",
+        description="Well Known Text coordinates for the polygon to query.",
+    )
 
 
 class EDRCubeQuery(BaseEDRQuery):

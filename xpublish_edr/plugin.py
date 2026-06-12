@@ -32,7 +32,13 @@ from xpublish_edr.metadata import (
     position_query_description,
     supported_crs_details,
 )
-from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
+from xpublish_edr.query import (
+    EDRAreaQueryGet,
+    EDRAreaQueryPost,
+    EDRCubeQuery,
+    EDRPositionQueryGet,
+    EDRPositionQueryPost,
+)
 
 # EDR 1.1 is backwards compatible with 1.0, so both sets of classes are
 # declared; the CITE ets-ogcapi-edr10 suite checks for the 1.0 URIs.
@@ -54,10 +60,15 @@ EDR_CONFORMANCE_CLASSES = [
 
 def handle_position_query(
     dataset: xr.Dataset,
-    query: EDRPositionQuery,
+    query: EDRPositionQueryPost,
     query_params: dict,
+    geometry: shapely.Geometry,
 ):
-    """Select and format data for an EDR position query"""
+    """Select and format data for an EDR position query.
+
+    ``geometry`` is the point(s) to query, parsed from the ``coords`` query
+    parameter on GET or from the request body on POST by the caller.
+    """
     try:
         ds = query.select(dataset, query_params)
     except ValueError as e:
@@ -72,7 +83,11 @@ def handle_position_query(
     logger.debug(f"Dataset filtered by query params {ds}")
 
     try:
-        ds = select_by_position(ds, query.project_geometry(ds), query.method)
+        ds = select_by_position(
+            ds,
+            project_geometry(ds, query.crs, geometry),
+            query.method,
+        )
     except GEOSException as e:
         logger.error(
             f"Error parsing coordinates to geometry while selecting by position: {e}",
@@ -90,7 +105,7 @@ def handle_position_query(
         )
 
     logger.debug(
-        f"Dataset filtered by position ({query.geometry}): {ds}",
+        f"Dataset filtered by position ({geometry}): {ds}",
     )
 
     try:
@@ -126,10 +141,15 @@ def handle_position_query(
 
 def handle_area_query(
     dataset: xr.Dataset,
-    query: EDRAreaQuery,
+    query: EDRAreaQueryPost,
     query_params: dict,
+    geometry: shapely.Geometry,
 ):
-    """Select and format data for an EDR area query"""
+    """Select and format data for an EDR area query.
+
+    ``geometry`` is the polygon to query, parsed from the ``coords`` query
+    parameter on GET or from the request body on POST by the caller.
+    """
     try:
         ds = query.select(dataset, query_params)
     except ValueError as e:
@@ -142,7 +162,7 @@ def handle_area_query(
     logger.debug(f"Dataset filtered by query params {ds}")
 
     try:
-        ds = select_by_area(ds, query.project_geometry(ds))
+        ds = select_by_area(ds, project_geometry(ds, query.crs, geometry))
     except GEOSException as e:
         logger.error(
             f"Error parsing coordinates to geometry while selecting by area: {e}",
@@ -159,7 +179,7 @@ def handle_area_query(
             detail="Dataset does not have CF Convention compliant metadata",
         )
 
-    logger.debug(f"Dataset filtered by polygon {query.geometry.boundary}: {ds}")
+    logger.debug(f"Dataset filtered by polygon {geometry.boundary}: {ds}")
 
     try:
         ds = project_dataset(ds, query.crs)
@@ -333,48 +353,155 @@ class CfEdrPlugin(Plugin):
     @hookimpl
     def ogc_router(self, deps: Dependencies):
         """Register OGC routers at the application level"""
-        router = APIRouter(tags=["OGC EDR"])
+        # This hook only runs in an app composed with xpublish-ogc-core, so the
+        # import is local; OGCExceptionRoute renders validation/HTTP errors as
+        # OGC exception objects, which the official OGC schema requires, and
+        # OGC_EXCEPTION_RESPONSES documents that body so the OpenAPI matches.
+        from xpublish_ogc_core.plugin import (
+            OGC_EXCEPTION_RESPONSES,
+            OGCExceptionRoute,
+        )
+
+        router = APIRouter(tags=["OGC EDR"], route_class=OGCExceptionRoute)
 
         @router.get(
             "/collections/{collection_id}/position",
             summary="OGC EDR Position endpoint",
-            responses={404: {"description": "Collection or position not found"}},
+            responses=OGC_EXCEPTION_RESPONSES,
         )
         def get_position(
             collection_id: str,
             request: Request,
-            query: Annotated[EDRPositionQuery, Query()],
+            query: Annotated[EDRPositionQueryGet, Query()],
         ):
             """
             Returns position data for a collection based on WKT `Point(lon lat)` coordinates
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
+            try:
+                geometry = query.geometry
+            except GEOSException:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not parse coordinates to geometry, "
+                    "check the format of the 'coords' query parameter",
+                )
             dataset = deps.dataset(collection_id)
-            return handle_position_query(dataset, query, dict(request.query_params))
+            return handle_position_query(
+                dataset,
+                query,
+                dict(request.query_params),
+                geometry,
+            )
+
+        @router.post(
+            "/collections/{collection_id}/position",
+            summary="OGC EDR Position endpoint (POST)",
+            responses=OGC_EXCEPTION_RESPONSES,
+        )
+        def post_position(
+            collection_id: str,
+            request: Request,
+            query: Annotated[EDRPositionQueryPost, Query()],
+            body: Annotated[bytes, Depends(_raw_body)],
+        ):
+            """
+            Returns position data for a collection, with the point(s) submitted
+            in the request body as CSV (`text/csv`) or GeoJSON
+            (`application/geo+json`); all other selection parameters are passed
+            as query parameters, as for GET.
+            """
+            if not body:
+                raise HTTPException(
+                    status_code=422,
+                    detail="POST position requires a non-empty request body",
+                )
+            try:
+                geometry = parse_position_body(body, request.headers.get("content-type"))
+            except ValueError as e:
+                logger.error(f"Error parsing position body: {e}")
+                raise HTTPException(status_code=422, detail=str(e))
+
+            dataset = deps.dataset(collection_id)
+            return handle_position_query(
+                dataset,
+                query,
+                dict(request.query_params),
+                geometry=geometry,
+            )
 
         @router.get(
             "/collections/{collection_id}/area",
             summary="OGC EDR Area endpoint",
-            responses={404: {"description": "Collection or area not found"}},
+            responses=OGC_EXCEPTION_RESPONSES,
         )
         def get_area(
             collection_id: str,
             request: Request,
-            query: Annotated[EDRAreaQuery, Query()],
+            query: Annotated[EDRAreaQueryGet, Query()],
         ):
             """
             Returns area data for a collection based on WKT `Polygon(lon lat)` coordinates
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
+            try:
+                geometry = query.geometry
+            except GEOSException:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not parse coordinates to geometry, "
+                    "check the format of the 'coords' query parameter",
+                )
             dataset = deps.dataset(collection_id)
-            return handle_area_query(dataset, query, dict(request.query_params))
+            return handle_area_query(
+                dataset,
+                query,
+                dict(request.query_params),
+                geometry,
+            )
+
+        @router.post(
+            "/collections/{collection_id}/area",
+            summary="OGC EDR Area endpoint (POST)",
+            responses=OGC_EXCEPTION_RESPONSES,
+        )
+        def post_area(
+            collection_id: str,
+            request: Request,
+            query: Annotated[EDRAreaQueryPost, Query()],
+            body: Annotated[bytes, Depends(_raw_body)],
+        ):
+            """
+            Returns area data for a collection, with the polygon submitted in
+            the request body as WKT (`text/plain`) or GeoJSON
+            (`application/geo+json`); all other selection parameters are passed
+            as query parameters, as for GET.
+            """
+            if not body:
+                raise HTTPException(
+                    status_code=422,
+                    detail="POST area requires a non-empty request body",
+                )
+            try:
+                geometry = parse_area_body(body, request.headers.get("content-type"))
+            except ValueError as e:
+                logger.error(f"Error parsing area body: {e}")
+                raise HTTPException(status_code=422, detail=str(e))
+
+            dataset = deps.dataset(collection_id)
+            return handle_area_query(
+                dataset,
+                query,
+                dict(request.query_params),
+                geometry=geometry,
+            )
 
         @router.get(
             "/collections/{collection_id}/cube",
             summary="OGC EDR Cube endpoint",
-            responses={404: {"description": "Collection or cube not found"}},
+            responses=OGC_EXCEPTION_RESPONSES,
         )
         def get_cube(
             collection_id: str,
@@ -392,7 +519,7 @@ class CfEdrPlugin(Plugin):
         return router
 
     @hookimpl
-    def ogc_conformance_classes(self) -> List[str]:
+    def ogc_conformance_classes(self) -> list[str]:
         """Declare the OGC EDR conformance classes implemented by this plugin"""
         return EDR_CONFORMANCE_CLASSES
 
@@ -492,7 +619,7 @@ class CfEdrPlugin(Plugin):
 
         def _run_position_query(
             dataset: xr.Dataset,
-            query: EDRPositionQuery,
+            query: EDRPositionQueryPost,
             geometry: shapely.Geometry,
             query_params: dict,
         ):
@@ -579,65 +706,77 @@ class CfEdrPlugin(Plugin):
 
             return to_cf_covjson(ds)
 
-        @router.api_route(
-            "/position",
-            methods=["GET", "POST"],
-            summary="Position query",
-        )
-        def position(
+        # GET and POST are registered as separate routes (not a single
+        # multi-method api_route) so that the OpenAPI marks `coords` as a
+        # required query parameter on GET while POST omits it entirely (the
+        # points come from the body). The OGC EDR CITE suite scans every path
+        # ending in `/position` and requires the `coords` parameter to be
+        # `required: true`, which a shared GET/POST signature cannot express.
+        @router.get("/position", summary="Position query")
+        def get_position(
             request: Request,
-            query: Annotated[EDRPositionQuery, Query()],
-            body: Annotated[bytes, Depends(_raw_body)],
+            query: Annotated[EDRPositionQueryGet, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
-            Returns vectorized position data for one or more points.
+            Returns vectorized position data for one or more points passed as
+            WKT via the `coords` query parameter.
 
-            For GET, points are passed as WKT via the `coords` query parameter.
-
-            For POST, points are submitted in the request body as either CSV
-            (Content-Type: text/csv) with x/y, lon/lat, or longitude/latitude
-            columns, or GeoJSON (Content-Type: application/geo+json) as a Point,
-            MultiPoint, Feature, FeatureCollection, or GeometryCollection.
-
-            All other selection parameters (datetime, z, parameter-name, crs, f,
-            method) are passed as query string parameters in both cases.
+            Other selection parameters (datetime, z, parameter-name, crs, f,
+            method) are passed as query string parameters.
 
             This endpoint is intentionally a synchronous (`def`) handler so that
             Starlette runs it in the threadpool. The select/project/format
             pipeline is CPU-bound and blocking; running it on the event loop
-            would starve other requests (e.g. ``/health``). The request body is
-            injected via FastAPI's ``Body`` so we never need ``await`` here.
+            would starve other requests (e.g. ``/health``).
             """
-            if request.method == "POST":
-                if not body:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="POST /position requires a non-empty request body",
-                    )
-                try:
-                    geometry = parse_position_body(
-                        body,
-                        request.headers.get("content-type"),
-                    )
-                except ValueError as e:
-                    logger.error(f"Error parsing position body: {e}")
-                    raise HTTPException(status_code=422, detail=str(e))
-            else:
-                if query.coords is None:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="coords query parameter is required for GET; "
-                        "use POST /position to submit points in the request body",
-                    )
-                try:
-                    geometry = query.geometry
-                except GEOSException:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="Could not parse coordinates to geometry, "
-                        "check the format of the 'coords' query parameter",
-                    )
+            try:
+                geometry = query.geometry
+            except GEOSException:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not parse coordinates to geometry, "
+                    "check the format of the 'coords' query parameter",
+                )
+            return _run_position_query(
+                dataset,
+                query,
+                geometry,
+                dict(request.query_params),
+            )
+
+        @router.post("/position", summary="Position query (POST)")
+        def post_position(
+            request: Request,
+            query: Annotated[EDRPositionQueryPost, Query()],
+            body: Annotated[bytes, Depends(_raw_body)],
+            dataset: xr.Dataset = Depends(deps.dataset),
+        ):
+            """
+            Returns vectorized position data for one or more points submitted in
+            the request body as either CSV (Content-Type: text/csv) with x/y,
+            lon/lat, or longitude/latitude columns, or GeoJSON (Content-Type:
+            application/geo+json) as a Point, MultiPoint, Feature,
+            FeatureCollection, or GeometryCollection.
+
+            Other selection parameters (datetime, z, parameter-name, crs, f,
+            method) are passed as query string parameters. Synchronous (`def`)
+            for the same reason as ``get_position``; the body is injected via a
+            dependency so no ``await`` is needed.
+            """
+            if not body:
+                raise HTTPException(
+                    status_code=422,
+                    detail="POST /position requires a non-empty request body",
+                )
+            try:
+                geometry = parse_position_body(
+                    body,
+                    request.headers.get("content-type"),
+                )
+            except ValueError as e:
+                logger.error(f"Error parsing position body: {e}")
+                raise HTTPException(status_code=422, detail=str(e))
 
             return _run_position_query(
                 dataset,
@@ -648,7 +787,7 @@ class CfEdrPlugin(Plugin):
 
         def _run_area_query(
             dataset: xr.Dataset,
-            query: EDRAreaQuery,
+            query: EDRAreaQueryPost,
             geometry: shapely.Geometry,
             query_params: dict,
         ):
@@ -721,64 +860,68 @@ class CfEdrPlugin(Plugin):
 
             return to_cf_covjson(ds)
 
-        @router.api_route(
-            "/area",
-            methods=["GET", "POST"],
-            summary="Area query",
-        )
-        def area(
+        @router.get("/area", summary="Area query")
+        def get_area(
             request: Request,
-            query: Annotated[EDRAreaQuery, Query()],
+            query: Annotated[EDRAreaQueryGet, Query()],
+            dataset: xr.Dataset = Depends(deps.dataset),
+        ):
+            """
+            Returns vectorized area data for a Polygon or MultiPolygon passed as
+            WKT via the `coords` query parameter.
+
+            Other selection parameters (datetime, z, parameter-name, crs, f,
+            method) are passed as query string parameters. Synchronous (`def`)
+            for the same reason as ``get_position``: the query pipeline is
+            blocking CPU work and must run in the threadpool.
+            """
+            try:
+                geometry = query.geometry
+            except GEOSException:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not parse coordinates to geometry, "
+                    "check the format of the 'coords' query parameter",
+                )
+            return _run_area_query(
+                dataset,
+                query,
+                geometry,
+                dict(request.query_params),
+            )
+
+        @router.post("/area", summary="Area query (POST)")
+        def post_area(
+            request: Request,
+            query: Annotated[EDRAreaQueryPost, Query()],
             body: Annotated[bytes, Depends(_raw_body)],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
-            Returns vectorized area data for a Polygon or MultiPolygon.
+            Returns vectorized area data for a polygon submitted in the request
+            body as either GeoJSON (Content-Type: application/geo+json) --
+            Polygon, MultiPolygon, Feature, FeatureCollection, or
+            GeometryCollection -- or raw WKT (Content-Type: application/wkt or
+            text/plain).
 
-            For GET, the polygon is passed as WKT via the `coords` query parameter.
-
-            For POST, the polygon is submitted in the request body as either
-            GeoJSON (Content-Type: application/geo+json) -- Polygon, MultiPolygon,
-            Feature, FeatureCollection, or GeometryCollection -- or raw WKT
-            (Content-Type: application/wkt or text/plain).
-
-            All other selection parameters (datetime, z, parameter-name, crs, f,
-            method) are passed as query string parameters in both cases.
-
-            Synchronous (`def`) for the same reason as ``position``: the query
-            pipeline is blocking CPU work and must run in the threadpool rather
-            than on the event loop. The body is injected via ``Body`` so no
-            ``await`` is needed.
+            Other selection parameters (datetime, z, parameter-name, crs, f,
+            method) are passed as query string parameters. Synchronous (`def`)
+            for the same reason as ``get_area``; the body is injected via a
+            dependency so no ``await`` is needed.
             """
-            if request.method == "POST":
-                if not body:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="POST /area requires a non-empty request body",
-                    )
-                try:
-                    geometry = parse_area_body(
-                        body,
-                        request.headers.get("content-type"),
-                    )
-                except ValueError as e:
-                    logger.error(f"Error parsing area body: {e}")
-                    raise HTTPException(status_code=422, detail=str(e))
-            else:
-                if query.coords is None:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="coords query parameter is required for GET; "
-                        "use POST /area to submit the polygon in the request body",
-                    )
-                try:
-                    geometry = query.geometry
-                except GEOSException:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="Could not parse coordinates to geometry, "
-                        "check the format of the 'coords' query parameter",
-                    )
+            if not body:
+                raise HTTPException(
+                    status_code=422,
+                    detail="POST /area requires a non-empty request body",
+                )
+            try:
+                geometry = parse_area_body(
+                    body,
+                    request.headers.get("content-type"),
+                )
+            except ValueError as e:
+                logger.error(f"Error parsing area body: {e}")
+                raise HTTPException(status_code=422, detail=str(e))
 
             return _run_area_query(
                 dataset,

@@ -211,6 +211,27 @@ def test_select_query_error(regular_xy_dataset):
         )
 
 
+@pytest.mark.parametrize(
+    "coords",
+    [
+        "not wkt at all",  # GEOSException (ParseException)
+        "\udce0",  # surrogate shapely cannot encode -> UnicodeDecodeError/Error
+    ],
+    ids=["unparsable", "unencodable"],
+)
+def test_geometry_invalid_coords_raise_geos_exception(coords):
+    """Any coords WKT parse failure surfaces as GEOSException.
+
+    Route handlers catch GEOSException to return a 422; if shapely raised a
+    different error type (e.g. UnicodeDecodeError) it would escape as a 500.
+    """
+    from shapely.errors import GEOSException
+
+    query = EDRPositionQuery(coords=coords)
+    with pytest.raises(GEOSException):
+        query.geometry
+
+
 def test_select_position_regular_xy(regular_xy_dataset):
     point = Point((204, 44))
     ds = select_by_position(regular_xy_dataset, point)
