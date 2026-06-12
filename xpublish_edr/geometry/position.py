@@ -10,7 +10,12 @@ import numpy as np
 import shapely
 import xarray as xr
 
-from xpublish_edr.geometry.common import VECTORIZED_DIM, is_regular_xy_coords
+from xpublish_edr.geometry.common import (
+    VECTORIZED_DIM,
+    dataset_xy_names,
+    is_regular_xy_coords,
+    with_spatial_coords,
+)
 
 
 def select_by_position(
@@ -21,6 +26,7 @@ def select_by_position(
     """
     Return a dataset with the position nearest to the given coordinates
     """
+    ds = with_spatial_coords(ds)
     if not is_regular_xy_coords(ds):
         # TODO: Handle 2D coordinates
         raise NotImplementedError("Only 1D coordinates are supported")
@@ -44,10 +50,11 @@ def _select_by_position_regular_xy_grid(
     Return a dataset with the position nearest to the given coordinates
     """
     # Find the nearest X and Y coordinates to the point
+    X, Y = dataset_xy_names(ds)
     if method == "nearest":
-        return ds.cf.sel(X=[point.x], Y=[point.y], method=method)
+        return ds.sel({X: [point.x], Y: [point.y]}, method=method)
     else:
-        return ds.cf.interp(X=[point.x], Y=[point.y], method=method)
+        return ds.interp({X: [point.x], Y: [point.y]}, method=method)
 
 
 def _select_by_multiple_positions_regular_xy_grid(
@@ -59,12 +66,13 @@ def _select_by_multiple_positions_regular_xy_grid(
     Return a dataset with the positions nearest to the given coordinates
     """
     # Find the nearest X and Y coordinates to the point using vectorized indexing
+    X, Y = dataset_xy_names(ds)
     x, y = np.array(list(zip(*[(point.x, point.y) for point in points.geoms])))
 
     # When using vectorized indexing with interp, we need to persist the attributes explicitly
-    sel_x = xr.Variable(data=x, dims=VECTORIZED_DIM, attrs=ds.cf["X"].attrs)
-    sel_y = xr.Variable(data=y, dims=VECTORIZED_DIM, attrs=ds.cf["Y"].attrs)
+    sel_x = xr.Variable(data=x, dims=VECTORIZED_DIM, attrs=ds[X].attrs)
+    sel_y = xr.Variable(data=y, dims=VECTORIZED_DIM, attrs=ds[Y].attrs)
     if method == "nearest":
-        return ds.cf.sel(X=sel_x, Y=sel_y, method=method)
+        return ds.sel({X: sel_x, Y: sel_y}, method=method)
     else:
-        return ds.cf.interp(X=sel_x, Y=sel_y, method=method)
+        return ds.interp({X: sel_x, Y: sel_y}, method=method)

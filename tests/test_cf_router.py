@@ -1128,3 +1128,42 @@ def test_cf_generic_extents_band_and_step():
     # parameter_names includes extents
     assert set(meta["parameter_names"]["var"]["extent"]) == {"spatial", "band", "step"}
     assert set(meta["parameter_names"]["big"]["extent"].keys()) == {"spatial", "member"}
+
+
+@pytest.fixture(scope="session")
+def geozarr_client():
+    """Serve a GeoZarr dataset (proj:code + spatial:dimensions, no CF attrs)."""
+    import numpy as np
+    import xarray as xr
+
+    ds = xr.Dataset(
+        {
+            "foo": (
+                ("y", "x"),
+                np.arange(12).reshape(4, 3).astype(float),
+                {"standard_name": "air_temperature"},
+            ),
+        },
+        coords={
+            "x": ("x", [0.0, 1000.0, 2000.0]),
+            "y": ("y", [0.0, 1000.0, 2000.0, 3000.0]),
+        },
+        attrs={"proj:code": "EPSG:3857", "spatial:dimensions": ["y", "x"]},
+    )
+    rest = xpublish.Rest({"gz": ds}, plugins={"edr": CfEdrPlugin()})
+    return TestClient(rest.app)
+
+
+def test_geozarr_metadata_and_position(geozarr_client):
+    """End-to-end: GeoZarr proj:/spatial: conventions resolve for metadata + queries."""
+    meta = geozarr_client.get("/datasets/gz/edr/")
+    assert meta.status_code == 200, meta.text
+    assert "EPSG:3857" in meta.json()["crs"]
+
+    pos = geozarr_client.get(
+        "/datasets/gz/edr/position",
+        params={"coords": "POINT(1000 2000)", "crs": "EPSG:3857"},
+    )
+    assert pos.status_code == 200, pos.text
+    # foo = arange(12).reshape(4, 3) -> y-index 2, x-index 1 == 7
+    assert pos.json()["ranges"]["foo"]["values"] == [7.0]
