@@ -17,3 +17,5 @@ exclude .gitignore
 exclude .isort.cfg
 exclude .pre-commit-config.yaml
 exclude noxfile.py
+exclude COMPLIANCE.md
+exclude uv.lock

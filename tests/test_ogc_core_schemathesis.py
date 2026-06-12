@@ -3,6 +3,7 @@
 Cases are generated from the app's own OpenAPI description and validated
 against it, scoped to the OGC API paths.
 """
+
 import json
 
 import pytest
@@ -13,10 +14,10 @@ schemathesis = pytest.importorskip("schemathesis")
 import cf_xarray  # noqa: F401
 import xpublish
 from schemathesis.specs.openapi.checks import positive_data_acceptance
+from xpublish_ogc_core import testing
 from xpublish_ogc_core.plugin import OgcCorePlugin
 
 from xpublish_edr.plugin import CfEdrPlugin
-from xpublish_ogc_core import testing
 
 
 def build_app():

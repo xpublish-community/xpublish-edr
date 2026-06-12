@@ -100,7 +100,7 @@ dev = [
     "referencing",
     "schemathesis>=4.11.2",
     "uvicorn",
-    "xpublish-ogc-core",
+    "xpublish-ogc-core>=0.1.0",
 ]
 
 [tool.pytest.ini_options]
