@@ -99,7 +99,13 @@ dev = [
     "pytest",
     "referencing",
     "schemathesis>=4.9.2",
+    "uvicorn",
     "xpublish-ogc-core",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "cite: official OGC CITE compliance suites run with TeamEngine in Docker (slow)",
 ]
 
 [tool.uv.sources]

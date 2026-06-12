@@ -2035,6 +2035,7 @@ dev = [
     { name = "pytest" },
     { name = "referencing" },
     { name = "schemathesis" },
+    { name = "uvicorn" },
     { name = "xpublish-ogc-core" },
 ]
 
@@ -2060,6 +2061,7 @@ dev = [
     { name = "pytest" },
     { name = "referencing" },
     { name = "schemathesis", specifier = ">=4.9.2" },
+    { name = "uvicorn" },
     { name = "xpublish-ogc-core", editable = "../xpublish-ogc-core" },
 ]
 
