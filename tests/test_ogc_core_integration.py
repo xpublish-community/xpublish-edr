@@ -115,10 +115,13 @@ def test_collection(client):
     assert data["crs"] == ["EPSG:4326"]
     assert "cf_covjson" in data["output_formats"]
 
-    # every supported EDR geometry query is described via ogc_collection_dataqueries
+    # every supported EDR geometry query is described via ogc_collection_dataqueries,
+    # with the relative hrefs made absolute by ogc-core
     for query_type in ("position", "area", "cube"):
         link = data["data_queries"][query_type]["link"]
-        assert link["href"].startswith(f"/collections/air/{query_type}")
+        assert link["href"].startswith(
+            f"http://testserver/collections/air/{query_type}",
+        )
         assert link["variables"]["query_type"] == query_type
 
 

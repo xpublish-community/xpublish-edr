@@ -34,13 +34,21 @@ from xpublish_edr.metadata import (
 )
 from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
 
+# EDR 1.1 is backwards compatible with 1.0, so both sets of classes are
+# declared; the CITE ets-ogcapi-edr10 suite checks for the 1.0 URIs.
+# The geojson class is not declared even though `f=geojson` is supported,
+# because the class also requires Locations resources (EDR 1.0 Abstract
+# Test 21), which are not implemented.
 EDR_CONFORMANCE_CLASSES = [
-    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/core",
-    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/collections",
-    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/json",
-    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/geojson",
-    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/covjson",
-    "http://www.opengis.net/spec/ogcapi-edr-1/1.1/conf/queries",
+    f"http://www.opengis.net/spec/ogcapi-edr-1/{version}/conf/{conf_class}"
+    for version in ("1.0", "1.1")
+    for conf_class in (
+        "core",
+        "collections",
+        "json",
+        "covjson",
+        "queries",
+    )
 ]
 
 
