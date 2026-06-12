@@ -7,7 +7,7 @@ name = "xpublish-edr"
 description = ""
 readme = "README.md"
 keywords = []
-license = { file = "LICENSE.txt" }
+license-files = ["LICENSE.txt"]
 requires-python = ">=3.11"
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -76,7 +76,7 @@ dev = [
   "referencing",
   "schemathesis>=4.11.2",
   "uvicorn",
-  "xpublish-ogc-core>=0.1.0",
+  "xpublish-ogc-core>=0.1",
 ]
 
 [tool.setuptools]

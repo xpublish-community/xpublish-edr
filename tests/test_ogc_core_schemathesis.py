@@ -9,13 +9,13 @@ import pytest
 pytest.importorskip("xpublish_ogc_core")
 schemathesis = pytest.importorskip("schemathesis")
 
-import cf_xarray  # noqa: F401
-import xpublish
-from schemathesis.specs.openapi.checks import positive_data_acceptance
-from xpublish_ogc_core import testing
-from xpublish_ogc_core.plugin import OgcCorePlugin
+import cf_xarray  # noqa: F401, E402
+import xpublish  # noqa: E402
+from schemathesis.specs.openapi.checks import positive_data_acceptance  # noqa: E402
+from xpublish_ogc_core import testing  # noqa: E402
+from xpublish_ogc_core.plugin import OgcCorePlugin  # noqa: E402
 
-from xpublish_edr.plugin import CfEdrPlugin
+from xpublish_edr.plugin import CfEdrPlugin  # noqa: E402
 
 
 def build_app():
@@ -44,6 +44,11 @@ ogc_schema = (
     .exclude(path_regex=r"^/collections/\{collectionId\}/radius")
     .exclude(path_regex=r"^/collections/\{collectionId\}/trajectory")
     .exclude(path_regex=r"^/collections/\{collectionId\}/corridor")
+    # POST cube is not implemented: unlike position/area, there is no cube
+    # request-body format (the bbox is always a query parameter), so the route
+    # is GET-only and POST returns a 405. Excluded like the other unimplemented
+    # query variants above.
+    .exclude(method="POST", path_regex=r"^/collections/\{collectionId\}/cube$")
 )
 
 

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, model_serializer
 from xpublish_edr.geometry.common import (
     DEFAULT_CRS,
     SpatialRef,
+    dataset_crs,
     dataset_spatial_ref,
     spatial_bounds,
 )
@@ -57,7 +58,7 @@ class VariablesMetadata(BaseModel):
     output_formats: list[str] | None = None
     default_output_format: str | None = None
     crs_details: list[CRSDetails] | None = None
-    height_units: Optional[list[str]] = None
+    height_units: list[str] | None = None
 
 
 class Link(BaseModel):
@@ -95,7 +96,7 @@ class TemporalExtent(BaseModel):
     in the EDR 1.1 bundled OpenAPI document.
     """
 
-    interval: list[list[Optional[str]]]
+    interval: list[list[str | None]]
     values: list[str]
     trs: str
 
@@ -109,7 +110,7 @@ class VerticalExtent(BaseModel):
     `extent.vertical` schema in the EDR 1.1 bundled OpenAPI document.
     """
 
-    interval: list[list[str]]
+    interval: list[list[str | None]]
     values: list[str]
     vrs: str
 
@@ -585,7 +586,7 @@ def cube_query_description(
     output_formats: list[str],
     crs_details: list[CRSDetails],
     href: str = "/edr/cube?bbox={bbox}",
-    height_units: Optional[list[str]] = None,
+    height_units: list[str] | None = None,
 ) -> EDRQueryMetadata:
     """
     Return CF version of EDR Cube Query metadata
