@@ -63,14 +63,21 @@ entry-points.xpublish_edr_position_formats.parquet = "xpublish_edr.formats.to_pa
 
 [dependency-groups]
 dev = [
+  "dask",
+  "httpx",
   "httpx2",
+  "jsonschema",
   "netcdf4",
   "pooch",
   "pytest",
   "pytest-cov",
   "pytest-github-actions-annotate-failures",
   "pytest-xdist",
-  "zarr>=3.0.7"
+  "referencing",
+  "schemathesis>=4.11.2",
+  "uvicorn",
+  "xpublish-ogc-core",
+  "zarr>=3.0.7",
 ]
 
 [tool.setuptools]
@@ -128,32 +135,15 @@ enable_error_code = [ "ignore-without-code", "redundant-expr", "truthy-bool" ]
 strict = true
 
 [tool.pytest]
-addopts = [ "-ra" ]
+markers = [
+  "cite: official OGC CITE compliance suites run with TeamEngine in Docker (slow)",
+]
 # filterwarnings = [
 #   "error",
 #   "ignore:numpy.ndarray size changed:RuntimeWarning",
 # ]
+addopts = [ "-ra", "--strict-config", "--strict-markers" ]
 log_level = "INFO"
 minversion = "9"
 strict = true
 testpaths = [ "tests" ]
-
-[dependency-groups]
-dev = [
-    "cf_xarray",
-    "dask",
-    "httpx",
-    "jsonschema",
-    "netcdf4",
-    "pooch",
-    "pytest",
-    "referencing",
-    "schemathesis>=4.9.2",
-    "uvicorn",
-    "xpublish-ogc-core",
-]
-
-[tool.pytest.ini_options]
-markers = [
-    "cite: official OGC CITE compliance suites run with TeamEngine in Docker (slow)",
-]
