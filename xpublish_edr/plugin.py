@@ -2,6 +2,7 @@
 OGC EDR router for datasets with CF convention metadata
 """
 
+import asyncio
 from typing import Annotated, List
 
 import shapely
@@ -32,6 +33,21 @@ async def _raw_body(request: Request) -> bytes:
     empty ``bytes`` for GET requests, which have no body.
     """
     return await request.body()
+
+
+def _load_dataset(ds: xr.Dataset) -> xr.Dataset:
+    """Eagerly load the selected dataset, preferring asynchronous loading.
+
+    Backends that support it (e.g. zarr) can fetch chunks concurrently, which
+    is significantly faster for remote stores. Backends that don't raise
+    ``NotImplementedError``, in which case we fall back to standard
+    synchronous loading. Safe to call from the sync handlers since they run
+    in the threadpool, where no event loop is running.
+    """
+    try:
+        return asyncio.run(ds.load_async())
+    except NotImplementedError:
+        return ds.load()
 
 
 class CfEdrPlugin(Plugin):
@@ -169,6 +185,10 @@ class CfEdrPlugin(Plugin):
 
             logger.debug(f"Dataset projected to {query.crs}: {ds}")
 
+            ds = _load_dataset(ds)
+
+            logger.debug("Dataset loaded")
+
             if query.format:
                 try:
                     format_fn = position_formats()[query.format]
@@ -303,6 +323,10 @@ class CfEdrPlugin(Plugin):
 
             logger.debug(f"Dataset projected to {query.crs}: {ds}")
 
+            ds = _load_dataset(ds)
+
+            logger.debug("Dataset loaded")
+
             if query.format:
                 try:
                     format_fn = area_formats()[query.format]
@@ -435,6 +459,10 @@ class CfEdrPlugin(Plugin):
                 )
 
             logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+            ds = _load_dataset(ds)
+
+            logger.debug("Dataset loaded")
 
             if query.format:
                 try:

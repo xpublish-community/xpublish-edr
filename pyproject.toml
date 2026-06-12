@@ -60,6 +60,9 @@ parquet = "xpublish_edr.formats.to_parquet:to_parquet"
 geotiff = "xpublish_edr.formats.to_geotiff:to_geotiff"
 
 
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "requirements.txt" }]
+
 [tool.check-manifest]
 ignore = ["xpublish_edr/_version.py"]
 
