@@ -170,8 +170,10 @@ def test_cf_metadata_query(cf_client):
     ), "Vertical extent should not be present in extent"
 
     assert data["extent"]["temporal"]["interval"] == [
-        "2013-01-01T00:00:00",
-        "2013-01-01T18:00:00",
+        [
+            "2013-01-01T00:00:00",
+            "2013-01-01T18:00:00",
+        ],
     ], "Temporal interval is incorrect"
     assert (
         data["extent"]["temporal"]["values"][0]

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "xpublish_edr"
 description = ""
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = []
 license = { file = "LICENSE.txt" }
 
@@ -17,9 +17,9 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering",
 ]
 
@@ -87,3 +87,26 @@ exclude = ["setup.py", "docs", "tests"]
 verbose = 1
 quiet = false
 color = true
+
+[dependency-groups]
+dev = [
+    "cf_xarray",
+    "dask",
+    "httpx",
+    "jsonschema",
+    "netcdf4",
+    "pooch",
+    "pytest",
+    "referencing",
+    "schemathesis>=4.11.2",
+    "uvicorn",
+    "xpublish-ogc-core>=0.1.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "cite: official OGC CITE compliance suites run with TeamEngine in Docker (slow)",
+]
+
+[tool.uv.sources]
+xpublish-ogc-core = { path = "../xpublish-ogc-core", editable = true }
