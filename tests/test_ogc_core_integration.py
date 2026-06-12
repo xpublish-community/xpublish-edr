@@ -74,14 +74,14 @@ def test_conformance(client):
     validate_response("confClasses", data)
 
     for conformance_class in OGC_API_COMMON_CONFORMANCE_CLASSES:
-        assert (
-            conformance_class in data["conformsTo"]
-        ), f"OGC API Common class {conformance_class} should be declared"
+        assert conformance_class in data["conformsTo"], (
+            f"OGC API Common class {conformance_class} should be declared"
+        )
 
     for conformance_class in EDR_CONFORMANCE_CLASSES:
-        assert (
-            conformance_class in data["conformsTo"]
-        ), f"EDR class {conformance_class} should be declared"
+        assert conformance_class in data["conformsTo"], (
+            f"EDR class {conformance_class} should be declared"
+        )
 
 
 def test_collections(client):

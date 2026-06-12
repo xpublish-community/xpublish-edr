@@ -195,7 +195,6 @@ The integration is validated end to end in `tests/test_ogc_core_integration.py` 
 
 [8.2.3 Area query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_c92d1888-dc80-454f-8452-e2f070b90dcd)
 
-
 | Query            | Compliant     | Comments                                                                                                                                                                                                           |
 | ---------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `coords`         | ✅            | `POLYGON` and `MULTIPOLYGON` supported. Required for `GET`; for `POST` the polygon is read from the request body                                                                                                   |
@@ -229,13 +228,11 @@ The integration is validated end to end in `tests/test_ogc_core_integration.py` 
 | `method`         | ➕            | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified                                                           |
 | `POST` body      | ➕            | Non-spec extension. Supported content types: `application/geo+json` (Polygon, MultiPolygon, Feature, FeatureCollection, or GeometryCollection); `application/wkt` / `text/plain` (raw WKT Polygon or MultiPolygon) |
 
-
 > `method` is not applicable for the coordinates of area queries, only for selecting datetime, z, or additional dimensions.
 
 For `POLYGON` coordinates, points that are located within **OR** on the polygons boundary are included in the response.
 
 [8.2.4 Cube query](https://docs.ogc.org/is/19-086r6/19-086r6.html#_c92d1888-dc80-454f-8452-e2f070b90dcd)
-
 
 | Query            | Compliant     | Comments                                                                                                                                                 |
 | ---------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |

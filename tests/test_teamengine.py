@@ -12,10 +12,10 @@ pytest.importorskip("xpublish_ogc_core")
 
 import cf_xarray  # noqa: F401
 import xpublish
-
-from xpublish_edr.plugin import CfEdrPlugin
 from xpublish_ogc_core import teamengine
 from xpublish_ogc_core.plugin import OgcCorePlugin
+
+from xpublish_edr.plugin import CfEdrPlugin
 
 pytestmark = [
     pytest.mark.cite,
@@ -67,8 +67,6 @@ def test_edr_cite_suite():
     assert not unexpected, f"Unexpected CITE failures:\n{result.summary()}"
 
     fixed = KNOWN_FAILURES - result.failure_names()
-    assert not fixed, (
-        f"Known failures now pass, remove them from KNOWN_FAILURES: {sorted(fixed)}"
-    )
+    assert not fixed, f"Known failures now pass, remove them from KNOWN_FAILURES: {sorted(fixed)}"
 
     assert result.passed >= 25, f"Suite did not run as expected:\n{result.summary()}"
