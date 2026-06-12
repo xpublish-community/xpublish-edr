@@ -1,0 +1,74 @@
+"""Official OGC CITE compliance suite, run with TeamEngine in Docker.
+
+The composed xpublish-ogc-core + xpublish-edr app is served over HTTP and
+tested by the ets-ogcapi-edr10 executable test suite running in the official
+OGC Docker image. Requires Docker (the image is pulled on first use) and
+xpublish_ogc_core; skipped otherwise. Deselect with `-m "not cite"`.
+"""
+
+import pytest
+
+pytest.importorskip("xpublish_ogc_core")
+
+import cf_xarray  # noqa: F401
+import xpublish
+
+from xpublish_edr.plugin import CfEdrPlugin
+from xpublish_ogc_core import teamengine
+from xpublish_ogc_core.plugin import OgcCorePlugin
+
+pytestmark = [
+    pytest.mark.cite,
+    pytest.mark.skipif(
+        not teamengine.docker_available(),
+        reason="requires the docker CLI and a running daemon",
+    ),
+]
+
+ETS_IMAGE = "ogccite/ets-ogcapi-edr10:1.3-teamengine-6.0.0-RC2"
+SUITE = "ogcapi-edr10"
+
+KNOWN_FAILURES = {
+    # FastAPI generates an OpenAPI 3.1 document, while the suite validates it
+    # against OpenAPI 3.0 and rejects the `"type": "null"` members that
+    # pydantic emits for optional fields
+    "ApiDefinition.apiDefinitionValidation",
+    # FastAPI does not emit the `style: form` member on query parameter
+    # definitions (it is the OpenAPI default for query parameters, but the
+    # suite requires it to be explicit)
+    "AreaCollections.areaDateTimeParameterDefinition",
+    "PositionCollections.positionDateTimeParameterDefinition",
+    "CubeCollections.cubeDateTimeParameterDefinition",
+}
+
+
+def test_edr_cite_suite():
+    from cf_xarray.datasets import airds
+
+    rest = xpublish.Rest(
+        {"air": airds},
+        plugins={"ogc": OgcCorePlugin(), "edr": CfEdrPlugin()},
+    )
+
+    with (
+        teamengine.serve_app(rest.app) as app_url,
+        teamengine.teamengine_container(ETS_IMAGE) as engine_url,
+    ):
+        result = teamengine.run_suite(
+            engine_url,
+            SUITE,
+            {
+                "iut": app_url,
+                "apiDefinition": f"{app_url}/openapi.json",
+            },
+        )
+
+    unexpected = result.failure_names() - KNOWN_FAILURES
+    assert not unexpected, f"Unexpected CITE failures:\n{result.summary()}"
+
+    fixed = KNOWN_FAILURES - result.failure_names()
+    assert not fixed, (
+        f"Known failures now pass, remove them from KNOWN_FAILURES: {sorted(fixed)}"
+    )
+
+    assert result.passed >= 25, f"Suite did not run as expected:\n{result.summary()}"
