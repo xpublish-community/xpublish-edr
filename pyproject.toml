@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "xpublish_edr"
 description = ""
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = []
 license = { file = "LICENSE.txt" }
 
@@ -17,9 +17,9 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering",
 ]
 
@@ -98,7 +98,7 @@ dev = [
     "pooch",
     "pytest",
     "referencing",
-    "schemathesis>=4.9.2",
+    "schemathesis>=4.11.2",
     "uvicorn",
     "xpublish-ogc-core",
 ]
