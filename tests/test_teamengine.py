@@ -42,7 +42,7 @@ KNOWN_FAILURES = {
 }
 
 
-def test_edr_cite_suite():
+def test_edr_cite_suite(subtests):
     from cf_xarray.datasets import airds
 
     rest = xpublish.Rest(
@@ -63,10 +63,9 @@ def test_edr_cite_suite():
             },
         )
 
-    unexpected = result.failure_names() - KNOWN_FAILURES
-    assert not unexpected, f"Unexpected CITE failures:\n{result.summary()}"
-
-    fixed = KNOWN_FAILURES - result.failure_names()
-    assert not fixed, f"Known failures now pass, remove them from KNOWN_FAILURES: {sorted(fixed)}"
-
-    assert result.passed >= 25, f"Suite did not run as expected:\n{result.summary()}"
+    teamengine.report_subtests(
+        result,
+        subtests,
+        known_failures=KNOWN_FAILURES,
+        expected_passed=25,
+    )

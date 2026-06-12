@@ -76,8 +76,7 @@ dev = [
   "referencing",
   "schemathesis>=4.11.2",
   "uvicorn",
-  "xpublish-ogc-core",
-  "zarr>=3.0.7",
+  "xpublish-ogc-core>=0.1.0",
 ]
 
 [tool.setuptools]
@@ -136,7 +135,7 @@ strict = true
 
 [tool.pytest]
 markers = [
-  "cite: official OGC CITE compliance suites run with TeamEngine in Docker (slow)",
+    "cite: official OGC CITE compliance suites run with TeamEngine in Docker (slow)",
 ]
 # filterwarnings = [
 #   "error",
