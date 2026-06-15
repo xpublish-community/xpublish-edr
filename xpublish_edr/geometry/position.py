@@ -11,8 +11,8 @@ import shapely
 import xarray as xr
 
 from xpublish_edr.geometry.common import (
-    SpatialRef,
     VECTORIZED_DIM,
+    SpatialRef,
     prepare_spatial_grid,
 )
 
