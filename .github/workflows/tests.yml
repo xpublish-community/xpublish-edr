@@ -32,11 +32,6 @@ jobs:
         run: >
           python -m pip install -e . --no-deps --force-reinstall
 
-      - name: Install optional rasterix (affine support; not on conda-forge)
-        shell: bash -l {0}
-        run: >
-          python -m pip install "rasterix>=0.2.2"
-
       - name: Tests
         shell: bash -l {0}
         run: >

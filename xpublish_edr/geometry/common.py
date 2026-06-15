@@ -10,17 +10,14 @@ from typing import Mapping, Optional, Union
 import cf_xarray  # noqa: F401  (registers the ``.cf`` dataset accessor)
 import numpy as np
 import pyproj
+import rasterix
 import rioxarray  # noqa
 import shapely
 import xarray as xr
+from rasterix.rioxarray_compat import guess_dims
 from shapely import Geometry
 
 from xpublish_edr.logger import logger
-
-# ``rasterix`` is an optional dependency: it is only needed to materialize
-# coordinates for affine ("raster") datasets that have no explicit coordinate
-# arrays. It is not available on conda-forge yet, so it is imported lazily and
-# everything except affine-coordinate materialization works without it.
 
 VECTORIZED_DIM = "pts"
 
@@ -181,8 +178,6 @@ def _resolve_xy_names(
     # affine/GeoTransform datasets whose x/y *dimensions* carry no coordinate
     # variables yet (rasterix materializes them in ``with_spatial_coords``).
     try:
-        from rasterix.rioxarray_compat import guess_dims
-
         guessed_x, guessed_y = guess_dims(ds)
         if guessed_x in ds.dims and guessed_y in ds.dims:
             return str(guessed_x), str(guessed_y)
@@ -323,16 +318,6 @@ def with_spatial_coords(ds: xr.Dataset) -> xr.Dataset:
         X in ds.variables and Y in ds.variables and ds[X].ndim == 1 and ds[Y].ndim == 1
     )
     if have_coords:
-        return ds
-
-    try:
-        import rasterix
-    except ImportError:
-        logger.debug(
-            "rasterix is not installed; cannot materialize affine coordinates. "
-            "Install the 'affine' extra (pip install 'xpublish-edr[affine]') for "
-            "support of datasets that only define a GeoTransform / spatial:transform.",
-        )
         return ds
 
     try:

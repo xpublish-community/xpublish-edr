@@ -711,7 +711,6 @@ def test_geotransform_affine(geotransform_affine_dataset):
     ``"0 1000 0 3000 0 -1000"`` -> pixel centers x=[500, 1500, 2500],
     y=[2500, 1500, 500, -500].
     """
-    pytest.importorskip("rasterix")
     ds = geotransform_affine_dataset
     assert "x" not in ds.coords  # affine-only to start
     materialized = with_spatial_coords(ds)
@@ -727,7 +726,6 @@ def test_geotransform_affine(geotransform_affine_dataset):
 
 def test_geozarr_spatial_transform_affine():
     """A GeoZarr spatial:transform (no coords) is translated and materialized."""
-    pytest.importorskip("rasterix")
     ds = xr.Dataset(
         {"foo": (("y", "x"), np.arange(12).reshape(4, 3).astype(float))},
         attrs={
