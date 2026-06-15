@@ -349,6 +349,48 @@ def test_cf_position_covjson_integer_coord(tmp_path):
     assert "annualFireProbability" in data_json["ranges"]
 
 
+def test_to_csv_drops_index_only_dims_and_crs_vars():
+    """to_csv should drop bare 0-based dimension-index columns and scalar CRS
+    metadata variables that arise when project_dataset reprojects a dataset."""
+    import io
+
+    import numpy as np
+    import pandas as pd
+    import xarray as xr
+
+    from xpublish_edr.formats.to_csv import to_csv
+
+    # Simulate the post-reprojection dataset structure:
+    # lat/lon dims have NO coordinate values (dropped by project_dataset);
+    # latitude/longitude are 2D non-dimension coords with actual projected values;
+    # spatial_ref is a scalar CRS variable written by rioxarray.write_crs().
+    year = np.array([1995, 2020], dtype="int32")
+    data = np.ones((2, 1, 1))
+
+    ds = xr.Dataset(
+        {"annualFireProbability": (["year", "lat", "lon"], data)},
+        coords={
+            "year": ("year", year),
+            "longitude": (["lat", "lon"], np.array([[-95.8]])),
+            "latitude": (["lat", "lon"], np.array([[35.3]])),
+        },
+    )
+    ds["spatial_ref"] = xr.Variable(
+        [],
+        0,
+        attrs={"grid_mapping_name": "latitude_longitude", "crs_wkt": "GEOGCS[...]"},
+    )
+
+    response = to_csv(ds)
+    df = pd.read_csv(io.StringIO(response.body.decode()))
+
+    assert "latitude" in df.columns
+    assert "longitude" in df.columns
+    assert "lat" not in df.columns, "bare dimension-index column should be dropped"
+    assert "lon" not in df.columns, "bare dimension-index column should be dropped"
+    assert "spatial_ref" not in df.columns, "CRS metadata variable should be dropped"
+
+
 def test_cf_position_csv(cf_client):
     x = 204
     y = 44
