@@ -309,6 +309,88 @@ def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
     assert len(temp_range["values"]) == 1, "There should be 1 value selected"
 
 
+def test_cf_position_covjson_integer_coord(tmp_path):
+    """CovJSON formatter should not crash when coordinates have integer dtype."""
+    import numpy as np
+    import xarray as xr
+    import xpublish
+
+    year = np.array([1995, 2020, 2025], dtype="int32")
+    lat = np.array([46.0, 47.0], dtype="float64")
+    lon = np.array([-122.0, -121.0], dtype="float64")
+    data = np.random.default_rng(0).random((3, 2, 2))
+
+    ds = xr.Dataset(
+        {"temperature": (["year", "lat", "lon"], data)},
+        coords={
+            "year": ("year", year),
+            "lat": ("lat", lat),
+            "lon": ("lon", lon),
+        },
+    )
+    ds["lat"].attrs["units"] = "degrees_north"
+    ds["lat"].attrs["standard_name"] = "latitude"
+    ds["lat"].attrs["axis"] = "Y"
+    ds["lon"].attrs["units"] = "degrees_east"
+    ds["lon"].attrs["standard_name"] = "longitude"
+    ds["lon"].attrs["axis"] = "X"
+
+    rest = xpublish.Rest({"climate": ds}, plugins={"edr": CfEdrPlugin()})
+    client = TestClient(rest.app)
+
+    x, y = -121.5, 46.5
+    response = client.get(
+        f"/datasets/climate/edr/position?coords=POINT({x} {y})&f=cf_covjson",
+    )
+
+    assert response.status_code == 200, response.text
+    data_json = response.json()
+    assert "ranges" in data_json
+    assert "temperature" in data_json["ranges"]
+
+
+def test_to_csv_drops_index_only_dims_and_crs_vars():
+    """to_csv should drop bare 0-based dimension-index columns and scalar CRS
+    metadata variables that arise when project_dataset reprojects a dataset."""
+    import io
+
+    import numpy as np
+    import pandas as pd
+    import xarray as xr
+
+    from xpublish_edr.formats.to_csv import to_csv
+
+    # Simulate the post-reprojection dataset structure:
+    # lat/lon dims have NO coordinate values (dropped by project_dataset);
+    # latitude/longitude are 2D non-dimension coords with actual projected values;
+    # spatial_ref is a scalar CRS variable written by rioxarray.write_crs().
+    year = np.array([1995, 2020], dtype="int32")
+    data = np.ones((2, 1, 1))
+
+    ds = xr.Dataset(
+        {"temperature": (["year", "lat", "lon"], data)},
+        coords={
+            "year": ("year", year),
+            "longitude": (["lat", "lon"], np.array([[-95.8]])),
+            "latitude": (["lat", "lon"], np.array([[35.3]])),
+        },
+    )
+    ds["spatial_ref"] = xr.Variable(
+        [],
+        0,
+        attrs={"grid_mapping_name": "latitude_longitude", "crs_wkt": "GEOGCS[...]"},
+    )
+
+    response = to_csv(ds)
+    df = pd.read_csv(io.StringIO(response.body.decode()))
+
+    assert "latitude" in df.columns
+    assert "longitude" in df.columns
+    assert "lat" not in df.columns, "bare dimension-index column should be dropped"
+    assert "lon" not in df.columns, "bare dimension-index column should be dropped"
+    assert "spatial_ref" not in df.columns, "CRS metadata variable should be dropped"
+
+
 def test_cf_position_csv(cf_client):
     x = 204
     y = 44
