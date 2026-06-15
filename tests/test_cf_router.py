@@ -340,7 +340,7 @@ def test_cf_position_covjson_integer_coord(tmp_path):
 
     x, y = -121.5, 46.5
     response = client.get(
-        f"/datasets/fire/edr/position?coords=POINT({x} {y})&f=cf_covjson"
+        f"/datasets/fire/edr/position?coords=POINT({x} {y})&f=cf_covjson",
     )
 
     assert response.status_code == 200, response.text
