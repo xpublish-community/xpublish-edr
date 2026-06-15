@@ -9,7 +9,9 @@ from fastapi import Response
 def to_csv(ds: xr.Dataset):
     """Return a CSV response from an xarray dataset"""
     # Drop CRS grid-mapping variables (scalar integer blobs written by rioxarray)
-    crs_vars = [name for name, var in ds.variables.items() if "grid_mapping_name" in var.attrs]
+    crs_vars = [
+        name for name, var in ds.variables.items() if "grid_mapping_name" in var.attrs
+    ]
     if crs_vars:
         ds = ds.drop_vars(crs_vars)
 
