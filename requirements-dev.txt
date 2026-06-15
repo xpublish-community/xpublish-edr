@@ -1,5 +1,4 @@
 black
-cf_xarray
 check-manifest
 doctr
 flake8

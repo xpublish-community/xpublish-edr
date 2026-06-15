@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field, model_serializer
 
 from xpublish_edr.geometry.common import (
     DEFAULT_CRS,
-    dataset_crs,
+    SpatialRef,
+    dataset_spatial_ref,
     spatial_bounds,
 )
 from xpublish_edr.logger import logger
@@ -297,13 +298,16 @@ def parameter(da: xr.DataArray, *, extents: Extent) -> Parameter:
     )
 
 
-def spatial_extent(ds: xr.Dataset, crs: pyproj.CRS) -> SpatialExtent:
+def spatial_extent(
+    ds: xr.Dataset,
+    spatial_ref: SpatialRef,
+) -> SpatialExtent:
     """Extract the spatial extent from the dataset into collection metadata specific format"""
-    bounds = spatial_bounds(ds)
+    bounds = spatial_bounds(ds, spatial_ref=spatial_ref)
 
     return SpatialExtent(
         bbox=[list(bounds)],
-        crs=crs.to_string(),
+        crs=spatial_ref.crs.to_string(),
     )
 
 
@@ -460,11 +464,14 @@ def generic_extents(ds: xr.Dataset) -> Optional[dict[str, GenericExtent]]:
     return other or None
 
 
-def extent(ds: xr.Dataset, crs: pyproj.CRS) -> Extent:
+def extent(
+    ds: xr.Dataset,
+    spatial_ref: SpatialRef,
+) -> Extent:
     """
     Extract the extent from the dataset into collection metadata specific format
     """
-    spatial = spatial_extent(ds, crs)
+    spatial = spatial_extent(ds, spatial_ref)
     temporal = temporal_extent(ds)
     vertical = vertical_extent(ds)
     other = generic_extents(ds)
@@ -596,9 +603,10 @@ def collection_metadata(
     title = ds.attrs.get("title", "unknown")
     description = ds.attrs.get("description", "no description")
 
-    crs = dataset_crs(ds)
+    spatial_ref = dataset_spatial_ref(ds)
+    crs = spatial_ref.crs
 
-    extents = extent(ds, crs)
+    extents = extent(ds, spatial_ref)
 
     parameters = extract_parameters(ds, extents=extents)
 

@@ -10,7 +10,12 @@ from shapely import MultiPoint, Point, from_wkt
 
 from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
-from xpublish_edr.geometry.common import project_dataset
+from xpublish_edr.geometry.common import (
+    dataset_spatial_ref,
+    is_regular_xy_coords,
+    project_dataset,
+    with_spatial_coords,
+)
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
 
@@ -70,31 +75,6 @@ def regular_xy_dataset_with_string_dim():
     )
 
     return ds
-
-
-def test_no_grid_mapping_projected_dataset(no_grid_mapping_projected_dataset):
-    ds = no_grid_mapping_projected_dataset
-    transformer = pyproj.Transformer.from_crs(3035, 4326, always_xy=True)
-    lon, lat = transformer.transform(3, 8)
-    query = EDRPositionQuery(
-        coords=f"POINT({lon} {lat})",
-        crs="epsg:4326",
-        parameters="air",
-    )
-    geom = query.project_geometry(ds)
-    actual = select_by_position(ds, geom)
-    expected = ds.isel(x=[0], y=[1])
-    xr.testing.assert_identical(actual, expected)
-
-    # same point but in native EPSG:3035
-    query = EDRPositionQuery(
-        coords="POINT(3 8)",
-        crs="epsg:3035",
-        parameters="air",
-    )
-    geom = query.project_geometry(ds)
-    actual = select_by_position(ds, geom)
-    xr.testing.assert_identical(actual, expected)
 
 
 def test_select_query(regular_xy_dataset):
@@ -606,3 +586,210 @@ def test_z_query_error_non_indexed(dataset_with_non_indexed_axes):
     )
     with pytest.raises(ValueError, match="Cannot select on Z axis via cf_xarray"):
         query.select(dataset_with_non_indexed_axes, {})
+
+
+@pytest.fixture(scope="function")
+def geozarr_proj_code_dataset():
+    """A GeoZarr dataset declaring CRS/coords via the proj:/spatial: conventions.
+
+    Uses ``proj:code`` for the CRS and ``spatial:dimensions`` ([Y, X] order) for
+    coordinate identification; the 1D x/y coordinates carry *no* CF
+    axis/standard_name attributes, so detection must come from the conventions.
+    """
+    return xr.Dataset(
+        {"foo": (("y", "x"), np.arange(12).reshape(4, 3).astype(float))},
+        coords={
+            "x": ("x", [0.0, 1000.0, 2000.0]),
+            "y": ("y", [0.0, 1000.0, 2000.0, 3000.0]),
+        },
+        attrs={"proj:code": "EPSG:3857", "spatial:dimensions": ["y", "x"]},
+    )
+
+
+@pytest.fixture(scope="function")
+def geozarr_proj_wkt2_dataset(geozarr_proj_code_dataset):
+    """GeoZarr CRS via proj:wkt2 instead of proj:code."""
+    ds = geozarr_proj_code_dataset.copy()
+    del ds.attrs["proj:code"]
+    ds.attrs["proj:wkt2"] = pyproj.CRS.from_epsg(27700).to_wkt()
+    return ds
+
+
+@pytest.fixture(scope="function")
+def multiple_grid_mappings_dataset():
+    """Native 1D projected grid plus alternate 2D geographic grid mapping."""
+    return xr.Dataset(
+        {
+            "foo": (
+                ("y", "x"),
+                np.arange(6).reshape(2, 3).astype(float),
+                {"grid_mapping": "spatial_ref: x y crs_4326: longitude latitude"},
+            ),
+        },
+        coords={
+            "x": (
+                "x",
+                [400000.0, 401000.0, 402000.0],
+                {"axis": "X", "standard_name": "projection_x_coordinate"},
+            ),
+            "y": (
+                "y",
+                [100000.0, 101000.0],
+                {"axis": "Y", "standard_name": "projection_y_coordinate"},
+            ),
+            "longitude": (("y", "x"), np.zeros((2, 3)), {"standard_name": "longitude"}),
+            "latitude": (("y", "x"), np.zeros((2, 3)), {"standard_name": "latitude"}),
+            "spatial_ref": ((), 0, pyproj.CRS.from_epsg(27700).to_cf()),
+            "crs_4326": ((), 0, pyproj.CRS.from_epsg(4326).to_cf()),
+        },
+    )
+
+
+@pytest.fixture(scope="function")
+def geotransform_affine_dataset():
+    """An affine (raster) dataset: a CF/GDAL ``GeoTransform`` and no coordinate arrays."""
+    return xr.Dataset(
+        {
+            "foo": (
+                ("y", "x"),
+                np.arange(12).reshape(4, 3).astype(float),
+                {"grid_mapping": "spatial_ref"},
+            ),
+        },
+        coords={
+            "spatial_ref": (
+                (),
+                0,
+                {
+                    **pyproj.CRS.from_epsg(3857).to_cf(),
+                    "GeoTransform": "0 1000 0 3000 0 -1000",
+                },
+            ),
+        },
+    )
+
+
+@pytest.fixture(scope="function")
+def geozarr_spatial_transform_affine_dataset():
+    """GeoZarr affine transform with no explicit x/y coordinates."""
+    return xr.Dataset(
+        {"foo": (("y", "x"), np.arange(12).reshape(4, 3).astype(float))},
+        attrs={
+            "proj:code": "EPSG:3857",
+            "spatial:dimensions": ["y", "x"],
+            "spatial:transform": [1000.0, 0.0, 0.0, 0.0, -1000.0, 3000.0],
+        },
+    )
+
+
+@pytest.fixture(
+    params=[
+        pytest.param(
+            {
+                "fixture": "no_grid_mapping_projected_dataset",
+                "crs": pyproj.CRS.from_epsg(3035),
+                "xy": ("x", "y"),
+                "point": (3.0, 8.0),
+                "value": 2,
+                "roundtrip_crs": "EPSG:4326",
+            },
+            id="legacy-spatial-ref",
+        ),
+        pytest.param(
+            {
+                "fixture": "geozarr_proj_code_dataset",
+                "crs": pyproj.CRS.from_epsg(3857),
+                "xy": ("x", "y"),
+                "point": (1000.0, 2000.0),
+                "value": 7.0,
+                "roundtrip_crs": "EPSG:4326",
+            },
+            id="geozarr-proj-code",
+        ),
+        pytest.param(
+            {
+                "fixture": "geozarr_proj_wkt2_dataset",
+                "crs": pyproj.CRS.from_epsg(27700),
+                "xy": ("x", "y"),
+                "point": (1000.0, 2000.0),
+                "value": 7.0,
+            },
+            id="geozarr-proj-wkt2",
+        ),
+        pytest.param(
+            {
+                "fixture": "multiple_grid_mappings_dataset",
+                "crs": pyproj.CRS.from_epsg(27700),
+                "xy": ("x", "y"),
+                "point": (401000.0, 101000.0),
+                "value": 4.0,
+            },
+            id="multiple-grid-mappings",
+        ),
+        pytest.param(
+            {
+                "fixture": "geotransform_affine_dataset",
+                "crs": pyproj.CRS.from_epsg(3857),
+                "xy": ("x", "y"),
+                "point": (1500.0, 1500.0),
+                "value": 4.0,
+                "materialized_x": [500.0, 1500.0, 2500.0],
+                "original_missing_coords": ("x", "y"),
+            },
+            id="cf-geotransform-affine",
+        ),
+        pytest.param(
+            {
+                "fixture": "geozarr_spatial_transform_affine_dataset",
+                "crs": pyproj.CRS.from_epsg(3857),
+                "xy": ("x", "y"),
+                "point": (1500.0, 1500.0),
+                "value": 4.0,
+                "materialized_x": [500.0, 1500.0, 2500.0],
+                "original_missing_coords": ("x", "y"),
+            },
+            id="geozarr-spatial-transform-affine",
+        ),
+    ],
+)
+def spatial_selection_case(request):
+    """Dataset-specific inputs for the shared spatial resolution/selection contract."""
+    case = request.param.copy()
+    case["ds"] = request.getfixturevalue(case.pop("fixture"))
+    return case
+
+
+def test_spatial_resolution_and_position_selection(spatial_selection_case):
+    """CRS/X/Y resolution and point selection work across supported grid metadata."""
+    case = spatial_selection_case
+    ds = case["ds"]
+
+    sr = dataset_spatial_ref(ds)
+    assert sr.crs == case["crs"]
+    assert (sr.X, sr.Y) == case["xy"]
+
+    materialized = with_spatial_coords(ds, sr)
+    assert is_regular_xy_coords(materialized, sr)
+    if "materialized_x" in case:
+        npt.assert_array_equal(materialized[sr.X].values, case["materialized_x"])
+    for coord in case.get("original_missing_coords", ()):
+        assert coord not in ds.coords
+
+    selected = select_by_position(ds, Point(case["point"]), spatial_ref=sr)
+    npt.assert_array_equal(selected["foo"].values.ravel(), [case["value"]])
+
+    if "roundtrip_crs" not in case:
+        return
+
+    x, y = pyproj.Transformer.from_crs(
+        case["crs"],
+        case["roundtrip_crs"],
+        always_xy=True,
+    ).transform(*case["point"])
+    query = EDRPositionQuery(coords=f"POINT({x} {y})", crs=case["roundtrip_crs"])
+    selected = select_by_position(ds, query.project_geometry(ds), spatial_ref=sr)
+    npt.assert_array_equal(selected["foo"].values.ravel(), [case["value"]])
+
+    projected = project_dataset(selected, query.crs, sr)
+    npt.assert_approx_equal(projected.cf["X"].values.item(), x, significant=5)
+    npt.assert_approx_equal(projected.cf["Y"].values.item(), y, significant=5)
