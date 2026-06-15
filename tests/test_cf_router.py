@@ -309,6 +309,46 @@ def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
     assert len(temp_range["values"]) == 1, "There should be 1 value selected"
 
 
+def test_cf_position_covjson_integer_coord(tmp_path):
+    """CovJSON formatter should not crash when coordinates have integer dtype."""
+    import numpy as np
+    import xarray as xr
+    import xpublish
+
+    year = np.array([1995, 2020, 2025], dtype="int32")
+    lat = np.array([46.0, 47.0], dtype="float64")
+    lon = np.array([-122.0, -121.0], dtype="float64")
+    data = np.random.default_rng(0).random((3, 2, 2))
+
+    ds = xr.Dataset(
+        {"annualFireProbability": (["year", "lat", "lon"], data)},
+        coords={
+            "year": ("year", year),
+            "lat": ("lat", lat),
+            "lon": ("lon", lon),
+        },
+    )
+    ds["lat"].attrs["units"] = "degrees_north"
+    ds["lat"].attrs["standard_name"] = "latitude"
+    ds["lat"].attrs["axis"] = "Y"
+    ds["lon"].attrs["units"] = "degrees_east"
+    ds["lon"].attrs["standard_name"] = "longitude"
+    ds["lon"].attrs["axis"] = "X"
+
+    rest = xpublish.Rest({"fire": ds}, plugins={"edr": CfEdrPlugin()})
+    client = TestClient(rest.app)
+
+    x, y = -121.5, 46.5
+    response = client.get(
+        f"/datasets/fire/edr/position?coords=POINT({x} {y})&f=cf_covjson"
+    )
+
+    assert response.status_code == 200, response.text
+    data_json = response.json()
+    assert "ranges" in data_json
+    assert "annualFireProbability" in data_json["ranges"]
+
+
 def test_cf_position_csv(cf_client):
     x = 204
     y = 44

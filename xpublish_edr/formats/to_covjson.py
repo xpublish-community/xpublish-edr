@@ -97,7 +97,10 @@ def to_cf_covjson(ds: xr.Dataset) -> CovJSON:
             values = da.dt.strftime("%Y-%m-%dT%H:%M:%S%Z").values.tolist()
         else:
             values = da.values
-            values = np.where(np.isnan(values), None, values).tolist()
+            if da.dtype.kind in ("f", "c"):
+                values = np.where(np.isnan(values), None, values).tolist()
+            else:
+                values = values.tolist()
         try:
             if not isinstance(values, list):
                 try:
@@ -145,14 +148,14 @@ def to_cf_covjson(ds: xr.Dataset) -> CovJSON:
             values = da.dt.strftime("%Y-%m-%dT%H:%M:%S%Z").values.tolist()
             dataType = "string"
         else:
-            values = np.where(np.isnan(values), None, values).tolist()
-
             if da.dtype.kind in ("i", "u"):
-                values = [int(v) for v in values]
+                values = values.tolist()
                 dataType = "integer"
             elif da.dtype.kind in ("f", "c"):
+                values = np.where(np.isnan(values), None, values).tolist()
                 dataType = "float"
             else:
+                values = values.tolist()
                 dataType = "string"
 
         cov_range = {
