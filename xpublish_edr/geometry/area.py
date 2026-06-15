@@ -7,36 +7,39 @@ import shapely
 import xarray as xr
 
 from xpublish_edr.geometry.common import (
+    SpatialRef,
     VECTORIZED_DIM,
-    dataset_xy_names,
-    is_regular_xy_coords,
-    with_spatial_coords,
+    prepare_spatial_grid,
 )
 
 
 def select_by_area(
     ds: xr.Dataset,
     polygon: shapely.Polygon,
+    spatial_ref: SpatialRef | None = None,
 ) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
     """
-    ds = with_spatial_coords(ds)
-    if not is_regular_xy_coords(ds):
-        # TODO: Handle 2D coordinates
-        raise NotImplementedError("Only 1D coordinates are supported")
-    return _select_area_regular_xy_grid(ds, polygon)
+    grid = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_regular=True)
+    return _select_area_regular_xy_grid(
+        grid.ds,
+        polygon,
+        grid.spatial_ref.X,
+        grid.spatial_ref.Y,
+    )
 
 
 def _select_area_regular_xy_grid(
     ds: xr.Dataset,
     polygon: shapely.Polygon,
+    X: str,
+    Y: str,
 ) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
     """
     # To minimize performance impact, we first subset the dataset to the bounding box of the polygon
-    X, Y = dataset_xy_names(ds)
     minx, miny, maxx, maxy = polygon.bounds
     indexes = ds.indexes
     if indexes[X].is_monotonic_increasing:

@@ -14,7 +14,12 @@ from xpublish_edr.format import area_formats, cube_formats, position_formats
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.area import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
-from xpublish_edr.geometry.common import project_dataset, project_geometry
+from xpublish_edr.geometry.common import (
+    prepare_spatial_grid,
+    project_bbox,
+    project_dataset,
+    project_geometry,
+)
 from xpublish_edr.geometry.parse import parse_area_body, parse_position_body
 from xpublish_edr.geometry.position import select_by_position
 from xpublish_edr.logger import logger
@@ -133,8 +138,19 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by query params {ds}")
 
             try:
-                projected_geometry = project_geometry(ds, query.crs, geometry)
-                ds = select_by_position(ds, projected_geometry, query.method)
+                grid = prepare_spatial_grid(ds, require_regular=True)
+                projected_geometry = project_geometry(
+                    grid.ds,
+                    query.crs,
+                    geometry,
+                    grid.spatial_ref,
+                )
+                ds = select_by_position(
+                    grid.ds,
+                    projected_geometry,
+                    query.method,
+                    grid.spatial_ref,
+                )
             except GEOSException as e:
                 logger.error(
                     f"Error parsing coordinates to geometry while selecting by position: {e}",
@@ -157,7 +173,7 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by position ({geometry}): {ds}")
 
             try:
-                ds = project_dataset(ds, query.crs)
+                ds = project_dataset(ds, query.crs, grid.spatial_ref)
             except Exception as e:
                 logger.error(
                     f"Error projecting dataset while selecting by position: {e}",
@@ -272,8 +288,14 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by query params {ds}")
 
             try:
-                projected_geometry = project_geometry(ds, query.crs, geometry)
-                ds = select_by_area(ds, projected_geometry)
+                grid = prepare_spatial_grid(ds, require_regular=True)
+                projected_geometry = project_geometry(
+                    grid.ds,
+                    query.crs,
+                    geometry,
+                    grid.spatial_ref,
+                )
+                ds = select_by_area(grid.ds, projected_geometry, grid.spatial_ref)
             except GEOSException as e:
                 logger.error(
                     f"Error parsing coordinates to geometry while selecting by area: {e}",
@@ -293,7 +315,7 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by polygon {geometry.boundary}: {ds}")
 
             try:
-                ds = project_dataset(ds, query.crs)
+                ds = project_dataset(ds, query.crs, grid.spatial_ref)
             except Exception as e:
                 logger.error(f"Error projecting dataset while selecting by area: {e}")
                 raise HTTPException(
@@ -407,7 +429,9 @@ class CfEdrPlugin(Plugin):
             logger.debug(f"Dataset filtered by query params {ds}")
 
             try:
-                ds = select_by_bbox(ds, query.project_bbox(ds))
+                grid = prepare_spatial_grid(ds, require_regular=True)
+                bbox = project_bbox(grid.ds, query.crs, query.bbox, grid.spatial_ref)
+                ds = select_by_bbox(grid.ds, bbox, grid.spatial_ref)
             except KeyError as e:
                 logger.error(f"Error selecting by bbox: {e}")
                 raise HTTPException(
@@ -426,7 +450,7 @@ class CfEdrPlugin(Plugin):
             )
 
             try:
-                ds = project_dataset(ds, query.crs)
+                ds = project_dataset(ds, query.crs, grid.spatial_ref)
             except Exception as e:
                 logger.error(f"Error projecting dataset while selecting by area: {e}")
                 raise HTTPException(

@@ -11,10 +11,9 @@ import shapely
 import xarray as xr
 
 from xpublish_edr.geometry.common import (
+    SpatialRef,
     VECTORIZED_DIM,
-    dataset_xy_names,
-    is_regular_xy_coords,
-    with_spatial_coords,
+    prepare_spatial_grid,
 )
 
 
@@ -22,19 +21,19 @@ def select_by_position(
     ds: xr.Dataset,
     point: shapely.Point | shapely.MultiPoint,
     method: Literal["nearest", "linear"] = "nearest",
+    spatial_ref: SpatialRef | None = None,
 ) -> xr.Dataset:
     """
     Return a dataset with the position nearest to the given coordinates
     """
-    ds = with_spatial_coords(ds)
-    if not is_regular_xy_coords(ds):
-        # TODO: Handle 2D coordinates
-        raise NotImplementedError("Only 1D coordinates are supported")
+    grid = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_regular=True)
+    ds = grid.ds
+    X, Y = grid.spatial_ref.X, grid.spatial_ref.Y
 
     if isinstance(point, shapely.Point):
-        return _select_by_position_regular_xy_grid(ds, point, method)
+        return _select_by_position_regular_xy_grid(ds, point, X, Y, method)
     elif isinstance(point, shapely.MultiPoint):
-        return _select_by_multiple_positions_regular_xy_grid(ds, point, method)
+        return _select_by_multiple_positions_regular_xy_grid(ds, point, X, Y, method)
     else:
         raise ValueError(
             f"Invalid point type {point.geom_type}, must be Point or MultiPoint",
@@ -44,13 +43,14 @@ def select_by_position(
 def _select_by_position_regular_xy_grid(
     ds: xr.Dataset,
     point: shapely.Point,
+    X: str,
+    Y: str,
     method: Literal["nearest", "linear"] = "nearest",
 ) -> xr.Dataset:
     """
     Return a dataset with the position nearest to the given coordinates
     """
     # Find the nearest X and Y coordinates to the point
-    X, Y = dataset_xy_names(ds)
     if method == "nearest":
         return ds.sel({X: [point.x], Y: [point.y]}, method=method)
     else:
@@ -60,13 +60,14 @@ def _select_by_position_regular_xy_grid(
 def _select_by_multiple_positions_regular_xy_grid(
     ds: xr.Dataset,
     points: shapely.MultiPoint,
+    X: str,
+    Y: str,
     method: Literal["nearest", "linear"] = "nearest",
 ) -> xr.Dataset:
     """
     Return a dataset with the positions nearest to the given coordinates
     """
     # Find the nearest X and Y coordinates to the point using vectorized indexing
-    X, Y = dataset_xy_names(ds)
     x, y = np.array(list(zip(*[(point.x, point.y) for point in points.geoms])))
 
     # When using vectorized indexing with interp, we need to persist the attributes explicitly
