@@ -321,7 +321,7 @@ def test_cf_position_covjson_integer_coord(tmp_path):
     data = np.random.default_rng(0).random((3, 2, 2))
 
     ds = xr.Dataset(
-        {"annualFireProbability": (["year", "lat", "lon"], data)},
+        {"temperature": (["year", "lat", "lon"], data)},
         coords={
             "year": ("year", year),
             "lat": ("lat", lat),
@@ -335,18 +335,18 @@ def test_cf_position_covjson_integer_coord(tmp_path):
     ds["lon"].attrs["standard_name"] = "longitude"
     ds["lon"].attrs["axis"] = "X"
 
-    rest = xpublish.Rest({"fire": ds}, plugins={"edr": CfEdrPlugin()})
+    rest = xpublish.Rest({"climate": ds}, plugins={"edr": CfEdrPlugin()})
     client = TestClient(rest.app)
 
     x, y = -121.5, 46.5
     response = client.get(
-        f"/datasets/fire/edr/position?coords=POINT({x} {y})&f=cf_covjson",
+        f"/datasets/climate/edr/position?coords=POINT({x} {y})&f=cf_covjson",
     )
 
     assert response.status_code == 200, response.text
     data_json = response.json()
     assert "ranges" in data_json
-    assert "annualFireProbability" in data_json["ranges"]
+    assert "temperature" in data_json["ranges"]
 
 
 def test_to_csv_drops_index_only_dims_and_crs_vars():
@@ -368,7 +368,7 @@ def test_to_csv_drops_index_only_dims_and_crs_vars():
     data = np.ones((2, 1, 1))
 
     ds = xr.Dataset(
-        {"annualFireProbability": (["year", "lat", "lon"], data)},
+        {"temperature": (["year", "lat", "lon"], data)},
         coords={
             "year": ("year", year),
             "longitude": (["lat", "lon"], np.array([[-95.8]])),
