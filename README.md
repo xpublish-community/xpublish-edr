@@ -47,6 +47,91 @@ rest = xpublish.Rest(
 )
 ```
 
+### Dataset metadata requirements
+
+For `/position`, `/area`, and `/cube`, `xpublish-edr` needs to know the
+dataset's native CRS and which dimensions are X and Y. There are three supported
+ways to provide that information.
+
+#### CF metadata
+
+Use a `grid_mapping` attribute on each data variable and CF attrs on the X/Y
+coordinates:
+
+```python
+import pyproj
+import xarray as xr
+
+crs = pyproj.CRS.from_epsg(3857)
+
+ds["spatial_ref"] = xr.DataArray(0, attrs=crs.to_cf())
+ds["temperature"].attrs["grid_mapping"] = "spatial_ref"
+ds["x"].attrs.update(
+    axis="X",
+    standard_name="projection_x_coordinate",
+)
+ds["y"].attrs.update(
+    axis="Y",
+    standard_name="projection_y_coordinate",
+)
+```
+
+For native longitude/latitude grids, use CF longitude/latitude coordinate attrs
+instead of projected X/Y attrs:
+
+```python
+ds["lon"].attrs["standard_name"] = "longitude"
+ds["lat"].attrs["standard_name"] = "latitude"
+```
+
+Datasets that already have a scalar `spatial_ref` or `crs` variable with CF CRS
+attrs are also accepted.
+
+#### GeoZarr metadata
+
+Use `proj:` attrs for the CRS and `spatial:dimensions` for the Y/X dimensions:
+
+```python
+ds.attrs["proj:code"] = "EPSG:3857"
+ds.attrs["spatial:dimensions"] = ["y", "x"]  # [Y, X] order
+```
+
+Use `proj:wkt2` instead of `proj:code` if the CRS is stored as WKT.
+
+#### Automatic raster metadata
+
+For raster-style datasets with `x`/`y` dimensions but no explicit X/Y coordinate
+arrays, provide CRS and affine transform metadata. `rasterix` detects the raster
+dimensions and materializes regular 1D X/Y coordinates before selection.
+
+CF/GDAL form:
+
+```python
+ds["spatial_ref"] = xr.DataArray(
+    0,
+    attrs={
+        **crs.to_cf(),
+        "GeoTransform": "0 1000 0 3000 0 -1000",
+    },
+)
+ds["temperature"].attrs["grid_mapping"] = "spatial_ref"
+```
+
+GeoZarr form:
+
+```python
+ds.attrs["proj:code"] = "EPSG:3857"
+ds.attrs["spatial:transform"] = [1000, 0, 0, 0, -1000, 3000]
+ds.attrs["spatial:dimensions"] = ["y", "x"]
+```
+
+`datetime` and `z` queries also require indexed CF `T` and `Z` coordinates.
+
+Spatial selection currently expects regular 1D X/Y coordinate grids, or an
+affine transform that can be materialized into regular 1D X/Y coordinates. 2D
+curvilinear spatial selection and `proj:projjson` CRS attrs are not currently
+supported.
+
 
 ## OGC EDR Spec Compliance
 
@@ -70,7 +155,7 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 | `z`  | ✅ | |
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅   | |
-| `crs`  | ✅  | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326` |
+| `crs`  | ✅  | Uses the dataset metadata described above. Default request CRS is `EPSG:4326` |
 | `f`  | ✅ | Supports `cf_covjson`, `csv`, `geojson` `netcdf`, `parquet` |
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
 | `POST` body  | ➕ | Non-spec extension. Supported content types: `text/csv` (columns `x`/`y`, `lon`/`lat`, or `longitude`/`latitude`); `application/geo+json` (Point, MultiPoint, Feature, FeatureCollection, or GeometryCollection) |
@@ -85,7 +170,7 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 | `z`  | ✅   | |
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅   | |
-| `crs`  | ✅  | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326` |
+| `crs`  | ✅  | Uses the dataset metadata described above. Default request CRS is `EPSG:4326` |
 | `f`  | ✅   | Supports `cf_covjson`, `csv`, `geojson` `netcdf`, `parquet` |
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
 | `POST` body  | ➕ | Non-spec extension. Supported content types: `application/geo+json` (Polygon, MultiPolygon, Feature, FeatureCollection, or GeometryCollection); `application/wkt` / `text/plain` (raw WKT Polygon or MultiPolygon) |
@@ -102,7 +187,7 @@ For `POLYGON` coordinates, points that are located within **OR** on the polygons
 | `z`  | ✅ | |
 | `datetime`  | ✅ | |
 | `parameter-name`  | ✅ | |
-| `crs`  | ✅ | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326` |
+| `crs`  | ✅ | Uses the dataset metadata described above. Default request CRS is `EPSG:4326` |
 | `f`  | ✅ | Supports `cf_covjson`, `csv`, `geojson` `netcdf`, `parquet`, `geotiff`|
 | `method`  | ➕ | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
 
