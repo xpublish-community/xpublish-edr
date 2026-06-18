@@ -223,14 +223,20 @@ def test_select_position_regular_xy(regular_xy_dataset):
     assert ds["air"].shape == (2920, 1, 1), "Dataset shape is incorrect"
     npt.assert_array_equal(ds["lat"], 45.0), "Latitude is incorrect"
     npt.assert_array_equal(ds["lon"], 205.0), "Longitude is incorrect"
-    npt.assert_approx_equal(
-        ds["air"].isel(time=0).values.item(),
-        280.2,
-    ), "Temperature is incorrect"
-    npt.assert_approx_equal(
-        ds["air"].isel(time=-1).values.item(),
-        279.19,
-    ), "Temperature is incorrect"
+    (
+        npt.assert_approx_equal(
+            ds["air"].isel(time=0).values.item(),
+            280.2,
+        ),
+        "Temperature is incorrect",
+    )
+    (
+        npt.assert_approx_equal(
+            ds["air"].isel(time=-1).values.item(),
+            279.19,
+        ),
+        "Temperature is incorrect",
+    )
 
 
 def test_select_position_projected_xy(projected_xy_dataset):
@@ -258,14 +264,17 @@ def test_select_position_projected_xy(projected_xy_dataset):
         npt.assert_approx_equal(projected_ds.cf["Y"].values.item(), 66.66454929),
         "Latitude is incorrect",
     )
-    npt.assert_array_almost_equal(
-        projected_ds.temp.values,
-        projected_xy_dataset.sel(
-            rlon=[18.045],
-            rlat=[21.725],
-            method="nearest",
-        ).temp.values,
-    ), "Temperature is incorrect"
+    (
+        npt.assert_array_almost_equal(
+            projected_ds.temp.values,
+            projected_xy_dataset.sel(
+                rlon=[18.045],
+                rlat=[21.725],
+                method="nearest",
+            ).temp.values,
+        ),
+        "Temperature is incorrect",
+    )
 
 
 def test_select_position_regular_xy_interpolate(regular_xy_dataset):
@@ -280,14 +289,20 @@ def test_select_position_regular_xy_interpolate(regular_xy_dataset):
     assert ds["air"].shape == (2920, 1, 1), "Dataset shape is incorrect"
     npt.assert_array_equal(ds["lat"], 44.0), "Latitude is incorrect"
     npt.assert_array_equal(ds["lon"], 204.0), "Longitude is incorrect"
-    npt.assert_approx_equal(
-        ds["air"].isel(time=0).values.item(),
-        281.376,
-    ), "Temperature is incorrect"
-    npt.assert_approx_equal(
-        ds["air"].isel(time=-1).values.item(),
-        279.87,
-    ), "Temperature is incorrect"
+    (
+        npt.assert_approx_equal(
+            ds["air"].isel(time=0).values.item(),
+            281.376,
+        ),
+        "Temperature is incorrect",
+    )
+    (
+        npt.assert_approx_equal(
+            ds["air"].isel(time=-1).values.item(),
+            279.87,
+        ),
+        "Temperature is incorrect",
+    )
 
 
 def test_select_position_regular_xy_multi(regular_xy_dataset):
@@ -419,9 +434,7 @@ def test_select_area_projected_xy(projected_xy_dataset):
     assert projected_ds is not None, "Dataset was not returned"
     assert "temp" in projected_ds, "Dataset does not contain the air variable"
     assert "latitude" in projected_ds, "Dataset does not contain the latitude variable"
-    assert (
-        "longitude" in projected_ds
-    ), "Dataset does not contain the longitude variable"
+    assert "longitude" in projected_ds, "Dataset does not contain the longitude variable"
 
     assert projected_ds.longitude.shape[0] == 1, "Longitude shape is incorrect"
     assert projected_ds.latitude.shape[0] == 1, "Latitude shape is incorrect"
@@ -515,9 +528,7 @@ def test_temporal_extent_skips_non_indexed(dataset_with_non_indexed_axes):
     from xpublish_edr.metadata import temporal_extent
 
     extent = temporal_extent(dataset_with_non_indexed_axes)
-    assert (
-        extent is None
-    ), "Should not report temporal extent for non-indexed T coordinate"
+    assert extent is None, "Should not report temporal extent for non-indexed T coordinate"
 
 
 def test_vertical_extent_skips_non_indexed(dataset_with_non_indexed_axes):
@@ -525,9 +536,7 @@ def test_vertical_extent_skips_non_indexed(dataset_with_non_indexed_axes):
     from xpublish_edr.metadata import vertical_extent
 
     extent = vertical_extent(dataset_with_non_indexed_axes)
-    assert (
-        extent is None
-    ), "Should not report vertical extent for non-indexed Z coordinate"
+    assert extent is None, "Should not report vertical extent for non-indexed Z coordinate"
 
 
 def test_generic_extents_includes_indexed_dims_from_non_indexed_axes(

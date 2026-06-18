@@ -7,7 +7,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from typing import Iterable
+from collections.abc import Iterable
 
 import shapely
 from shapely import wkt as shapely_wkt
@@ -40,8 +40,7 @@ def parse_position_body(
     if media_type in JSON_MEDIA_TYPES:
         return parse_geojson_points(body)
     raise ValueError(
-        f"Unsupported Content-Type {content_type!r}. "
-        "Use text/csv or application/geo+json.",
+        f"Unsupported Content-Type {content_type!r}. Use text/csv or application/geo+json.",
     )
 
 
@@ -62,8 +61,7 @@ def parse_area_body(
     if media_type in WKT_MEDIA_TYPES:
         return parse_wkt_polygons(body)
     raise ValueError(
-        f"Unsupported Content-Type {content_type!r}. "
-        "Use application/geo+json or application/wkt.",
+        f"Unsupported Content-Type {content_type!r}. Use application/geo+json or application/wkt.",
     )
 
 
@@ -81,8 +79,7 @@ def parse_csv_points(body: bytes) -> shapely.Point | shapely.MultiPoint:
     y_idx = _find_column(normalized, CSV_Y_ALIASES)
     if x_idx is None or y_idx is None:
         raise ValueError(
-            "CSV must include x/y, lon/lat, or longitude/latitude columns. "
-            f"Got columns: {header}",
+            f"CSV must include x/y, lon/lat, or longitude/latitude columns. Got columns: {header}",
         )
 
     coords: list[tuple[float, float]] = []

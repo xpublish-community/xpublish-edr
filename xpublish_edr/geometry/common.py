@@ -3,9 +3,9 @@ Common geometry handling functions
 """
 
 import itertools
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache, partial
-from typing import Mapping, Optional, Union
 
 import cf_xarray  # noqa: F401  (registers the ``.cf`` dataset accessor)
 import numpy as np
@@ -62,7 +62,7 @@ def _is_rotated_pole(crs: pyproj.CRS) -> bool:
     return crs.to_cf().get("grid_mapping_name") == "rotated_latitude_longitude"
 
 
-def _parse_proj_convention_crs(attrs: Mapping) -> Optional[pyproj.CRS]:
+def _parse_proj_convention_crs(attrs: Mapping) -> pyproj.CRS | None:
     """Parse a CRS from GeoZarr ``proj:`` convention attributes.
 
     The ``proj:`` convention (https://github.com/zarr-conventions/proj) encodes
@@ -85,7 +85,7 @@ def _parse_proj_convention_crs(attrs: Mapping) -> Optional[pyproj.CRS]:
     return None
 
 
-def _geozarr_spatial_dimensions(ds: xr.Dataset) -> Optional[tuple[str, str]]:
+def _geozarr_spatial_dimensions(ds: xr.Dataset) -> tuple[str, str] | None:
     """Return ``(Xname, Yname)`` from the GeoZarr ``spatial:dimensions`` attribute.
 
     Per the ``spatial:`` convention (https://github.com/zarr-conventions/spatial)
@@ -102,7 +102,7 @@ def _geozarr_spatial_dimensions(ds: xr.Dataset) -> Optional[tuple[str, str]]:
     return None
 
 
-def _geozarr_spatial_transform(ds: xr.Dataset) -> Optional[list]:
+def _geozarr_spatial_transform(ds: xr.Dataset) -> list | None:
     """Return the GeoZarr ``spatial:transform`` affine coefficients, if present.
 
     Array-level attrs override group (dataset) level attrs, per the ``spatial:``
@@ -118,8 +118,8 @@ def _geozarr_spatial_transform(ds: xr.Dataset) -> Optional[list]:
 def _xy_from_cf(
     ds: xr.Dataset,
     crs: pyproj.CRS,
-    restrict: Optional[tuple[str, ...]] = None,
-) -> Optional[tuple[str, str]]:
+    restrict: tuple[str, ...] | None = None,
+) -> tuple[str, str] | None:
     """Identify X/Y coordinate variable names via cf_xarray, keyed off CRS type.
 
     Mirrors the logic in xpublish-tiles' ``guess_coordinate_vars``: geographic
@@ -161,7 +161,7 @@ def _xy_from_cf(
 def _resolve_xy_names(
     ds: xr.Dataset,
     crs: pyproj.CRS,
-    coordinates: Optional[tuple[str, ...]] = None,
+    coordinates: tuple[str, ...] | None = None,
 ) -> tuple[str, str]:
     """Resolve the X and Y coordinate variable names for a dataset.
 
@@ -230,16 +230,14 @@ def _select_grid_mapping(ds: xr.Dataset, grid_mappings):
             return mapping
     for mapping in grid_mappings:
         coords = _mapping_coordinate_names(mapping)
-        if coords and all(
-            c in ds.variables and coord_is_regular(ds[c]) for c in coords
-        ):
+        if coords and all(c in ds.variables and coord_is_regular(ds[c]) for c in coords):
             return mapping
     return grid_mappings[0]
 
 
 def _resolve_crs(
     ds: xr.Dataset,
-) -> tuple[pyproj.CRS, Optional[tuple[str, ...]]]:
+) -> tuple[pyproj.CRS, tuple[str, ...] | None]:
     """Resolve the dataset CRS and any grid-mapping-provided coordinate names.
 
     Detection priority (mirrors xpublish-tiles):
@@ -306,7 +304,7 @@ def _with_geotransform_from_spatial(ds: xr.Dataset) -> xr.Dataset:
 
 def with_spatial_coords(
     ds: xr.Dataset,
-    spatial_ref: Optional[SpatialRef] = None,
+    spatial_ref: SpatialRef | None = None,
 ) -> xr.Dataset:
     """Ensure the X/Y axes are materialized as 1D coordinate variables.
 
@@ -332,8 +330,7 @@ def with_spatial_coords(
 
     transform = _geozarr_spatial_transform(ds)
     has_geotransform = any(
-        name in ds.variables and "GeoTransform" in ds[name].attrs
-        for name in ("spatial_ref", "crs")
+        name in ds.variables and "GeoTransform" in ds[name].attrs for name in ("spatial_ref", "crs")
     )
     if (transform is None or len(transform) != 6) and not has_geotransform:
         return ds
@@ -350,8 +347,7 @@ def with_spatial_coords(
         )
     except Exception as e:
         raise ValueError(
-            "Could not materialize affine coordinates for "
-            f"{spatial_ref.X!r}/{spatial_ref.Y!r}",
+            f"Could not materialize affine coordinates for {spatial_ref.X!r}/{spatial_ref.Y!r}",
         ) from e
 
     return ds.assign_coords(
@@ -372,7 +368,7 @@ def _is_regular_xy_coords(ds: xr.Dataset, spatial_ref: SpatialRef) -> bool:
 
 def prepare_spatial_grid(
     ds: xr.Dataset,
-    spatial_ref: Optional[SpatialRef] = None,
+    spatial_ref: SpatialRef | None = None,
     *,
     require_regular: bool = False,
 ) -> PreparedSpatialGrid:
@@ -392,7 +388,7 @@ def prepare_spatial_grid(
 
 def is_regular_xy_coords(
     ds: xr.Dataset,
-    spatial_ref: Optional[SpatialRef] = None,
+    spatial_ref: SpatialRef | None = None,
 ) -> bool:
     """
     Check if the dataset has regular (1D) X and Y coordinates
@@ -408,7 +404,7 @@ def is_regular_xy_coords(
 
 def spatial_bounds(
     ds: xr.Dataset,
-    spatial_ref: Optional[SpatialRef] = None,
+    spatial_ref: SpatialRef | None = None,
 ) -> tuple[float, float, float, float]:
     """
     Get the spatial bounds of the dataset, naively, in whatever CRS it is in
@@ -461,7 +457,7 @@ def project_geometry(
     ds: xr.Dataset,
     geometry_crs: str,
     geometry: Geometry,
-    spatial_ref: Optional[SpatialRef] = None,
+    spatial_ref: SpatialRef | None = None,
 ) -> Geometry:
     """
     Get the projection from the dataset
@@ -483,9 +479,9 @@ def project_geometry(
 
 def project_bbox(
     ds: xr.Dataset,
-    bbox_crs: Union[str, pyproj.CRS],
+    bbox_crs: str | pyproj.CRS,
     bbox: tuple[float, float, float, float],
-    spatial_ref: Optional[SpatialRef] = None,
+    spatial_ref: SpatialRef | None = None,
 ) -> tuple[float, float, float, float]:
     """
     Project the bbox to the dataset's CRS
@@ -516,7 +512,7 @@ def project_bbox(
 
 def _ensure_cf_axes(
     ds: xr.Dataset,
-    spatial_ref: Optional[SpatialRef] = None,
+    spatial_ref: SpatialRef | None = None,
 ) -> xr.Dataset:
     """Tag the resolved X/Y coordinates with CF ``axis`` attributes if missing.
 
@@ -543,8 +539,8 @@ def _ensure_cf_axes(
 
 def project_dataset(
     ds: xr.Dataset,
-    query_crs: Union[str, pyproj.CRS],
-    spatial_ref: Optional[SpatialRef] = None,
+    query_crs: str | pyproj.CRS,
+    spatial_ref: SpatialRef | None = None,
 ) -> xr.Dataset:
     """
     Project the dataset to the given CRS
@@ -595,9 +591,7 @@ def project_dataset(
     x_dim = X.dims[0]
     y_dim = Y.dims[0]
 
-    coords_to_drop = [
-        c for c in ds.coords if x_dim in ds[c].dims or y_dim in ds[c].dims
-    ]
+    coords_to_drop = [c for c in ds.coords if x_dim in ds[c].dims or y_dim in ds[c].dims]
 
     # TODO: Handle rotated pole
     target_cf_coords = target_crs.coordinate_system.to_cf()
