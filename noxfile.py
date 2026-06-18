@@ -23,6 +23,7 @@ def tests(session: nox.Session):
     session.install(".")
     session.run("pytest", "--verbose")
 
+
 @nox.session
 def wheel(session: nox.Session):
     """Build a wheel."""
@@ -37,6 +38,7 @@ def pre_commit(session: nox.Session):
     """Run pre-commit with prek."""
     session.install("prek")
     session.run("prek", "run")
+
 
 if __name__ == "__main__":
     nox.main()
