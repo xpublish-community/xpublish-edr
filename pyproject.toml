@@ -22,8 +22,32 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
 ]
+dependencies = [
+    "cf_xarray>=0.10.11",
+    "geopandas",
+    "pyarrow",
+    "rasterix>=0.2.2",
+    "rioxarray",
+    "scipy",
+    "shapely",
+    "xarray>=2025.08.0",
+    "xpublish>=0.4.1",
+]
 
-dynamic = ["version", "dependencies"]
+dynamic = ["version"]
+
+[dependency-groups]
+dev = [
+    "httpx2",
+    "pytest",
+    "pytest-cov",
+    "pytest-xdist",
+    "pytest-github-actions-annotate-failures",
+    "zarr>=3.0.7",
+    "netCDF4",
+    "pooch"
+]
+
 
 [project.entry-points."xpublish.plugin"]
 cf_edr = "xpublish_edr.plugin:CfEdrPlugin"

@@ -1,9 +1,0 @@
-cf_xarray>=0.10.11
-geopandas
-pyarrow
-rasterix>=0.2.2
-rioxarray
-scipy
-shapely
-xarray>=2025.08.0
-xpublish>=0.4.1
