@@ -22,7 +22,8 @@ from xpublish_edr.plugin import CfEdrPlugin
 pytestmark = [
     pytest.mark.cite,
     pytest.mark.skipif(
-        platform.system() == "Windows", reason="TeamEngine does not run on Windows Containers",
+        platform.system() == "Windows",
+        reason="TeamEngine does not run on Windows Containers",
     ),
     pytest.mark.skipif(
         not teamengine.docker_available(),
