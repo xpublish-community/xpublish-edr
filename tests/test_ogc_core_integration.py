@@ -246,3 +246,12 @@ def test_coords_parameter_is_required(client, query_type):
     response = client.get(f"/collections/air/{query_type}")
     assert response.status_code == 422
     assert response.json()["code"] == "422"
+
+
+@pytest.mark.parametrize("query_type", ["position", "area"])
+def test_post_openapi_omits_coords_parameter(client, query_type):
+    """POST position/area read geometry from the request body, not query params."""
+    schema = client.get("/openapi.json").json()
+    operation = schema["paths"][f"/collections/{{collection_id}}/{query_type}"]["post"]
+
+    assert all(param["name"] != "coords" for param in operation.get("parameters", []))
