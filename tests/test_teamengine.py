@@ -6,6 +6,8 @@ OGC Docker image. Requires Docker (the image is pulled on first use) and
 xpublish_ogc_core; skipped otherwise. Deselect with `-m "not cite"`.
 """
 
+import platform
+
 import pytest
 
 pytest.importorskip("xpublish_ogc_core")
@@ -19,6 +21,9 @@ from xpublish_edr.plugin import CfEdrPlugin
 
 pytestmark = [
     pytest.mark.cite,
+    pytest.mark.skipif(
+        platform.system() == "Windows", reason="TeamEngine does not run on Windows Containers",
+    ),
     pytest.mark.skipif(
         not teamengine.docker_available(),
         reason="requires the docker CLI and a running daemon",
