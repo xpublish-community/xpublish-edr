@@ -10,3 +10,5 @@ dist/
 docs/source/tutorial.ipynb
 xpublish_edr/_version.py
 docs/_build
+uv.lock
+test_cf_cube_query_geotiff_latlng_grid.tiff

@@ -27,7 +27,6 @@ Almost all python packages are structure as following:
 |-LICENSE.txt
 ```
 
-
 Sometimes the `tests` folder goes inside the actual module.
 We recommend that only if shipping the tests is important, e.g compiled modules.
 If your module is pure Python it is fine to leave them outside of the package.
@@ -40,7 +39,6 @@ Markdown is a good format because it renders automatically on GitHub and is supp
 
 While IOOS does not recommend any particular license we prefer projects with OSI approved license,
 the most common one is BSD-3-Clause.
-
 
 ## PEP 517/518
 
@@ -69,7 +67,6 @@ The main advantages of using these PEPs together are:
   - poetry, setuptools, pipenv(?), flit, conda, etc;
   - all should support pip installs.
 - ensure that setup dependencies will be available at build time.
-
 
 [This blog post](https://medium.com/@grassfedcode/pep-517-and-518-in-plain-english-47208ca8b7a6) contains a nice summary of these PEPs.
 
@@ -176,7 +173,6 @@ Note: `flake8` can be handled exclusively via #pre-commit-hooks.
 Most of the problems we find with published tarballs is the lack of a required file at build time.
 That is we why recommend `check-manifest` to help you write your `MANIFEST.in` file.
 Here is an example that covers most cases:
-
 
 ```
 include *.txt
@@ -343,7 +339,6 @@ We will leave as an exercise to the reader to determine which ones are best for 
 
 We do recommend `black` and `isort` for big projects with multiple contributors though because them help PR reviews by removing the code style from the equation.
 
-
 ```yaml
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -480,6 +475,6 @@ Please check out https://www.pyopensci.org/
 ## TODO
 
 - auto PyPI publication
-https://packaging.python.org/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/
+  https://packaging.python.org/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/
 
 - conda-forge publication

@@ -3,7 +3,7 @@ OGC EDR router for datasets with CF convention metadata
 """
 
 import asyncio
-from typing import Annotated, List
+from typing import Annotated
 
 import shapely
 import xarray as xr
@@ -63,10 +63,10 @@ class CfEdrPlugin(Plugin):
     name: str = "cf_edr"
 
     app_router_prefix: str = "/edr"
-    app_router_tags: List[str] = ["edr"]
+    app_router_tags: list[str] = ["edr"]
 
     dataset_router_prefix: str = "/edr"
-    dataset_router_tags: List[str] = ["edr"]
+    dataset_router_tags: list[str] = ["edr"]
 
     @hookimpl
     def app_router(self):

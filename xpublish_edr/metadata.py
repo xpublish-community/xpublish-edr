@@ -1,4 +1,4 @@
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -49,14 +49,14 @@ class VariablesMetadata(BaseModel):
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_1b54f97a-e1dc-4920-b8b4-e4981554138d
     """
 
-    title: Optional[str] = None
-    description: Optional[str] = None
-    query_type: Optional[str] = None
-    coords: Optional[dict] = None
-    bbox: Optional[dict] = None
-    output_formats: Optional[list[str]] = None
-    default_output_format: Optional[str] = None
-    crs_details: Optional[list[CRSDetails]] = None
+    title: str | None = None
+    description: str | None = None
+    query_type: str | None = None
+    coords: dict | None = None
+    bbox: dict | None = None
+    output_formats: list[str] | None = None
+    default_output_format: str | None = None
+    crs_details: list[CRSDetails] | None = None
 
 
 class Link(BaseModel):
@@ -67,12 +67,12 @@ class Link(BaseModel):
 
     href: str
     rel: str
-    type_: Optional[str] = Field(None, serialization_alias="type")
-    hreflang: Optional[str] = None
-    title: Optional[str] = None
-    length: Optional[int] = None
-    templated: Optional[bool] = None
-    variables: Optional[VariablesMetadata] = None
+    type_: str | None = Field(None, serialization_alias="type")
+    hreflang: str | None = None
+    title: str | None = None
+    length: int | None = None
+    templated: bool | None = None
+    variables: VariablesMetadata | None = None
 
 
 class SpatialExtent(BaseModel):
@@ -112,7 +112,7 @@ class GenericExtent(BaseModel):
 
     interval: list[int | float | str]
     values: list[int | float | str]
-    unit: Optional[str] = None
+    unit: str | None = None
 
 
 class Extent(BaseModel):
@@ -122,9 +122,9 @@ class Extent(BaseModel):
     """
 
     spatial: SpatialExtent
-    temporal: Optional[TemporalExtent] = None
-    vertical: Optional[VerticalExtent] = None
-    other: Optional[dict[str, GenericExtent]] = None
+    temporal: TemporalExtent | None = None
+    vertical: VerticalExtent | None = None
+    other: dict[str, GenericExtent] | None = None
 
     @model_serializer(mode="wrap")
     def _flatten_other(self, handler):
@@ -151,14 +151,14 @@ class DataQueries(BaseModel):
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_df2c080b-949c-40c3-ad14-d20228270c2d
     """
 
-    position: Optional[EDRQueryMetadata] = None
-    radius: Optional[EDRQueryMetadata] = None
-    area: Optional[EDRQueryMetadata] = None
-    cube: Optional[EDRQueryMetadata] = None
-    trajectory: Optional[EDRQueryMetadata] = None
-    corridor: Optional[EDRQueryMetadata] = None
-    item: Optional[EDRQueryMetadata] = None
-    location: Optional[EDRQueryMetadata] = None
+    position: EDRQueryMetadata | None = None
+    radius: EDRQueryMetadata | None = None
+    area: EDRQueryMetadata | None = None
+    cube: EDRQueryMetadata | None = None
+    trajectory: EDRQueryMetadata | None = None
+    corridor: EDRQueryMetadata | None = None
+    item: EDRQueryMetadata | None = None
+    location: EDRQueryMetadata | None = None
 
 
 class SymbolMetadata(BaseModel):
@@ -167,10 +167,10 @@ class SymbolMetadata(BaseModel):
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_3e50c10c-85bd-46d9-8e09-1c5fffffb055
     """
 
-    title: Optional[str] = None
-    description: Optional[str] = None
-    value: Optional[str] = None
-    type_: Optional[str] = Field(None, serialization_alias="type")
+    title: str | None = None
+    description: str | None = None
+    value: str | None = None
+    type_: str | None = Field(None, serialization_alias="type")
 
 
 class UnitMetadata(BaseModel):
@@ -199,9 +199,9 @@ class ObservedProperty(BaseModel):
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_7e053ab4-5cde-4a5c-a8be-acc6495f9eb5
     """
 
-    id: Optional[str] = None
+    id: str | None = None
     label: str
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class Parameter(BaseModel):
@@ -210,18 +210,18 @@ class Parameter(BaseModel):
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_da400aef-f6ee-4d08-b36c-2f535d581d53
     """
 
-    id: Optional[str] = None
+    id: str | None = None
     type_: Literal["Parameter"] = Field("Parameter", serialization_alias="type")
-    label: Optional[str] = None
-    description: Optional[str] = None
-    data_type: Optional[str] = Field(None, serialization_alias="data-type")
-    unit: Optional[UnitMetadata] = None
+    label: str | None = None
+    description: str | None = None
+    data_type: str | None = Field(None, serialization_alias="data-type")
+    unit: UnitMetadata | None = None
     observed_property: ObservedProperty = Field(
         ...,
         serialization_alias="observedProperty",
     )
-    extent: Optional[Extent] = None
-    measurement_type: Optional[MeasurementType] = Field(
+    extent: Extent | None = None
+    measurement_type: MeasurementType | None = Field(
         None,
         serialization_alias="measurementType",
     )
@@ -311,7 +311,7 @@ def spatial_extent(
     )
 
 
-def temporal_extent(ds: xr.Dataset) -> Optional[TemporalExtent]:
+def temporal_extent(ds: xr.Dataset) -> TemporalExtent | None:
     """Extract the temporal extent from the dataset into collection metadata specific format"""
     if not cf_axis_is_indexed(ds, "T"):
         return None
@@ -326,7 +326,7 @@ def temporal_extent(ds: xr.Dataset) -> Optional[TemporalExtent]:
     )
 
 
-def vertical_extent(ds: xr.Dataset) -> Optional[VerticalExtent]:
+def vertical_extent(ds: xr.Dataset) -> VerticalExtent | None:
     """Extract the vertical extent from the dataset into collection metadata specific format"""
     if not cf_axis_is_indexed(ds, "Z"):
         return None
@@ -367,14 +367,12 @@ def _values_to_python_list(values: np.ndarray) -> list[int | float | str]:
         return [_timedelta_to_iso(v) for v in arr]
     # numeric
     if arr.dtype.kind in "biuf":
-        return [
-            int(v) if isinstance(v, (np.integer,)) else float(v) for v in arr.tolist()
-        ]
+        return [int(v) if isinstance(v, (np.integer,)) else float(v) for v in arr.tolist()]
     # fallback to strings
     return [str(v) for v in arr.tolist()]
 
 
-def generic_extents(ds: xr.Dataset) -> Optional[dict[str, GenericExtent]]:
+def generic_extents(ds: xr.Dataset) -> dict[str, GenericExtent] | None:
     """Build generic extents for non CF axes dimensions (e.g., band).
 
     For each dimension not used by CF x/y/z/t, collect its coordinate values
@@ -622,9 +620,7 @@ def collection_metadata(
 
     # Common formats across all query types (e.g., exclude cube-only like geotiff)
     common_output_formats = [
-        f
-        for f in position_output_formats
-        if f in area_output_formats and f in cube_output_formats
+        f for f in position_output_formats if f in area_output_formats and f in cube_output_formats
     ]
 
     return Collection(

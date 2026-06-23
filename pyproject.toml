@@ -1,89 +1,139 @@
 [build-system]
-requires = ["setuptools>=61", "wheel", "setuptools_scm[toml]>=3.4"]
 build-backend = "setuptools.build_meta"
+requires = [ "setuptools>=61", "setuptools-scm[toml]>=3.4" ]
 
 [project]
-name = "xpublish_edr"
+name = "xpublish-edr"
 description = ""
 readme = "README.md"
-requires-python = ">=3.11"
 keywords = []
 license = { file = "LICENSE.txt" }
-
+requires-python = ">=3.11"
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Intended Audience :: Science/Research",
-    "Operating System :: OS Independent",
-    "License :: OSI Approved :: BSD License",
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Scientific/Engineering",
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: BSD License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering",
+]
+dynamic = [ "version" ]
+dependencies = [
+  "cf-xarray>=0.10.11",
+  "geopandas",
+  "pyarrow",
+  "rasterix>=0.2.2",
+  "rioxarray",
+  "scipy",
+  "shapely",
+  "xarray>=2025.8",
+  "xpublish>=0.4.1",
+]
+entry-points."xpublish.plugin".cf_edr = "xpublish_edr.plugin:CfEdrPlugin"
+entry-points.xpublish_edr_area_formats.cf_covjson = "xpublish_edr.formats.to_covjson:to_cf_covjson"
+entry-points.xpublish_edr_area_formats.csv = "xpublish_edr.formats.to_csv:to_csv"
+entry-points.xpublish_edr_area_formats.geojson = "xpublish_edr.formats.to_geojson:to_geojson"
+entry-points.xpublish_edr_area_formats.nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_area_formats.nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_area_formats.netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_area_formats.netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_area_formats.parquet = "xpublish_edr.formats.to_parquet:to_parquet"
+entry-points.xpublish_edr_cube_formats.cf_covjson = "xpublish_edr.formats.to_covjson:to_cf_covjson"
+entry-points.xpublish_edr_cube_formats.csv = "xpublish_edr.formats.to_csv:to_csv"
+entry-points.xpublish_edr_cube_formats.geojson = "xpublish_edr.formats.to_geojson:to_geojson"
+entry-points.xpublish_edr_cube_formats.geotiff = "xpublish_edr.formats.to_geotiff:to_geotiff"
+entry-points.xpublish_edr_cube_formats.nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_cube_formats.nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_cube_formats.netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_cube_formats.netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_cube_formats.parquet = "xpublish_edr.formats.to_parquet:to_parquet"
+entry-points.xpublish_edr_position_formats.cf_covjson = "xpublish_edr.formats.to_covjson:to_cf_covjson"
+entry-points.xpublish_edr_position_formats.csv = "xpublish_edr.formats.to_csv:to_csv"
+entry-points.xpublish_edr_position_formats.geojson = "xpublish_edr.formats.to_geojson:to_geojson"
+entry-points.xpublish_edr_position_formats.nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_position_formats.nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_position_formats.netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_position_formats.netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
+entry-points.xpublish_edr_position_formats.parquet = "xpublish_edr.formats.to_parquet:to_parquet"
+
+[dependency-groups]
+dev = [
+  "httpx2",
+  "netcdf4",
+  "pooch",
+  "pytest",
+  "pytest-cov",
+  "pytest-github-actions-annotate-failures",
+  "pytest-xdist",
+  "zarr>=3.0.7"
 ]
 
-dynamic = ["version", "dependencies"]
-
-[project.entry-points."xpublish.plugin"]
-cf_edr = "xpublish_edr.plugin:CfEdrPlugin"
-
-[project.entry-points.xpublish_edr_position_formats]
-cf_covjson = "xpublish_edr.formats.to_covjson:to_cf_covjson"
-csv = "xpublish_edr.formats.to_csv:to_csv"
-geojson = "xpublish_edr.formats.to_geojson:to_geojson"
-nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
-netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
-nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
-netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
-parquet = "xpublish_edr.formats.to_parquet:to_parquet"
-
-[project.entry-points.xpublish_edr_area_formats]
-cf_covjson = "xpublish_edr.formats.to_covjson:to_cf_covjson"
-csv = "xpublish_edr.formats.to_csv:to_csv"
-geojson = "xpublish_edr.formats.to_geojson:to_geojson"
-nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
-netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
-nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
-netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
-parquet = "xpublish_edr.formats.to_parquet:to_parquet"
-
-[project.entry-points.xpublish_edr_cube_formats]
-cf_covjson = "xpublish_edr.formats.to_covjson:to_cf_covjson"
-csv = "xpublish_edr.formats.to_csv:to_csv"
-geojson = "xpublish_edr.formats.to_geojson:to_geojson"
-nc = "xpublish_edr.formats.to_netcdf:to_netcdf"
-netcdf = "xpublish_edr.formats.to_netcdf:to_netcdf"
-nc4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
-netcdf4 = "xpublish_edr.formats.to_netcdf:to_netcdf"
-parquet = "xpublish_edr.formats.to_parquet:to_parquet"
-geotiff = "xpublish_edr.formats.to_geotiff:to_geotiff"
-
-
-[tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "requirements.txt" }]
-
-[tool.check-manifest]
-ignore = ["xpublish_edr/_version.py"]
-
 [tool.setuptools]
-packages = ["xpublish_edr"]
-
-[tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
+packages = [ "xpublish_edr" ]
 
 [tool.setuptools_scm]
 write_to = "xpublish_edr/_version.py"
 
+[tool.uv]
+cache-keys = [ { file = "pyproject.toml" }, { file = "requirements.txt" } ]
+
+[tool.ruff]
+line-length = 100
+lint.extend-select = [
+  # "B",   # flake8-bugbear
+  "I",   # isort
+  "T20", # flake8-print
+  "UP",  # pyupgrade
+]
+
+[tool.repo-review]
+ignore = [
+  "PY004", # Docs folder
+  "PP309", # Pytest filter warnings
+  "GH103", # Don't require workflow dispatch
+  "GH200", # Uses Renovate rather than Dependabot
+  "PC140", # Mypy pre-commit hook
+  "PC170", # pygrep to check RST files
+  "PC901", # custom pre-commit commit message
+  "PC902", # custom pre-commit autofix message
+  "PC903", # Set a pre-commit CI schedule
+  "RF101", # flake-bugbear selected in ruff
+]
+
 [tool.interrogate]
+fail-under = 95
 ignore-init-method = true
 ignore-init-module = false
 ignore-magic = false
 ignore-semiprivate = false
 ignore-private = false
 ignore-module = false
-fail-under = 95
-exclude = ["setup.py", "docs", "tests"]
+exclude = [ "docs", "setup.py", "tests" ]
+color = true
 verbose = 1
 quiet = false
-color = true
+
+[tool.check-manifest]
+ignore = [ "xpublish_edr/_version.py" ]
+
+[tool.mypy]
+files = "xpublish-edr"
+warn_unreachable = true
+enable_error_code = [ "ignore-without-code", "redundant-expr", "truthy-bool" ]
+strict = true
+
+[tool.pytest]
+# filterwarnings = [
+#   "error",
+#   "ignore:numpy.ndarray size changed:RuntimeWarning",
+# ]
+addopts = [ "-ra" ]
+log_level = "INFO"
+minversion = "9"
+strict = true
+testpaths = [ "tests" ]

@@ -1,4 +1,4 @@
-include *.txt
+include LICENSE.txt
 include README.md
 include pyproject.toml
 
@@ -10,6 +10,8 @@ prune notebooks
 prune *.egg-info
 
 global-exclude *.nc
+global-exclude *.py[co]
+global-exclude __pycache__
 
 exclude *.yml
 exclude *.enc

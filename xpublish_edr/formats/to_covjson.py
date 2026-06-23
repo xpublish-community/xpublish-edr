@@ -2,18 +2,7 @@
 Generate CoverageJSON responses for xarray Dataset for EDR queries
 """
 
-import sys
-from typing import Dict, List
-
-if sys.version_info >= (3, 8):
-    from typing import Literal
-else:
-    from typing_extensions import Literal
-
-if sys.version_info >= (3, 11):
-    from typing import NotRequired, TypedDict
-else:
-    from typing_extensions import TypedDict, NotRequired
+from typing import Literal, NotRequired, TypedDict
 
 import numpy as np
 import xarray as xr
@@ -24,8 +13,8 @@ class Domain(TypedDict):
 
     type: Literal["Domain"]
     domainType: Literal["Grid"]
-    axes: Dict
-    referencing: List
+    axes: dict
+    referencing: list
 
 
 class En(TypedDict):
@@ -60,8 +49,8 @@ class CovJSON(TypedDict):
 
     type: str
     domain: Domain
-    parameters: Dict[str, Parameter]
-    ranges: Dict
+    parameters: dict[str, Parameter]
+    ranges: dict
 
 
 def invert_cf_dims(ds):

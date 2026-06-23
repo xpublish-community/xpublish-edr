@@ -2,7 +2,7 @@
 OGC EDR Query param parsing
 """
 
-from typing import Literal, Optional
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,7 @@ class BaseEDRQuery(BaseModel):
     Base class for EDR queries
     """
 
-    format: Optional[str] = Field(
+    format: str | None = Field(
         None,
         title="Response format",
         description="The format of the response. Default is CoverageJSON. "
@@ -29,18 +29,18 @@ class BaseEDRQuery(BaseModel):
         f"valid cube formats: {', '.join(cube_formats().keys())}",
         validation_alias="f",
     )
-    z: Optional[str] = Field(
+    z: str | None = Field(
         None,
         title="Elevation",
         description="Elevation for the query",
         alias="z",
     )
-    datetime: Optional[str] = Field(
+    datetime: str | None = Field(
         None,
         title="Datetime",
         description="Datetime for the query",
     )
-    parameters: Optional[str] = Field(
+    parameters: str | None = Field(
         None,
         title="Parameters",
         description="Parameters for the query",
@@ -164,7 +164,7 @@ class EDRPositionQuery(BaseEDRQuery):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    coords: Optional[str] = Field(
+    coords: str | None = Field(
         None,
         title="Point(s) in WKT format",
         description="Well Known Text coordinates for the point(s) to query. "
@@ -197,7 +197,7 @@ class EDRAreaQuery(BaseEDRQuery):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    coords: Optional[str] = Field(
+    coords: str | None = Field(
         None,
         title="Polygon in WKT format",
         description="Well Known Text coordinates. "
