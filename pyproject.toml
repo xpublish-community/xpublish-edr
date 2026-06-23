@@ -7,8 +7,8 @@ name = "xpublish-edr"
 description = ""
 readme = "README.md"
 keywords = []
-license-files = ["LICENSE.txt"]
-requires-python = ">=3.11"
+license-files = [ "LICENSE.txt" ]
+requires-python = ">=3.12"
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Science/Research",
@@ -16,7 +16,6 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
@@ -76,7 +75,7 @@ dev = [
   "referencing",
   "schemathesis>=4.11.2",
   "uvicorn",
-  "xpublish-ogc-core>=0.1",
+  "xpublish-ogc-core>=0.1.1",
 ]
 
 [tool.setuptools]
@@ -141,7 +140,7 @@ markers = [
 #   "error",
 #   "ignore:numpy.ndarray size changed:RuntimeWarning",
 # ]
-addopts = [ "-ra", "--strict-config", "--strict-markers" ]
+addopts = [ "-rav", "--strict-config", "--strict-markers" ]
 log_level = "INFO"
 minversion = "9"
 strict = true
