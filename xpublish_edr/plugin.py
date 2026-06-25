@@ -2,29 +2,17 @@
 OGC EDR router for datasets with CF convention metadata
 """
 
-import asyncio
 from typing import Annotated
 
-import shapely
 import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from shapely.errors import GEOSException
 from xpublish import Dependencies, Plugin, hookimpl
 
-from xpublish_edr.format import area_formats, cube_formats, position_formats
-from xpublish_edr.formats.to_covjson import to_cf_covjson
-from xpublish_edr.geometry.area import select_by_area
-from xpublish_edr.geometry.bbox import select_by_bbox
-from xpublish_edr.geometry.common import (
-    prepare_spatial_grid,
-    project_bbox,
-    project_dataset,
-    project_geometry,
-)
-from xpublish_edr.geometry.parse import parse_area_body, parse_position_body
-from xpublish_edr.geometry.position import select_by_position
+from xpublish_edr import area, cube, position
 from xpublish_edr.logger import logger
 from xpublish_edr.metadata import (
+    EDR_CONFORMANCE_CLASSES,
     area_query_description,
     collection_metadata,
     cube_query_description,
@@ -32,308 +20,7 @@ from xpublish_edr.metadata import (
     position_query_description,
     supported_crs_details,
 )
-from xpublish_edr.query import (
-    EDRAreaQueryGet,
-    EDRAreaQueryPost,
-    EDRCubeQuery,
-    EDRPositionQueryGet,
-    EDRPositionQueryPost,
-)
-
-# EDR 1.1 is backwards compatible with 1.0, so both sets of classes are
-# declared; the CITE ets-ogcapi-edr10 suite checks for the 1.0 URIs.
-# The geojson class is not declared even though `f=geojson` is supported,
-# because the class also requires Locations resources (EDR 1.0 Abstract
-# Test 21), which are not implemented.
-EDR_CONFORMANCE_CLASSES = [
-    f"http://www.opengis.net/spec/ogcapi-edr-1/{version}/conf/{conf_class}"
-    for version in ("1.0", "1.1")
-    for conf_class in (
-        "core",
-        "collections",
-        "json",
-        "covjson",
-        "queries",
-    )
-]
-
-
-def handle_position_query(
-    dataset: xr.Dataset,
-    query: EDRPositionQueryPost,
-    query_params: dict,
-    geometry: shapely.Geometry,
-):
-    """Select and format data for an EDR position query.
-
-    ``geometry`` is the point(s) to query, parsed from the ``coords`` query
-    parameter on GET or from the request body on POST by the caller. Shared by
-    the dataset-level ``/edr/position`` routes and the OGC-core
-    ``/collections/{id}/position`` routes.
-    """
-    try:
-        ds = query.select(dataset, query_params)
-    except ValueError as e:
-        logger.error(
-            f"Error selecting from query while selecting by position: {e}",
-        )
-        raise HTTPException(
-            status_code=404,
-            detail=f"Error selecting from query: {e.args[0]}",
-        )
-
-    logger.debug(f"Dataset filtered by query params {ds}")
-
-    try:
-        grid = prepare_spatial_grid(ds, require_regular=True)
-        projected_geometry = project_geometry(
-            grid.ds,
-            query.crs,
-            geometry,
-            grid.spatial_ref,
-        )
-        ds = select_by_position(
-            grid.ds,
-            projected_geometry,
-            query.method,
-            grid.spatial_ref,
-        )
-    except GEOSException as e:
-        logger.error(
-            f"Error parsing coordinates to geometry while selecting by position: {e}",
-        )
-        raise HTTPException(
-            status_code=422,
-            detail="Could not parse coordinates to geometry, "
-            + "check the format of the 'coords' query parameter",
-        )
-    except KeyError as e:
-        logger.error(f"Error selecting by position: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"Error selecting by position: {e}. "
-                "Ensure that dataset has valid CF metadata and has 1D coordinates."
-            ),
-        )
-
-    logger.debug(f"Dataset filtered by position ({geometry}): {ds}")
-
-    try:
-        ds = project_dataset(ds, query.crs, grid.spatial_ref)
-    except Exception as e:
-        logger.error(
-            f"Error projecting dataset while selecting by position: {e}",
-        )
-        raise HTTPException(
-            status_code=404,
-            detail="Error projecting dataset",
-        )
-
-    logger.debug(f"Dataset projected to {query.crs}: {ds}")
-
-    ds = _load_dataset(ds)
-
-    logger.debug("Dataset loaded")
-
-    if query.format:
-        try:
-            format_fn = position_formats()[query.format]
-        except KeyError as e:
-            logger.error(
-                f"Error getting format function while selecting by position: {e}",
-            )
-            raise HTTPException(
-                404,
-                f"{query.format} is not a valid format for EDR position queries. "
-                "Get `./position/formats` for valid formats",
-            )
-
-        return format_fn(ds)
-
-    return to_cf_covjson(ds)
-
-
-def handle_area_query(
-    dataset: xr.Dataset,
-    query: EDRAreaQueryPost,
-    query_params: dict,
-    geometry: shapely.Geometry,
-):
-    """Select and format data for an EDR area query.
-
-    ``geometry`` is the polygon to query, parsed from the ``coords`` query
-    parameter on GET or from the request body on POST by the caller. Shared by
-    the dataset-level ``/edr/area`` routes and the OGC-core
-    ``/collections/{id}/area`` routes.
-    """
-    try:
-        ds = query.select(dataset, query_params)
-    except ValueError as e:
-        logger.error(f"Error selecting from query while selecting by area: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail=f"Error selecting from query: {e.args[0]}",
-        )
-
-    logger.debug(f"Dataset filtered by query params {ds}")
-
-    try:
-        grid = prepare_spatial_grid(ds, require_regular=True)
-        projected_geometry = project_geometry(
-            grid.ds,
-            query.crs,
-            geometry,
-            grid.spatial_ref,
-        )
-        ds = select_by_area(grid.ds, projected_geometry, grid.spatial_ref)
-    except GEOSException as e:
-        logger.error(
-            f"Error parsing coordinates to geometry while selecting by area: {e}",
-        )
-        raise HTTPException(
-            status_code=422,
-            detail="Could not parse coordinates to geometry, "
-            + "check the format of the 'coords' query parameter",
-        )
-    except KeyError as e:
-        logger.error(f"Error selecting by area: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail="Dataset does not have CF Convention compliant metadata",
-        )
-
-    logger.debug(f"Dataset filtered by polygon {geometry.boundary}: {ds}")
-
-    try:
-        ds = project_dataset(ds, query.crs, grid.spatial_ref)
-    except Exception as e:
-        logger.error(f"Error projecting dataset while selecting by area: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail="Error projecting dataset",
-        )
-
-    logger.debug(f"Dataset projected to {query.crs}: {ds}")
-
-    ds = _load_dataset(ds)
-
-    logger.debug("Dataset loaded")
-
-    if query.format:
-        try:
-            format_fn = area_formats()[query.format]
-        except KeyError as e:
-            logger.error(f"Error getting format function: {e}")
-            raise HTTPException(
-                404,
-                f"{query.format} is not a valid format for EDR area queries. "
-                "Get `./area/formats` for valid formats",
-            )
-
-        return format_fn(ds)
-
-    return to_cf_covjson(ds)
-
-
-def handle_cube_query(
-    dataset: xr.Dataset,
-    query: EDRCubeQuery,
-    query_params: dict,
-):
-    """Select and format data for an EDR cube query.
-
-    Shared by the dataset-level ``/edr/cube`` route and the OGC-core
-    ``/collections/{id}/cube`` route.
-    """
-    try:
-        ds = query.select(dataset, query_params)
-    except ValueError as e:
-        logger.error(f"Error selecting from query while selecting by cube: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail=f"Error selecting from query: {e.args[0]}",
-        )
-
-    logger.debug(f"Dataset filtered by query params {ds}")
-
-    try:
-        grid = prepare_spatial_grid(ds, require_regular=True)
-        bbox = project_bbox(grid.ds, query.crs, query.bbox, grid.spatial_ref)
-        ds = select_by_bbox(grid.ds, bbox, grid.spatial_ref)
-    except KeyError as e:
-        logger.error(f"Error selecting by bbox: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail="Dataset does not have CF Convention compliant metadata",
-        )
-    except ValueError as e:
-        logger.error(f"Error selecting by bbox: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail="Error selecting by bbox, see logs for more details",
-        )
-
-    logger.debug(
-        f"Dataset filtered by bbox ({query.bbox}): {ds}",
-    )
-
-    try:
-        ds = project_dataset(ds, query.crs, grid.spatial_ref)
-    except Exception as e:
-        logger.error(f"Error projecting dataset while selecting by area: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail="Error projecting dataset",
-        )
-
-    logger.debug(f"Dataset projected to {query.crs}: {ds}")
-
-    ds = _load_dataset(ds)
-
-    logger.debug("Dataset loaded")
-
-    if query.format:
-        try:
-            format_fn = cube_formats()[query.format]
-        except KeyError as e:
-            logger.error(f"Error getting format function: {e}")
-            raise HTTPException(
-                404,
-                f"{query.format} is not a valid format for EDR cube queries. "
-                "Get `./cube/formats` for valid formats",
-            )
-
-        return format_fn(ds)
-
-    return to_cf_covjson(ds)
-
-
-async def _raw_body(request: Request) -> bytes:
-    """Read the raw request body as bytes.
-
-    Used as a FastAPI dependency so the position/area endpoints can stay
-    synchronous (`def`) handlers that run in the threadpool: the body is read
-    here in the async layer -- correctly returning raw bytes regardless of
-    content-type -- and the result is passed to the sync endpoint. Returns an
-    empty ``bytes`` for GET requests, which have no body.
-    """
-    return await request.body()
-
-
-def _load_dataset(ds: xr.Dataset) -> xr.Dataset:
-    """Eagerly load the selected dataset, preferring asynchronous loading.
-
-    Backends that support it (e.g. zarr) can fetch chunks concurrently, which
-    is significantly faster for remote stores. Backends that don't raise
-    ``NotImplementedError``, in which case we fall back to standard
-    synchronous loading. Safe to call from the sync handlers since they run
-    in the threadpool, where no event loop is running.
-    """
-    try:
-        return asyncio.run(ds.load_async())
-    except NotImplementedError:
-        return ds.load()
+from xpublish_edr.utils import _raw_body
 
 
 class CfEdrPlugin(Plugin):
@@ -362,7 +49,7 @@ class CfEdrPlugin(Plugin):
             """
             Returns the various supported formats for position queries
             """
-            formats = {key: value.__doc__ for key, value in position_formats().items()}
+            formats = {key: value.__doc__ for key, value in position.formats().items()}
 
             return formats
 
@@ -374,7 +61,7 @@ class CfEdrPlugin(Plugin):
             """
             Returns the various supported formats for area queries
             """
-            formats = {key: value.__doc__ for key, value in area_formats().items()}
+            formats = {key: value.__doc__ for key, value in area.formats().items()}
 
             return formats
 
@@ -383,7 +70,7 @@ class CfEdrPlugin(Plugin):
             """
             Returns the various supported formats for cube queries
             """
-            formats = {key: value.__doc__ for key, value in cube_formats().items()}
+            formats = {key: value.__doc__ for key, value in cube.formats().items()}
             return formats
 
         return router
@@ -391,10 +78,7 @@ class CfEdrPlugin(Plugin):
     @hookimpl
     def ogc_router(self, deps: Dependencies):
         """Register OGC routers at the application level"""
-        # This hook only runs in an app composed with xpublish-ogc-core, so the
-        # import is local; OGCExceptionRoute renders validation/HTTP errors as
-        # OGC exception objects, which the official OGC schema requires, and
-        # OGC_EXCEPTION_RESPONSES documents that body so the OpenAPI matches.
+        # This hook only runs in an app composed with xpublish-ogc-core
         from xpublish_ogc_core.plugin import (
             OGC_EXCEPTION_RESPONSES,
             OGCExceptionRoute,
@@ -410,7 +94,7 @@ class CfEdrPlugin(Plugin):
         def get_position(
             collection_id: str,
             request: Request,
-            query: Annotated[EDRPositionQueryGet, Query()],
+            query: Annotated[position.EDRPositionQueryGet, Query()],
         ):
             """
             Returns position data for a collection based on WKT `Point(lon lat)` coordinates
@@ -426,7 +110,7 @@ class CfEdrPlugin(Plugin):
                     "check the format of the 'coords' query parameter",
                 )
             dataset = deps.dataset(collection_id)
-            return handle_position_query(
+            return position.handle_query(
                 dataset,
                 query,
                 dict(request.query_params),
@@ -441,7 +125,7 @@ class CfEdrPlugin(Plugin):
         def post_position(
             collection_id: str,
             request: Request,
-            query: Annotated[EDRPositionQueryPost, Query()],
+            query: Annotated[position.EDRPositionQueryPost, Query()],
             body: Annotated[bytes, Depends(_raw_body)],
         ):
             """
@@ -456,13 +140,13 @@ class CfEdrPlugin(Plugin):
                     detail="POST position requires a non-empty request body",
                 )
             try:
-                geometry = parse_position_body(body, request.headers.get("content-type"))
+                geometry = position.parse_body(body, request.headers.get("content-type"))
             except ValueError as e:
                 logger.error(f"Error parsing position body: {e}")
                 raise HTTPException(status_code=422, detail=str(e))
 
             dataset = deps.dataset(collection_id)
-            return handle_position_query(
+            return position.handle_query(
                 dataset,
                 query,
                 dict(request.query_params),
@@ -477,7 +161,7 @@ class CfEdrPlugin(Plugin):
         def get_area(
             collection_id: str,
             request: Request,
-            query: Annotated[EDRAreaQueryGet, Query()],
+            query: Annotated[area.EDRAreaQueryGet, Query()],
         ):
             """
             Returns area data for a collection based on WKT `Polygon(lon lat)` coordinates
@@ -493,7 +177,7 @@ class CfEdrPlugin(Plugin):
                     "check the format of the 'coords' query parameter",
                 )
             dataset = deps.dataset(collection_id)
-            return handle_area_query(
+            return area.handle_query(
                 dataset,
                 query,
                 dict(request.query_params),
@@ -508,7 +192,7 @@ class CfEdrPlugin(Plugin):
         def post_area(
             collection_id: str,
             request: Request,
-            query: Annotated[EDRAreaQueryPost, Query()],
+            query: Annotated[area.EDRAreaQueryPost, Query()],
             body: Annotated[bytes, Depends(_raw_body)],
         ):
             """
@@ -523,13 +207,13 @@ class CfEdrPlugin(Plugin):
                     detail="POST area requires a non-empty request body",
                 )
             try:
-                geometry = parse_area_body(body, request.headers.get("content-type"))
+                geometry = area.parse_body(body, request.headers.get("content-type"))
             except ValueError as e:
                 logger.error(f"Error parsing area body: {e}")
                 raise HTTPException(status_code=422, detail=str(e))
 
             dataset = deps.dataset(collection_id)
-            return handle_area_query(
+            return area.handle_query(
                 dataset,
                 query,
                 dict(request.query_params),
@@ -544,7 +228,7 @@ class CfEdrPlugin(Plugin):
         def get_cube(
             collection_id: str,
             request: Request,
-            query: Annotated[EDRCubeQuery, Query()],
+            query: Annotated[cube.EDRCubeQuery, Query()],
         ):
             """
             Returns cube data for a collection based on bbox coordinates and optional elevation
@@ -552,7 +236,7 @@ class CfEdrPlugin(Plugin):
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
             dataset = deps.dataset(collection_id)
-            return handle_cube_query(dataset, query, dict(request.query_params))
+            return cube.handle_query(dataset, query, dict(request.query_params))
 
         return router
 
@@ -578,17 +262,17 @@ class CfEdrPlugin(Plugin):
 
         data_queries = {
             "position": position_query_description(
-                list(position_formats().keys()),
+                list(position.formats().keys()),
                 supported_crs,
                 href=f"/collections/{collection_id}/position?coords={{coords}}",
             ),
             "area": area_query_description(
-                list(area_formats().keys()),
+                list(area.formats().keys()),
                 supported_crs,
                 href=f"/collections/{collection_id}/area?coords={{coords}}",
             ),
             "cube": cube_query_description(
-                list(cube_formats().keys()),
+                list(cube.formats().keys()),
                 supported_crs,
                 href=f"/collections/{collection_id}/cube?bbox={{bbox}}",
                 height_units=dataset_height_units(ds),
@@ -611,9 +295,9 @@ class CfEdrPlugin(Plugin):
         try:
             metadata = collection_metadata(
                 ds,
-                list(position_formats().keys()),
-                list(area_formats().keys()),
-                list(cube_formats().keys()),
+                list(position.formats().keys()),
+                list(area.formats().keys()),
+                list(cube.formats().keys()),
             ).model_dump(exclude_none=True, by_alias=True)
         except Exception as e:
             logger.warning(
@@ -643,9 +327,9 @@ class CfEdrPlugin(Plugin):
             for the current dataset as the a single collection. See the spec for more information:
             https://docs.ogc.org/is/19-086r6/19-086r6.html#_162817c2-ccd7-43c9-b1ea-ad3aea1b4d6b
             """
-            position_output_formats = list(position_formats().keys())
-            area_output_formats = list(area_formats().keys())
-            cube_output_formats = list(cube_formats().keys())
+            position_output_formats = list(position.formats().keys())
+            area_output_formats = list(area.formats().keys())
+            cube_output_formats = list(cube.formats().keys())
             return collection_metadata(
                 dataset,
                 position_output_formats,
@@ -664,7 +348,7 @@ class CfEdrPlugin(Plugin):
         @router.get("/position", summary="Position query")
         def get_position(
             request: Request,
-            query: Annotated[EDRPositionQueryGet, Query()],
+            query: Annotated[position.EDRPositionQueryGet, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
@@ -687,7 +371,7 @@ class CfEdrPlugin(Plugin):
                     detail="Could not parse coordinates to geometry, "
                     "check the format of the 'coords' query parameter",
                 )
-            return handle_position_query(
+            return position.handle_query(
                 dataset,
                 query,
                 dict(request.query_params),
@@ -697,7 +381,7 @@ class CfEdrPlugin(Plugin):
         @router.post("/position", summary="Position query (POST)")
         def post_position(
             request: Request,
-            query: Annotated[EDRPositionQueryPost, Query()],
+            query: Annotated[position.EDRPositionQueryPost, Query()],
             body: Annotated[bytes, Depends(_raw_body)],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
@@ -719,7 +403,7 @@ class CfEdrPlugin(Plugin):
                     detail="POST /position requires a non-empty request body",
                 )
             try:
-                geometry = parse_position_body(
+                geometry = position.parse_body(
                     body,
                     request.headers.get("content-type"),
                 )
@@ -727,7 +411,7 @@ class CfEdrPlugin(Plugin):
                 logger.error(f"Error parsing position body: {e}")
                 raise HTTPException(status_code=422, detail=str(e))
 
-            return handle_position_query(
+            return position.handle_query(
                 dataset,
                 query,
                 dict(request.query_params),
@@ -737,7 +421,7 @@ class CfEdrPlugin(Plugin):
         @router.get("/area", summary="Area query")
         def get_area(
             request: Request,
-            query: Annotated[EDRAreaQueryGet, Query()],
+            query: Annotated[area.EDRAreaQueryGet, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
@@ -757,7 +441,7 @@ class CfEdrPlugin(Plugin):
                     detail="Could not parse coordinates to geometry, "
                     "check the format of the 'coords' query parameter",
                 )
-            return handle_area_query(
+            return area.handle_query(
                 dataset,
                 query,
                 dict(request.query_params),
@@ -767,7 +451,7 @@ class CfEdrPlugin(Plugin):
         @router.post("/area", summary="Area query (POST)")
         def post_area(
             request: Request,
-            query: Annotated[EDRAreaQueryPost, Query()],
+            query: Annotated[area.EDRAreaQueryPost, Query()],
             body: Annotated[bytes, Depends(_raw_body)],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
@@ -789,7 +473,7 @@ class CfEdrPlugin(Plugin):
                     detail="POST /area requires a non-empty request body",
                 )
             try:
-                geometry = parse_area_body(
+                geometry = area.parse_body(
                     body,
                     request.headers.get("content-type"),
                 )
@@ -797,7 +481,7 @@ class CfEdrPlugin(Plugin):
                 logger.error(f"Error parsing area body: {e}")
                 raise HTTPException(status_code=422, detail=str(e))
 
-            return handle_area_query(
+            return area.handle_query(
                 dataset,
                 query,
                 dict(request.query_params),
@@ -807,7 +491,7 @@ class CfEdrPlugin(Plugin):
         @router.get("/cube", summary="Cube query")
         def get_cube(
             request: Request,
-            query: Annotated[EDRCubeQuery, Query()],
+            query: Annotated[cube.EDRCubeQuery, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
         ):
             """
@@ -815,6 +499,6 @@ class CfEdrPlugin(Plugin):
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
-            return handle_cube_query(dataset, query, dict(request.query_params))
+            return cube.handle_query(dataset, query, dict(request.query_params))
 
         return router

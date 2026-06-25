@@ -1,3 +1,7 @@
+"""
+EDR general and collection metadata generation
+"""
+
 from typing import Literal, cast
 
 import numpy as np
@@ -14,6 +18,23 @@ from xpublish_edr.geometry.common import (
     spatial_bounds,
 )
 from xpublish_edr.logger import logger
+
+# EDR 1.1 is backwards compatible with 1.0, so both sets of classes are
+# declared; the CITE ets-ogcapi-edr10 suite checks for the 1.0 URIs.
+# The geojson class is not declared even though `f=geojson` is supported,
+# because the class also requires Locations resources (EDR 1.0 Abstract
+# Test 21), which are not implemented.
+EDR_CONFORMANCE_CLASSES = [
+    f"http://www.opengis.net/spec/ogcapi-edr-1/{version}/conf/{conf_class}"
+    for version in ("1.0", "1.1")
+    for conf_class in (
+        "core",
+        "collections",
+        "json",
+        "covjson",
+        "queries",
+    )
+]
 
 
 def cf_axis_is_indexed(ds: xr.Dataset, axis: str) -> bool:
@@ -354,6 +375,7 @@ def vertical_extent(ds: xr.Dataset) -> VerticalExtent | None:
 
 
 def _timedelta_to_iso(val: object) -> str:
+    """Convert a timedelta-like value to an ISO-8601 duration string or seconds-only fallback"""
     td = pd.Timedelta(val)
     # Prefer pandas ISO-8601 when available
     if hasattr(td, "isoformat"):
@@ -365,6 +387,7 @@ def _timedelta_to_iso(val: object) -> str:
 
 
 def _values_to_python_list(values: np.ndarray) -> list[int | float | str]:
+    """Convert a numpy array of values to a list of Python native types (int, float, str)"""
     arr = np.asarray(values)
     # datetime-like
     if np.issubdtype(arr.dtype, np.datetime64):

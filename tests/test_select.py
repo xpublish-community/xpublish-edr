@@ -8,7 +8,7 @@ import xarray as xr
 import xarray.testing as xrt
 from shapely import MultiPoint, Point, from_wkt
 
-from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.area.geom import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import (
     dataset_spatial_ref,
@@ -16,8 +16,10 @@ from xpublish_edr.geometry.common import (
     project_dataset,
     with_spatial_coords,
 )
-from xpublish_edr.geometry.position import select_by_position
-from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
+from xpublish_edr.position.geom import select_by_position
+from xpublish_edr.area.params import EDRAreaQuery
+from xpublish_edr.cube.params import EDRCubeQuery
+from xpublish_edr.position.params import EDRPositionQuery
 
 
 @pytest.fixture(scope="function")
