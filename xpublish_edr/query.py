@@ -166,14 +166,6 @@ def load_wkt(value: str) -> Geometry:
         raise GEOSException(f"Invalid WKT coordinates: {e}") from e
 
 
-def validate_wkt(v: str) -> Geometry:
-    """Validate WKT"""
-    try:
-        return wkt.loads(v)
-    except Exception as e:
-        raise ValueError(f"Invalid WKT: {e}")
-
-
 class EDRPositionQueryPost(BaseEDRQuery):
     """Position query selection parameters with no ``coords``.
 

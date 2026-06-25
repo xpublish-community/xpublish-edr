@@ -1,21 +1,10 @@
 """Integration compliance suite for xpublish-edr composed with xpublish-ogc-core.
 
-This suite lives here because this repo composes both plugins: the OGC core
-plugin serves the landing page, conformance, and collection endpoints, and the
-EDR plugin contributes its conformance classes, collection metadata, and data
-queries through the OGC hookspecs.
-
-Responses are validated against the official OGC schemas vendored by
-xpublish-ogc-core, which is not yet on PyPI, so the suite is skipped when it
-isn't importable (in the xpublish-dev workspace both plugins are editable
-installs, so it always runs there).
+This tests both the OGC core plugin serves the landing page, conformance, and collection endpoints, and the EDR plugin contributes its conformance classes, collection metadata, and data queries through the OGC hookspecs.
 """
 
-import pytest
-
-pytest.importorskip("xpublish_ogc_core")
-
 import cf_xarray  # noqa: F401
+import pytest
 import xpublish
 from fastapi.testclient import TestClient
 from xpublish_ogc_core.plugin import (
