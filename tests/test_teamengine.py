@@ -8,11 +8,8 @@ xpublish_ogc_core; skipped otherwise. Deselect with `-m "not cite"`.
 
 import platform
 
-import pytest
-
-pytest.importorskip("xpublish_ogc_core")
-
 import cf_xarray  # noqa: F401
+import pytest
 import xpublish
 from xpublish_ogc_core import teamengine
 from xpublish_ogc_core.plugin import OgcCorePlugin
@@ -73,5 +70,5 @@ def test_edr_cite_suite(subtests):
         result,
         subtests,
         known_failures=KNOWN_FAILURES,
-        expected_passed=25,
+        expected_passed=28,
     )

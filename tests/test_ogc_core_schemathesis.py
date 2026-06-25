@@ -1,7 +1,6 @@
 """Schemathesis fuzz of the composed xpublish-ogc-core + xpublish-edr app.
 
-Cases are generated from the app's own OpenAPI description and validated
-against it, scoped to the OGC API paths.
+Cases are generated from the app's own OpenAPI description, and OGC's schema and validated against it, scoped to the OGC API paths.
 """
 
 import pytest

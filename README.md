@@ -142,7 +142,7 @@ This package attempts to follow [the spec](https://docs.ogc.org/is/19-086r6/19-0
 
 On its own, `xpublish-edr` serves queries at `/{dataset_id}/edr/{query}` rather than the `/collections/{collectionId}/{query}` path template described in the spec, because of the path structure of xpublish. [Collection metadata](https://docs.ogc.org/is/19-086r6/19-086r6.html#_5d07dde9-231a-4652-a1f3-dd036c337bdc) is available at the dataset level through the `/{dataset_id}/edr/` resource.
 
-When composed with [xpublish-ogc-core](https://github.com/xpublish-community/xpublish-ogc-core), the spec compliant resource paths are also served — see below.
+When composed with [xpublish-ogc-core](https://github.com/xpublish-community/xpublish-ogc-core), the spec compliant resource paths are also served.
 
 ### OGC API integration via xpublish-ogc-core
 
@@ -152,7 +152,7 @@ If [xpublish-ogc-core](https://github.com/xpublish-community/xpublish-ogc-core) 
 - `/collections/{collection_id}` carrying the full EDR collection metadata (`extent`, `parameter_names`, `crs`, `output_formats`) and a [`data_queries`](https://docs.ogc.org/is/19-086r6/19-086r6.html#_df2c080b-949c-40c3-ad14-d20228270c2d) member describing each query with collection scoped hrefs.
 - `/conformance` declaring the [EDR 1.1 conformance classes](https://docs.ogc.org/is/19-086r6/19-086r6.html) (`core`, `collections`, `json`, `geojson`, `covjson`, and `queries`).
 
-The integration is validated end to end in `tests/test_ogc_core_integration.py` against the official OGC schemas vendored by `xpublish-ogc-core`, plus a [Schemathesis](https://schemathesis.readthedocs.io/) fuzz of the composed app's OpenAPI description. Those tests are skipped when `xpublish_ogc_core` isn't importable, and run with the rest of the suite via `uv run pytest`.
+The integration is validated end to end in `tests/test_ogc_core_integration.py` against the official OGC schemas vendored by `xpublish-ogc-core`, [Schemathesis](https://schemathesis.readthedocs.io/) fuzz of the composed app's and OGCs OpenAPI description, plus running most of the [OGC TeamEngine](https://opengeospatial.github.io/teamengine/) Dockerized test suite.
 
 ### Supported Queries
 
@@ -179,7 +179,7 @@ The integration is validated end to end in `tests/test_ogc_core_integration.py` 
 | `f`              | ✅            | Supports `cf_covjson`, `csv`, `geojson` `netcdf`, `parquet`                                                                                                                                                      |
 | `method`         | ➕            | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified                                                         |
 | `POST` body      | ➕            | Non-spec extension. Supported content types: `text/csv` (columns `x`/`y`, `lon`/`lat`, or `longitude`/`latitude`); `application/geo+json` (Point, MultiPoint, Feature, FeatureCollection, or GeometryCollection) |
-| =======          |               |                                                                                                                                                                                                                  |
+|                  |               |                                                                                                                                                                                                                  |
 | Query            | Compliant     | Comments                                                                                                                                                                                                         |
 | ---------------- | ---------     | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `coords`         | ✅            | Required for `GET`; for `POST` the points are read from the request body                                                                                                                                         |
@@ -216,7 +216,7 @@ The integration is validated end to end in `tests/test_ogc_core_integration.py` 
 | `f`              | ✅            | Supports `cf_covjson`, `csv`, `geojson` `netcdf`, `parquet`                                                                                                                                                        |
 | `method`         | ➕            | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified                                                           |
 | `POST` body      | ➕            | Non-spec extension. Supported content types: `application/geo+json` (Polygon, MultiPolygon, Feature, FeatureCollection, or GeometryCollection); `application/wkt` / `text/plain` (raw WKT Polygon or MultiPolygon) |
-| =======          |               |                                                                                                                                                                                                                    |
+|                  |               |                                                                                                                                                                                                                    |
 | Query            | Compliant     | Comments                                                                                                                                                                                                           |
 | ---------------- | ---------     | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `coords`         | ✅            | `POLYGON` and `MULTIPOLYGON` supported. Required for `GET`; for `POST` the polygon is read from the request body                                                                                                   |
@@ -253,7 +253,7 @@ For `POLYGON` coordinates, points that are located within **OR** on the polygons
 | `crs`            | ✅            | Requires a CF compliant [grid mapping](https://cf-xarray.readthedocs.io/en/latest/grid_mappings.html) on the target dataset. Default is `EPSG:4326`      |
 | `f`              | ✅            | Supports `cf_covjson`, `csv`, `geojson` `netcdf`, `parquet`, `geotiff`                                                                                   |
 | `method`         | ➕            | Optional: controls data selection. Use "nearest" for nearest neighbor selection, or "linear" for interpolated selection. Uses `nearest` if not specified |
-| =======          |               |                                                                                                                                                          |
+|                  |               |                                                                                                                                                          |
 | Query            | Compliant     | Comments                                                                                                                                                 |
 | ---------------- | ---------     | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bbox`           | ✅            | Bounding box in `minx,miny,maxx,maxy` format                                                                                                             |
