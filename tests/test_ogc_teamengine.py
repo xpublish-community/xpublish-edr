@@ -3,7 +3,7 @@
 The composed xpublish-ogc-core + xpublish-edr app is served over HTTP and
 tested by the ets-ogcapi-edr10 executable test suite running in the official
 OGC Docker image. Requires Docker (the image is pulled on first use) and
-xpublish_ogc_core; skipped otherwise. Deselect with `-m "not cite"`.
+to not be running on Windows; skipped otherwise. Deselect with `-m "not cite"`.
 """
 
 import platform

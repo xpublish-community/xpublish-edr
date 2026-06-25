@@ -10,10 +10,8 @@ artifacts through three layers of testing:
 1. **Schemathesis fuzzing** — `tests/test_ogc_core_schemathesis.py` generates
    requests from the composed app's own OpenAPI description and validates
    the responses against it.
-1. **OGC CITE executable test suite** — `tests/test_teamengine.py` serves the
-   composed app over HTTP and runs the official `ets-ogcapi-edr10` suite in
-   the `ogccite` Docker image (marked `cite`; requires Docker; deselect with
-   `-m "not cite"`).
+1. **OGC TeamEngine CITE executable test suite** —
+   `tests/test_ogc_teamengine.py` serves the composed app over HTTP and runs the official `ets-ogcapi-edr10` suite in the `ogccite` Docker image (marked `cite`; requires Docker; deselect with `-m "not cite"`).
 
 ## What the tests found
 
@@ -31,11 +29,11 @@ Each of these was caught by a test layer and fixed:
 | Schemathesis `response_schema_conformance` against the OGC `exception` schema   | Validation errors and `HTTPException`s returned FastAPI's `{"detail": ...}` body, which lacks the OGC exception schema's required `code` member                       | OGC routes use xpublish-ogc-core's `OGCExceptionRoute` (reshapes errors via `ogc_exception`) and declare `OGC_EXCEPTION_RESPONSES` so the OpenAPI matches                                                                                                                          |
 | CITE `{Position,Area}Collections.{position,area}CoordsParameterDefinition`      | `coords` was declared `required: false`; the suite scans every path ending in `/position` or `/area` and requires `coords` to be `required: true`                     | GET and POST split into separate routes (collection *and* dataset level); GET uses `EDR{Position,Area}QueryGet` (coords required), POST uses `EDR{Position,Area}QueryPost` (no coords; geometry from the body). Needed xpublish's `check_route_conflicts` to key on (path, method) |
 | Schemathesis (POST `/collections/{id}/{position,area}`)                         | The OGC collection query endpoints returned 405 for POST (only GET was implemented)                                                                                   | POST handlers added on the collection routes, reusing the dataset-level body parsing; cube POST stays unimplemented (no body format) and is excluded from the fuzz with a comment                                                                                                  |
-| Schemathesis (GET `coords` fuzzing)                                             | Malformed `coords` raised non-`GEOSException` errors from `shapely.wkt.loads` (e.g. `UnicodeDecodeError`), escaping as a 500                                          | `load_wkt()` in `query.py` normalizes any WKT parse failure to `GEOSException`, which the handlers already catch as a 422                                                                                                                                                          |
+| Schemathesis (GET `coords` fuzzing)                                             | Malformed `coords` raised non-`GEOSException` errors from `shapely.wkt.loads` (e.g. `UnicodeDecodeError`), escaping as a 500                                          | `load_wkt()` in `base_query.py` normalizes any WKT parse failure to `GEOSException`, which the handlers already catch as a 422                                                                                                                                                     |
 
 ## Known failures
 
-Documented in `tests/test_teamengine.py::KNOWN_FAILURES` and asserted not to
+Documented in `tests/test_ogc_teamengine.py::KNOWN_FAILURES` and asserted not to
 drift in either direction:
 
 - `ApiDefinition.apiDefinitionValidation` — FastAPI generates an OpenAPI 3.1
