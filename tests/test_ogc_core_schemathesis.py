@@ -3,40 +3,20 @@
 Cases are generated from the app's own OpenAPI description, and OGC's schema and validated against it, scoped to the OGC API paths.
 """
 
-import pytest
+import schemathesis
+from conftest import build_ogc_app
+from schemathesis.specs.openapi.checks import positive_data_acceptance
+from xpublish_ogc_core import testing
 
-pytest.importorskip("xpublish_ogc_core")
-schemathesis = pytest.importorskip("schemathesis")
+app = build_ogc_app()
 
-import cf_xarray  # noqa: F401, E402
-import xpublish  # noqa: E402
-from schemathesis.specs.openapi.checks import positive_data_acceptance  # noqa: E402
-from xpublish_ogc_core import testing  # noqa: E402
-from xpublish_ogc_core.plugin import OgcCorePlugin  # noqa: E402
-
-from xpublish_edr.plugin import CfEdrPlugin  # noqa: E402
-
-
-def build_app():
-    from cf_xarray.datasets import airds
-
-    rest = xpublish.Rest(
-        {"air": airds},
-        plugins={
-            "ogc": OgcCorePlugin(),
-            "edr": CfEdrPlugin(),
-        },
-    )
-    return rest.app
-
-
-plugin_schema = schemathesis.openapi.from_asgi("/openapi.json", build_app()).include(
+plugin_schema = schemathesis.openapi.from_asgi("/openapi.json", app).include(
     path_regex=r"^/(collections|conformance|$)",
 )
 
 
 ogc_schema = (
-    testing.bundled_schema(with_app=build_app())
+    testing.bundled_schema(with_app=app)
     .exclude(path_regex=r"^/collections/\{collectionId\}/items")
     .exclude(path_regex=r"^/collections/\{collectionId\}/instances")
     .exclude(path_regex=r"^/collections/\{collectionId\}/locations")
