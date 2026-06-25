@@ -67,7 +67,9 @@ def handle_position_query(
     """Select and format data for an EDR position query.
 
     ``geometry`` is the point(s) to query, parsed from the ``coords`` query
-    parameter on GET or from the request body on POST by the caller.
+    parameter on GET or from the request body on POST by the caller. Shared by
+    the dataset-level ``/edr/position`` routes and the OGC-core
+    ``/collections/{id}/position`` routes.
     """
     try:
         ds = query.select(dataset, query_params)
@@ -83,10 +85,18 @@ def handle_position_query(
     logger.debug(f"Dataset filtered by query params {ds}")
 
     try:
+        grid = prepare_spatial_grid(ds, require_regular=True)
+        projected_geometry = project_geometry(
+            grid.ds,
+            query.crs,
+            geometry,
+            grid.spatial_ref,
+        )
         ds = select_by_position(
-            ds,
-            project_geometry(ds, query.crs, geometry),
+            grid.ds,
+            projected_geometry,
             query.method,
+            grid.spatial_ref,
         )
     except GEOSException as e:
         logger.error(
@@ -101,15 +111,16 @@ def handle_position_query(
         logger.error(f"Error selecting by position: {e}")
         raise HTTPException(
             status_code=404,
-            detail="Dataset does not have CF Convention compliant metadata",
+            detail=(
+                f"Error selecting by position: {e}. "
+                "Ensure that dataset has valid CF metadata and has 1D coordinates."
+            ),
         )
 
-    logger.debug(
-        f"Dataset filtered by position ({geometry}): {ds}",
-    )
+    logger.debug(f"Dataset filtered by position ({geometry}): {ds}")
 
     try:
-        ds = project_dataset(ds, query.crs)
+        ds = project_dataset(ds, query.crs, grid.spatial_ref)
     except Exception as e:
         logger.error(
             f"Error projecting dataset while selecting by position: {e}",
@@ -120,6 +131,10 @@ def handle_position_query(
         )
 
     logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+    ds = _load_dataset(ds)
+
+    logger.debug("Dataset loaded")
 
     if query.format:
         try:
@@ -148,7 +163,9 @@ def handle_area_query(
     """Select and format data for an EDR area query.
 
     ``geometry`` is the polygon to query, parsed from the ``coords`` query
-    parameter on GET or from the request body on POST by the caller.
+    parameter on GET or from the request body on POST by the caller. Shared by
+    the dataset-level ``/edr/area`` routes and the OGC-core
+    ``/collections/{id}/area`` routes.
     """
     try:
         ds = query.select(dataset, query_params)
@@ -162,7 +179,14 @@ def handle_area_query(
     logger.debug(f"Dataset filtered by query params {ds}")
 
     try:
-        ds = select_by_area(ds, project_geometry(ds, query.crs, geometry))
+        grid = prepare_spatial_grid(ds, require_regular=True)
+        projected_geometry = project_geometry(
+            grid.ds,
+            query.crs,
+            geometry,
+            grid.spatial_ref,
+        )
+        ds = select_by_area(grid.ds, projected_geometry, grid.spatial_ref)
     except GEOSException as e:
         logger.error(
             f"Error parsing coordinates to geometry while selecting by area: {e}",
@@ -182,7 +206,7 @@ def handle_area_query(
     logger.debug(f"Dataset filtered by polygon {geometry.boundary}: {ds}")
 
     try:
-        ds = project_dataset(ds, query.crs)
+        ds = project_dataset(ds, query.crs, grid.spatial_ref)
     except Exception as e:
         logger.error(f"Error projecting dataset while selecting by area: {e}")
         raise HTTPException(
@@ -191,6 +215,10 @@ def handle_area_query(
         )
 
     logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+    ds = _load_dataset(ds)
+
+    logger.debug("Dataset loaded")
 
     if query.format:
         try:
@@ -213,7 +241,11 @@ def handle_cube_query(
     query: EDRCubeQuery,
     query_params: dict,
 ):
-    """Select and format data for an EDR cube query"""
+    """Select and format data for an EDR cube query.
+
+    Shared by the dataset-level ``/edr/cube`` route and the OGC-core
+    ``/collections/{id}/cube`` route.
+    """
     try:
         ds = query.select(dataset, query_params)
     except ValueError as e:
@@ -226,7 +258,9 @@ def handle_cube_query(
     logger.debug(f"Dataset filtered by query params {ds}")
 
     try:
-        ds = select_by_bbox(ds, query.project_bbox(ds))
+        grid = prepare_spatial_grid(ds, require_regular=True)
+        bbox = project_bbox(grid.ds, query.crs, query.bbox, grid.spatial_ref)
+        ds = select_by_bbox(grid.ds, bbox, grid.spatial_ref)
     except KeyError as e:
         logger.error(f"Error selecting by bbox: {e}")
         raise HTTPException(
@@ -245,7 +279,7 @@ def handle_cube_query(
     )
 
     try:
-        ds = project_dataset(ds, query.crs)
+        ds = project_dataset(ds, query.crs, grid.spatial_ref)
     except Exception as e:
         logger.error(f"Error projecting dataset while selecting by area: {e}")
         raise HTTPException(
@@ -254,6 +288,10 @@ def handle_cube_query(
         )
 
     logger.debug(f"Dataset projected to {query.crs}: {ds}")
+
+    ds = _load_dataset(ds)
+
+    logger.debug("Dataset loaded")
 
     if query.format:
         try:
@@ -617,95 +655,6 @@ class CfEdrPlugin(Plugin):
                 exclude_none=True,
             )
 
-        def _run_position_query(
-            dataset: xr.Dataset,
-            query: EDRPositionQueryPost,
-            geometry: shapely.Geometry,
-            query_params: dict,
-        ):
-            """Shared select/project/format pipeline for GET and POST position queries."""
-            try:
-                ds = query.select(dataset, query_params)
-            except ValueError as e:
-                logger.error(
-                    f"Error selecting from query while selecting by position: {e}",
-                )
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Error selecting from query: {e.args[0]}",
-                )
-
-            logger.debug(f"Dataset filtered by query params {ds}")
-
-            try:
-                grid = prepare_spatial_grid(ds, require_regular=True)
-                projected_geometry = project_geometry(
-                    grid.ds,
-                    query.crs,
-                    geometry,
-                    grid.spatial_ref,
-                )
-                ds = select_by_position(
-                    grid.ds,
-                    projected_geometry,
-                    query.method,
-                    grid.spatial_ref,
-                )
-            except GEOSException as e:
-                logger.error(
-                    f"Error parsing coordinates to geometry while selecting by position: {e}",
-                )
-                raise HTTPException(
-                    status_code=422,
-                    detail="Could not parse coordinates to geometry, "
-                    + "check the format of the 'coords' query parameter",
-                )
-            except KeyError as e:
-                logger.error(f"Error selecting by position: {e}")
-                raise HTTPException(
-                    status_code=404,
-                    detail=(
-                        f"Error selecting by position: {e}. "
-                        "Ensure that dataset has valid CF metadatad has 1D coordinates."
-                    ),
-                )
-
-            logger.debug(f"Dataset filtered by position ({geometry}): {ds}")
-
-            try:
-                ds = project_dataset(ds, query.crs, grid.spatial_ref)
-            except Exception as e:
-                logger.error(
-                    f"Error projecting dataset while selecting by position: {e}",
-                )
-                raise HTTPException(
-                    status_code=404,
-                    detail="Error projecting dataset",
-                )
-
-            logger.debug(f"Dataset projected to {query.crs}: {ds}")
-
-            ds = _load_dataset(ds)
-
-            logger.debug("Dataset loaded")
-
-            if query.format:
-                try:
-                    format_fn = position_formats()[query.format]
-                except KeyError as e:
-                    logger.error(
-                        f"Error getting format function while selecting by position: {e}",
-                    )
-                    raise HTTPException(
-                        404,
-                        f"{query.format} is not a valid format for EDR position queries. "
-                        "Get `./position/formats` for valid formats",
-                    )
-
-                return format_fn(ds)
-
-            return to_cf_covjson(ds)
-
         # GET and POST are registered as separate routes (not a single
         # multi-method api_route) so that the OpenAPI marks `coords` as a
         # required query parameter on GET while POST omits it entirely (the
@@ -738,11 +687,11 @@ class CfEdrPlugin(Plugin):
                     detail="Could not parse coordinates to geometry, "
                     "check the format of the 'coords' query parameter",
                 )
-            return _run_position_query(
+            return handle_position_query(
                 dataset,
                 query,
-                geometry,
                 dict(request.query_params),
+                geometry,
             )
 
         @router.post("/position", summary="Position query (POST)")
@@ -778,87 +727,12 @@ class CfEdrPlugin(Plugin):
                 logger.error(f"Error parsing position body: {e}")
                 raise HTTPException(status_code=422, detail=str(e))
 
-            return _run_position_query(
+            return handle_position_query(
                 dataset,
                 query,
-                geometry,
                 dict(request.query_params),
+                geometry,
             )
-
-        def _run_area_query(
-            dataset: xr.Dataset,
-            query: EDRAreaQueryPost,
-            geometry: shapely.Geometry,
-            query_params: dict,
-        ):
-            """Shared select/project/format pipeline for GET and POST area queries."""
-            try:
-                ds = query.select(dataset, query_params)
-            except ValueError as e:
-                logger.error(f"Error selecting from query while selecting by area: {e}")
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Error selecting from query: {e.args[0]}",
-                )
-
-            logger.debug(f"Dataset filtered by query params {ds}")
-
-            try:
-                grid = prepare_spatial_grid(ds, require_regular=True)
-                projected_geometry = project_geometry(
-                    grid.ds,
-                    query.crs,
-                    geometry,
-                    grid.spatial_ref,
-                )
-                ds = select_by_area(grid.ds, projected_geometry, grid.spatial_ref)
-            except GEOSException as e:
-                logger.error(
-                    f"Error parsing coordinates to geometry while selecting by area: {e}",
-                )
-                raise HTTPException(
-                    status_code=422,
-                    detail="Could not parse coordinates to geometry, "
-                    + "check the format of the 'coords' query parameter",
-                )
-            except KeyError as e:
-                logger.error(f"Error selecting by area: {e}")
-                raise HTTPException(
-                    status_code=404,
-                    detail="Dataset does not have CF Convention compliant metadata",
-                )
-
-            logger.debug(f"Dataset filtered by polygon {geometry.boundary}: {ds}")
-
-            try:
-                ds = project_dataset(ds, query.crs, grid.spatial_ref)
-            except Exception as e:
-                logger.error(f"Error projecting dataset while selecting by area: {e}")
-                raise HTTPException(
-                    status_code=404,
-                    detail="Error projecting dataset",
-                )
-
-            logger.debug(f"Dataset projected to {query.crs}: {ds}")
-
-            ds = _load_dataset(ds)
-
-            logger.debug("Dataset loaded")
-
-            if query.format:
-                try:
-                    format_fn = area_formats()[query.format]
-                except KeyError as e:
-                    logger.error(f"Error getting format function: {e}")
-                    raise HTTPException(
-                        404,
-                        f"{query.format} is not a valid format for EDR area queries. "
-                        "Get `./area/formats` for valid formats",
-                    )
-
-                return format_fn(ds)
-
-            return to_cf_covjson(ds)
 
         @router.get("/area", summary="Area query")
         def get_area(
@@ -883,11 +757,11 @@ class CfEdrPlugin(Plugin):
                     detail="Could not parse coordinates to geometry, "
                     "check the format of the 'coords' query parameter",
                 )
-            return _run_area_query(
+            return handle_area_query(
                 dataset,
                 query,
-                geometry,
                 dict(request.query_params),
+                geometry,
             )
 
         @router.post("/area", summary="Area query (POST)")
@@ -923,11 +797,11 @@ class CfEdrPlugin(Plugin):
                 logger.error(f"Error parsing area body: {e}")
                 raise HTTPException(status_code=422, detail=str(e))
 
-            return _run_area_query(
+            return handle_area_query(
                 dataset,
                 query,
-                geometry,
                 dict(request.query_params),
+                geometry,
             )
 
         @router.get("/cube", summary="Cube query")
@@ -941,66 +815,6 @@ class CfEdrPlugin(Plugin):
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
-            try:
-                ds = query.select(dataset, dict(request.query_params))
-            except ValueError as e:
-                logger.error(f"Error selecting from query while selecting by cube: {e}")
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Error selecting from query: {e.args[0]}",
-                )
-
-            logger.debug(f"Dataset filtered by query params {ds}")
-
-            try:
-                grid = prepare_spatial_grid(ds, require_regular=True)
-                bbox = project_bbox(grid.ds, query.crs, query.bbox, grid.spatial_ref)
-                ds = select_by_bbox(grid.ds, bbox, grid.spatial_ref)
-            except KeyError as e:
-                logger.error(f"Error selecting by bbox: {e}")
-                raise HTTPException(
-                    status_code=404,
-                    detail="Dataset does not have CF Convention compliant metadata",
-                )
-            except ValueError as e:
-                logger.error(f"Error selecting by bbox: {e}")
-                raise HTTPException(
-                    status_code=404,
-                    detail="Error selecting by bbox, see logs for more details",
-                )
-
-            logger.debug(
-                f"Dataset filtered by bbox ({query.bbox}): {ds}",
-            )
-
-            try:
-                ds = project_dataset(ds, query.crs, grid.spatial_ref)
-            except Exception as e:
-                logger.error(f"Error projecting dataset while selecting by area: {e}")
-                raise HTTPException(
-                    status_code=404,
-                    detail="Error projecting dataset",
-                )
-
-            logger.debug(f"Dataset projected to {query.crs}: {ds}")
-
-            ds = _load_dataset(ds)
-
-            logger.debug("Dataset loaded")
-
-            if query.format:
-                try:
-                    format_fn = cube_formats()[query.format]
-                except KeyError as e:
-                    logger.error(f"Error getting format function: {e}")
-                    raise HTTPException(
-                        404,
-                        f"{query.format} is not a valid format for EDR cube queries. "
-                        "Get `./cube/formats` for valid formats",
-                    )
-
-                return format_fn(ds)
-
-            return to_cf_covjson(ds)
+            return handle_cube_query(dataset, query, dict(request.query_params))
 
         return router
