@@ -8,13 +8,8 @@ xpublish_ogc_core; skipped otherwise. Deselect with `-m "not cite"`.
 
 import platform
 
-import cf_xarray  # noqa: F401
 import pytest
-import xpublish
 from xpublish_ogc_core import teamengine
-from xpublish_ogc_core.plugin import OgcCorePlugin
-
-from xpublish_edr.plugin import CfEdrPlugin
 
 pytestmark = [
     pytest.mark.cite,
@@ -45,16 +40,9 @@ KNOWN_FAILURES = {
 }
 
 
-def test_edr_cite_suite(subtests):
-    from cf_xarray.datasets import airds
-
-    rest = xpublish.Rest(
-        {"air": airds},
-        plugins={"ogc": OgcCorePlugin(), "edr": CfEdrPlugin()},
-    )
-
+def test_edr_cite_suite(subtests, ogc_app):
     with (
-        teamengine.serve_app(rest.app) as app_url,
+        teamengine.serve_app(ogc_app) as app_url,
         teamengine.teamengine_container(ETS_IMAGE) as engine_url,
     ):
         result = teamengine.run_suite(

@@ -3,42 +3,11 @@
 This tests both the OGC core plugin serves the landing page, conformance, and collection endpoints, and the EDR plugin contributes its conformance classes, collection metadata, and data queries through the OGC hookspecs.
 """
 
-import cf_xarray  # noqa: F401
 import pytest
-import xpublish
-from fastapi.testclient import TestClient
-from xpublish_ogc_core.plugin import (
-    OGC_API_COMMON_CONFORMANCE_CLASSES,
-    OgcCorePlugin,
-)
+from xpublish_ogc_core.plugin import OGC_API_COMMON_CONFORMANCE_CLASSES
 from xpublish_ogc_core.testing import validate_response
 
-from xpublish_edr.plugin import EDR_CONFORMANCE_CLASSES, CfEdrPlugin
-
-
-@pytest.fixture(scope="module")
-def cf_air_dataset():
-    from cf_xarray.datasets import airds
-
-    return airds
-
-
-@pytest.fixture(scope="module")
-def ogc_app(cf_air_dataset):
-    rest = xpublish.Rest(
-        {"air": cf_air_dataset},
-        plugins={
-            "ogc": OgcCorePlugin(),
-            "edr": CfEdrPlugin(),
-        },
-    )
-
-    return rest.app
-
-
-@pytest.fixture(scope="module")
-def client(ogc_app):
-    return TestClient(ogc_app)
+from xpublish_edr.plugin import EDR_CONFORMANCE_CLASSES
 
 
 def test_landing_page(client):
