@@ -11,41 +11,6 @@ from fastapi.testclient import TestClient
 from xpublish_edr import CfEdrPlugin
 
 
-@pytest.fixture(scope="session")
-def cf_air_dataset():
-    from cf_xarray.datasets import airds
-
-    # Create a float16 version of the air variable
-    airds["air_float16"] = airds["air"].astype("float16")
-
-    return airds
-
-
-@pytest.fixture(scope="session")
-def cf_temp_dataset():
-    from cf_xarray.datasets import rotds
-
-    return rotds
-
-
-@pytest.fixture(scope="session")
-def cf_xpublish(cf_air_dataset, cf_temp_dataset):
-    rest = xpublish.Rest(
-        {"air": cf_air_dataset, "temp": cf_temp_dataset},
-        plugins={"edr": CfEdrPlugin()},
-    )
-
-    return rest
-
-
-@pytest.fixture(scope="session")
-def cf_client(cf_xpublish):
-    app = cf_xpublish.app
-    client = TestClient(app)
-
-    return client
-
-
 def test_cf_position_formats(cf_client):
     response = cf_client.get("/edr/position/formats")
 

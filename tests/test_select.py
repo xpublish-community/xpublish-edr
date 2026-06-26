@@ -213,6 +213,20 @@ def test_select_query_error(regular_xy_dataset):
         )
 
 
+def test_select_invalid_z_value(regular_xy_dataset):
+    """A non-numeric ``z`` is rejected before any axis selection."""
+    query = EDRPositionQuery(coords="POINT(200 45)", z="not-a-number")
+    with pytest.raises(ValueError, match="Invalid z value"):
+        query.select(regular_xy_dataset, {})
+
+
+def test_select_too_many_slice_values(regular_xy_dataset):
+    """A query param with more than two ``/``-separated values is rejected."""
+    query = EDRPositionQuery(coords="POINT(200 45)")
+    with pytest.raises(ValueError, match="Too many values for selecting"):
+        query.select(regular_xy_dataset, {"lat": "40/45/50"})
+
+
 @pytest.mark.parametrize(
     "coords",
     [
