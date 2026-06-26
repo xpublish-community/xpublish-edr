@@ -140,7 +140,7 @@ markers = [
 #   "error",
 #   "ignore:numpy.ndarray size changed:RuntimeWarning",
 # ]
-addopts = [ "-rav", "--strict-config", "--strict-markers" ]
+addopts = [ "-ra", "-v", "--strict-config", "--strict-markers" ]
 log_level = "INFO"
 minversion = "9"
 strict = true

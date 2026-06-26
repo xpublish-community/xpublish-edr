@@ -110,12 +110,7 @@ class CfEdrPlugin(Plugin):
                     "check the format of the 'coords' query parameter",
                 )
             dataset = deps.dataset(collection_id)
-            return position.handle_query(
-                dataset,
-                query,
-                dict(request.query_params),
-                geometry,
-            )
+            return query.run_query(dataset, dict(request.query_params), geometry)
 
         @router.post(
             "/collections/{collection_id}/position",
@@ -146,12 +141,7 @@ class CfEdrPlugin(Plugin):
                 raise HTTPException(status_code=422, detail=str(e))
 
             dataset = deps.dataset(collection_id)
-            return position.handle_query(
-                dataset,
-                query,
-                dict(request.query_params),
-                geometry=geometry,
-            )
+            return query.run_query(dataset, dict(request.query_params), geometry)
 
         @router.get(
             "/collections/{collection_id}/area",
@@ -177,12 +167,7 @@ class CfEdrPlugin(Plugin):
                     "check the format of the 'coords' query parameter",
                 )
             dataset = deps.dataset(collection_id)
-            return area.handle_query(
-                dataset,
-                query,
-                dict(request.query_params),
-                geometry,
-            )
+            return query.run_query(dataset, dict(request.query_params), geometry)
 
         @router.post(
             "/collections/{collection_id}/area",
@@ -213,12 +198,7 @@ class CfEdrPlugin(Plugin):
                 raise HTTPException(status_code=422, detail=str(e))
 
             dataset = deps.dataset(collection_id)
-            return area.handle_query(
-                dataset,
-                query,
-                dict(request.query_params),
-                geometry=geometry,
-            )
+            return query.run_query(dataset, dict(request.query_params), geometry)
 
         @router.get(
             "/collections/{collection_id}/cube",
@@ -236,7 +216,7 @@ class CfEdrPlugin(Plugin):
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
             dataset = deps.dataset(collection_id)
-            return cube.handle_query(dataset, query, dict(request.query_params))
+            return query.run_query(dataset, dict(request.query_params))
 
         return router
 
@@ -371,12 +351,7 @@ class CfEdrPlugin(Plugin):
                     detail="Could not parse coordinates to geometry, "
                     "check the format of the 'coords' query parameter",
                 )
-            return position.handle_query(
-                dataset,
-                query,
-                dict(request.query_params),
-                geometry,
-            )
+            return query.run_query(dataset, dict(request.query_params), geometry)
 
         @router.post("/position", summary="Position query (POST)")
         def post_position(
@@ -411,12 +386,7 @@ class CfEdrPlugin(Plugin):
                 logger.error(f"Error parsing position body: {e}")
                 raise HTTPException(status_code=422, detail=str(e))
 
-            return position.handle_query(
-                dataset,
-                query,
-                dict(request.query_params),
-                geometry,
-            )
+            return query.run_query(dataset, dict(request.query_params), geometry)
 
         @router.get("/area", summary="Area query")
         def get_area(
@@ -441,12 +411,7 @@ class CfEdrPlugin(Plugin):
                     detail="Could not parse coordinates to geometry, "
                     "check the format of the 'coords' query parameter",
                 )
-            return area.handle_query(
-                dataset,
-                query,
-                dict(request.query_params),
-                geometry,
-            )
+            return query.run_query(dataset, dict(request.query_params), geometry)
 
         @router.post("/area", summary="Area query (POST)")
         def post_area(
@@ -481,12 +446,7 @@ class CfEdrPlugin(Plugin):
                 logger.error(f"Error parsing area body: {e}")
                 raise HTTPException(status_code=422, detail=str(e))
 
-            return area.handle_query(
-                dataset,
-                query,
-                dict(request.query_params),
-                geometry,
-            )
+            return query.run_query(dataset, dict(request.query_params), geometry)
 
         @router.get("/cube", summary="Cube query")
         def get_cube(
@@ -499,6 +459,6 @@ class CfEdrPlugin(Plugin):
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
-            return cube.handle_query(dataset, query, dict(request.query_params))
+            return query.run_query(dataset, dict(request.query_params))
 
         return router
