@@ -133,15 +133,15 @@ enable_error_code = [ "ignore-without-code", "redundant-expr", "truthy-bool" ]
 strict = true
 
 [tool.pytest]
-markers = [
-    "cite: official OGC CITE compliance suites run with TeamEngine in Docker (slow)",
-]
+addopts = [ "-ra", "-v", "--strict-config", "--strict-markers" ]
 # filterwarnings = [
 #   "error",
 #   "ignore:numpy.ndarray size changed:RuntimeWarning",
 # ]
-addopts = [ "-ra", "-v", "--strict-config", "--strict-markers" ]
 log_level = "INFO"
+markers = [
+  "cite: official OGC CITE compliance suites run with TeamEngine in Docker (slow)",
+]
 minversion = "9"
 strict = true
 testpaths = [ "tests" ]
