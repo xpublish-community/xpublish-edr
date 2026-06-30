@@ -1,6 +1,4 @@
-"""
-Handle selection and formatting for position queries
-"""
+"""Handle selection and formatting for position queries"""
 
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ import xarray as xr
 import xarray.testing as xrt
 from shapely import MultiPoint, Point, from_wkt
 
-from xpublish_edr.geometry.area import select_by_area
+from xpublish_edr.area.geom import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import (
     dataset_spatial_ref,
@@ -16,8 +16,10 @@ from xpublish_edr.geometry.common import (
     project_dataset,
     with_spatial_coords,
 )
-from xpublish_edr.geometry.position import select_by_position
-from xpublish_edr.query import EDRAreaQuery, EDRCubeQuery, EDRPositionQuery
+from xpublish_edr.position.geom import select_by_position
+from xpublish_edr.area.query import EDRAreaQueryGet
+from xpublish_edr.cube.query import EDRCubeQuery
+from xpublish_edr.position.query import EDRPositionQueryGet
 
 
 @pytest.fixture(scope="function")
@@ -78,7 +80,7 @@ def regular_xy_dataset_with_string_dim():
 
 
 def test_select_query(regular_xy_dataset):
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(200 45)",
         datetime="2013-01-01T06:00:00",
         parameters="air,time",
@@ -98,7 +100,7 @@ def test_select_query(regular_xy_dataset):
     ), "Dataset shape is incorrect"
     assert ds["air"].shape == (1, 25, 53), "Dataset shape is incorrect"
 
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(200 45)",
         datetime="2013-01-01T06:00:00/2013-01-01T12:00:00",
         parameters="air,time",
@@ -118,7 +120,7 @@ def test_select_query(regular_xy_dataset):
     )
     assert ds["air"].shape == (2, 25, 53), "Dataset shape is incorrect"
 
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(203 46)",
         datetime="2013-01-01T08:00:00",
         parameters="air,time",
@@ -149,7 +151,7 @@ def test_select_query(regular_xy_dataset):
         },
     )
 
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(201 46)",
         parameters="air",
         method="linear",
@@ -172,7 +174,7 @@ def test_select_query(regular_xy_dataset):
 
 
 def test_select_query_error(regular_xy_dataset):
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(200 45)",
         datetime="2013-01-01T06:00:00",
         parameters="water",
@@ -182,7 +184,7 @@ def test_select_query_error(regular_xy_dataset):
     with pytest.raises(KeyError):
         query.select(regular_xy_dataset, query_params)
 
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(200 45)",
         datetime="2013-01-0 06:00",
         parameters="air",
@@ -191,7 +193,7 @@ def test_select_query_error(regular_xy_dataset):
     with pytest.raises(ValueError, match="Invalid datetime"):
         query.select(regular_xy_dataset, {})
 
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(200 45)",
         datetime="2013-01-01T06:00:00",
         parameters="air",
@@ -202,13 +204,48 @@ def test_select_query_error(regular_xy_dataset):
         query.select(regular_xy_dataset, {})
 
     with pytest.raises(ValueError):
-        query = EDRPositionQuery(
+        query = EDRPositionQueryGet(
             coords="POINT(200 45)",
             datetime="2013-01-01T06:00:00",
             parameters="air",
             z="100",
             method="foo",
         )
+
+
+def test_select_invalid_z_value(regular_xy_dataset):
+    """A non-numeric ``z`` is rejected before any axis selection."""
+    query = EDRPositionQueryGet(coords="POINT(200 45)", z="not-a-number")
+    with pytest.raises(ValueError, match="Invalid z value"):
+        query.select(regular_xy_dataset, {})
+
+
+def test_select_too_many_slice_values(regular_xy_dataset):
+    """A query param with more than two ``/``-separated values is rejected."""
+    query = EDRPositionQueryGet(coords="POINT(200 45)")
+    with pytest.raises(ValueError, match="Too many values for selecting"):
+        query.select(regular_xy_dataset, {"lat": "40/45/50"})
+
+
+@pytest.mark.parametrize(
+    "coords",
+    [
+        "not wkt at all",  # GEOSException (ParseException)
+        "\udce0",  # surrogate shapely cannot encode -> UnicodeDecodeError/Error
+    ],
+    ids=["unparsable", "unencodable"],
+)
+def test_geometry_invalid_coords_raise_geos_exception(coords):
+    """Any coords WKT parse failure surfaces as GEOSException.
+
+    Route handlers catch GEOSException to return a 422; if shapely raised a
+    different error type (e.g. UnicodeDecodeError) it would escape as a 500.
+    """
+    from shapely.errors import GEOSException
+
+    query = EDRPositionQueryGet(coords=coords)
+    with pytest.raises(GEOSException):
+        query.geometry
 
 
 def test_select_position_regular_xy(regular_xy_dataset):
@@ -240,7 +277,7 @@ def test_select_position_regular_xy(regular_xy_dataset):
 
 
 def test_select_position_projected_xy(projected_xy_dataset):
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(64.59063409 66.66454929)",
         crs="EPSG:4326",
     )
@@ -326,7 +363,7 @@ def test_select_position_regular_xy_multi(regular_xy_dataset):
 
 
 def test_select_position_projected_xy_multi(projected_xy_dataset):
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="MULTIPOINT(64.3 66.6, 64.6 66.5)",
         crs="EPSG:4326",
         method="linear",
@@ -422,7 +459,7 @@ def test_select_area_regular_xy(regular_xy_dataset):
 
 
 def test_select_area_projected_xy(projected_xy_dataset):
-    query = EDRAreaQuery(
+    query = EDRAreaQueryGet(
         coords="POLYGON((64.3 66.82, 64.5 66.82, 64.5 66.6, 64.3 66.6, 64.3 66.82))",
         crs="EPSG:4326",
     )
@@ -469,7 +506,7 @@ def test_select_cube_regular_xy(regular_xy_dataset):
 
 
 def test_select_string_dim(regular_xy_dataset_with_string_dim):
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(200 45)",
         datetime="2013-01-01T06:00:00",
         parameters="air",
@@ -577,7 +614,7 @@ def test_generic_extents_excludes_non_indexed_dims():
 
 def test_datetime_query_error_non_indexed(dataset_with_non_indexed_axes):
     """Datetime queries should raise clear error for non-indexed T coordinate"""
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(202 42)",
         datetime="2024-01-01T06:00:00",
         parameters="temperature",
@@ -588,7 +625,7 @@ def test_datetime_query_error_non_indexed(dataset_with_non_indexed_axes):
 
 def test_z_query_error_non_indexed(dataset_with_non_indexed_axes):
     """Z queries should raise clear error for non-indexed Z coordinate"""
-    query = EDRPositionQuery(
+    query = EDRPositionQueryGet(
         coords="POINT(202 42)",
         z="8500",
         parameters="temperature",
@@ -795,7 +832,7 @@ def test_spatial_resolution_and_position_selection(spatial_selection_case):
         case["roundtrip_crs"],
         always_xy=True,
     ).transform(*case["point"])
-    query = EDRPositionQuery(coords=f"POINT({x} {y})", crs=case["roundtrip_crs"])
+    query = EDRPositionQueryGet(coords=f"POINT({x} {y})", crs=case["roundtrip_crs"])
     selected = select_by_position(ds, query.project_geometry(ds), spatial_ref=sr)
     npt.assert_array_equal(selected["foo"].values.ravel(), [case["value"]])
 

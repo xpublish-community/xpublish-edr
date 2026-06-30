@@ -7,8 +7,8 @@ name = "xpublish-edr"
 description = ""
 readme = "README.md"
 keywords = []
-license = { file = "LICENSE.txt" }
-requires-python = ">=3.11"
+license-files = [ "LICENSE.txt" ]
+requires-python = ">=3.12"
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Science/Research",
@@ -16,7 +16,6 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
@@ -63,14 +62,20 @@ entry-points.xpublish_edr_position_formats.parquet = "xpublish_edr.formats.to_pa
 
 [dependency-groups]
 dev = [
+  "dask",
+  "httpx",
   "httpx2",
+  "jsonschema",
   "netcdf4",
   "pooch",
-  "pytest",
+  "pytest>=9",
   "pytest-cov",
   "pytest-github-actions-annotate-failures",
   "pytest-xdist",
-  "zarr>=3.0.7"
+  "referencing",
+  "schemathesis>=4.11.2",
+  "uvicorn",
+  "xpublish-ogc-core>=0.1.1",
 ]
 
 [tool.setuptools]
@@ -128,12 +133,15 @@ enable_error_code = [ "ignore-without-code", "redundant-expr", "truthy-bool" ]
 strict = true
 
 [tool.pytest]
-addopts = [ "-ra" ]
+addopts = [ "-ra", "-v", "--strict-config", "--strict-markers" ]
 # filterwarnings = [
 #   "error",
 #   "ignore:numpy.ndarray size changed:RuntimeWarning",
 # ]
 log_level = "INFO"
+markers = [
+  "cite: official OGC CITE compliance suites run with TeamEngine in Docker (slow)",
+]
 minversion = "9"
 strict = true
 testpaths = [ "tests" ]

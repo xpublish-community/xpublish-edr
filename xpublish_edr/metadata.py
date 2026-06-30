@@ -1,3 +1,7 @@
+"""
+EDR general and collection metadata generation
+"""
+
 from typing import Literal, cast
 
 import numpy as np
@@ -9,10 +13,28 @@ from pydantic import BaseModel, Field, model_serializer
 from xpublish_edr.geometry.common import (
     DEFAULT_CRS,
     SpatialRef,
+    dataset_crs,
     dataset_spatial_ref,
     spatial_bounds,
 )
 from xpublish_edr.logger import logger
+
+# EDR 1.1 is backwards compatible with 1.0, so both sets of classes are
+# declared; the CITE ets-ogcapi-edr10 suite checks for the 1.0 URIs.
+# The geojson class is not declared even though `f=geojson` is supported,
+# because the class also requires Locations resources (EDR 1.0 Abstract
+# Test 21), which are not implemented.
+EDR_CONFORMANCE_CLASSES = [
+    f"http://www.opengis.net/spec/ogcapi-edr-1/{version}/conf/{conf_class}"
+    for version in ("1.0", "1.1")
+    for conf_class in (
+        "core",
+        "collections",
+        "json",
+        "covjson",
+        "queries",
+    )
+]
 
 
 def cf_axis_is_indexed(ds: xr.Dataset, axis: str) -> bool:
@@ -57,6 +79,7 @@ class VariablesMetadata(BaseModel):
     output_formats: list[str] | None = None
     default_output_format: str | None = None
     crs_details: list[CRSDetails] | None = None
+    height_units: list[str] | None = None
 
 
 class Link(BaseModel):
@@ -89,9 +112,12 @@ class TemporalExtent(BaseModel):
     """OGC EDR Temporal Extent metadata
 
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_8f4c9f38-bc6a-4b98-8fd9-772e42d60ab2
+
+    `interval` is a list of begin/end pairs, per the `extent.temporal` schema
+    in the EDR 1.1 bundled OpenAPI document.
     """
 
-    interval: list[str]
+    interval: list[list[str | None]]
     values: list[str]
     trs: str
 
@@ -100,10 +126,13 @@ class VerticalExtent(BaseModel):
     """OGC EDR Vertical Extent metadata
 
     https://docs.ogc.org/is/19-086r6/19-086r6.html#_52bf970b-315a-4a09-8b92-51757b584a62
+
+    `interval` is a list of min/max pairs and the values are strings, per the
+    `extent.vertical` schema in the EDR 1.1 bundled OpenAPI document.
     """
 
-    interval: list[float]
-    values: list[float]
+    interval: list[list[str | None]]
+    values: list[str]
     vrs: str
 
 
@@ -320,7 +349,7 @@ def temporal_extent(ds: xr.Dataset) -> TemporalExtent | None:
     time_min = t.min().strftime("%Y-%m-%dT%H:%M:%S")
     time_max = t.max().strftime("%Y-%m-%dT%H:%M:%S")
     return TemporalExtent(
-        interval=[str(time_min), str(time_max)],
+        interval=[[str(time_min), str(time_max)]],
         values=[f"{time_min}/{time_max}"],
         trs='TIMECRS["DateTime",TDATUM["Gregorian Calendar"],CS[TemporalDateTime,1],AXIS["Time (T)",unspecified]]',  # noqa
     )
@@ -339,13 +368,14 @@ def vertical_extent(ds: xr.Dataset) -> VerticalExtent | None:
     max_z = float(np.asarray(elevations).max())
 
     return VerticalExtent(
-        interval=[min_z, max_z],
-        values=[float(v) for v in np.asarray(elevations).tolist()],
+        interval=[[str(min_z), str(max_z)]],
+        values=[str(float(v)) for v in np.asarray(elevations).tolist()],
         vrs=f"VERTCRS[VERT_CS['unknown'],AXIS['Z',{positive}],UNIT[{units},1]]",  # noqa
     )
 
 
 def _timedelta_to_iso(val: object) -> str:
+    """Convert a timedelta-like value to an ISO-8601 duration string or seconds-only fallback"""
     td = pd.Timedelta(val)
     # Prefer pandas ISO-8601 when available
     if hasattr(td, "isoformat"):
@@ -357,6 +387,7 @@ def _timedelta_to_iso(val: object) -> str:
 
 
 def _values_to_python_list(values: np.ndarray) -> list[int | float | str]:
+    """Convert a numpy array of values to a list of Python native types (int, float, str)"""
     arr = np.asarray(values)
     # datetime-like
     if np.issubdtype(arr.dtype, np.datetime64):
@@ -493,16 +524,36 @@ def extract_parameters(ds: xr.Dataset, *, extents: Extent) -> dict[str, Paramete
     }
 
 
+def supported_crs_details(ds: xr.Dataset) -> list[CRSDetails]:
+    """
+    Return CRS details for the dataset's CRS, plus WGS84 which is always available
+    """
+    crs = dataset_crs(ds)
+
+    supported_crs = [
+        crs_details(crs),
+    ]
+
+    # 4326 is always available
+    if crs != DEFAULT_CRS:
+        supported_crs.append(
+            crs_details(DEFAULT_CRS),
+        )
+
+    return supported_crs
+
+
 def position_query_description(
     output_formats: list[str],
     crs_details: list[CRSDetails],
+    href: str = "/edr/position?coords={coords}",
 ) -> EDRQueryMetadata:
     """
     Return CF version of EDR Position Query metadata
     """
     return EDRQueryMetadata(
         link=Link(
-            href="/edr/position?coords={coords}",
+            href=href,
             hreflang="en",
             rel="data",
             templated=True,
@@ -526,13 +577,14 @@ def position_query_description(
 def area_query_description(
     output_formats: list[str],
     crs_details: list[CRSDetails],
+    href: str = "/edr/area?coords={coords}",
 ) -> EDRQueryMetadata:
     """
     Return CF version of EDR Area Query metadata
     """
     return EDRQueryMetadata(
         link=Link(
-            href="/edr/area?coords={coords}",
+            href=href,
             hreflang="en",
             rel="data",
             templated=True,
@@ -556,13 +608,18 @@ def area_query_description(
 def cube_query_description(
     output_formats: list[str],
     crs_details: list[CRSDetails],
+    href: str = "/edr/cube?bbox={bbox}",
+    height_units: list[str] | None = None,
 ) -> EDRQueryMetadata:
     """
     Return CF version of EDR Cube Query metadata
+
+    `height_units` is required by the EDR `cubeDataQuery` schema, so it
+    defaults to an empty list when the dataset has no vertical axis.
     """
     return EDRQueryMetadata(
         link=Link(
-            href="/edr/cube?bbox={bbox}",
+            href=href,
             hreflang="en",
             rel="data",
             templated=True,
@@ -578,9 +635,21 @@ def cube_query_description(
                 output_formats=output_formats,
                 default_output_format="cf_covjson",
                 crs_details=crs_details,
+                height_units=height_units if height_units is not None else [],
             ),
         ),
     )
+
+
+def dataset_height_units(ds: xr.Dataset) -> list[str]:
+    """
+    Return the units that cube query vertical values can be specified in
+    """
+    if "Z" not in ds.cf:
+        return []
+
+    units = ds.cf["Z"].attrs.get("units")
+    return [units] if units else []
 
 
 def collection_metadata(
@@ -608,15 +677,7 @@ def collection_metadata(
 
     parameters = extract_parameters(ds, extents=extents)
 
-    supported_crs = [
-        crs_details(crs),
-    ]
-
-    # 4326 is always available
-    if crs != DEFAULT_CRS:
-        supported_crs.append(
-            crs_details(DEFAULT_CRS),
-        )
+    supported_crs = supported_crs_details(ds)
 
     # Common formats across all query types (e.g., exclude cube-only like geotiff)
     common_output_formats = [
@@ -633,7 +694,11 @@ def collection_metadata(
         data_queries=DataQueries(
             position=position_query_description(position_output_formats, supported_crs),
             area=area_query_description(area_output_formats, supported_crs),
-            cube=cube_query_description(cube_output_formats, supported_crs),
+            cube=cube_query_description(
+                cube_output_formats,
+                supported_crs,
+                height_units=dataset_height_units(ds),
+            ),
         ),
         crs=[crs.to_string()],
         output_formats=common_output_formats,
