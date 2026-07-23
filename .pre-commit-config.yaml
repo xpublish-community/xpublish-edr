@@ -21,7 +21,7 @@ repos:
         args: [--config=pyproject.toml]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "v0.15.20"
+    rev: "v0.15.22"
     hooks:
       - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix, --show-fixes]
@@ -51,12 +51,12 @@ repos:
   #         [typing_extensions>=4.2.0, types-setuptools, types-PyYAML]
 
   - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: "v2.25.1"
+    rev: "v2.25.3"
     hooks:
       - id: pyproject-fmt
 
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.2
+    rev: v2.4.3
     hooks:
       - id: codespell
         args:
@@ -68,7 +68,7 @@ repos:
       - id: add-trailing-comma
 
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: v1.26.1
+    rev: v1.27.0
     hooks:
       - id: zizmor
 
