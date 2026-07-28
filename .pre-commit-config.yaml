@@ -21,7 +21,7 @@ repos:
         args: [--config=pyproject.toml]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "v0.15.22"
+    rev: "v0.16.0"
     hooks:
       - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix, --show-fixes]
@@ -51,7 +51,7 @@ repos:
   #         [typing_extensions>=4.2.0, types-setuptools, types-PyYAML]
 
   - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: "v2.25.3"
+    rev: "v2.26.0"
     hooks:
       - id: pyproject-fmt
 
@@ -68,7 +68,7 @@ repos:
       - id: add-trailing-comma
 
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: v1.27.0
+    rev: v1.28.0
     hooks:
       - id: zizmor
 
