@@ -4,7 +4,6 @@ OGC EDR Query param parsing
 
 from typing import Literal
 
-import numpy as np
 import pandas as pd
 import xarray as xr
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -117,8 +116,10 @@ class BaseEDRQuery(BaseModel):
         sliced_sel_params = {}
         for key, value in query_params.items():
             # String dimensions are not sliced but they cannot be interpolated so
-            # we select them directly using equality
-            if ds[key].dtype.type is np.str_:
+            # we select them directly using equality. Kind "U" is fixed-width
+            # unicode, "T" is numpy 2's variable-width string dtype (what zarr
+            # v3 string arrays decode to).
+            if ds[key].dtype.kind in "UT":
                 sliced_sel_params[key] = value
                 continue
 

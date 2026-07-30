@@ -484,6 +484,31 @@ def test_select_string_dim(regular_xy_dataset_with_string_dim):
     assert ds["air"].shape == (1, 25, 53), "Dataset shape is incorrect"
 
 
+@pytest.mark.skipif(
+    not hasattr(np.dtypes, "StringDType"),
+    reason="variable-width StringDType requires numpy >= 2.0",
+)
+def test_select_vlen_string_dim(regular_xy_dataset_with_string_dim):
+    """Variable-width string coords (numpy 2 StringDType, produced by zarr v3
+    string arrays) must be equality-selected, not nearest-selected"""
+    ds = regular_xy_dataset_with_string_dim
+    ds = ds.assign_coords(stat=ds["stat"].astype(np.dtypes.StringDType()))
+
+    query = EDRPositionQuery(
+        coords="POINT(200 45)",
+        datetime="2013-01-01T06:00:00",
+        parameters="air",
+    )
+
+    ds = query.select(
+        ds,
+        {
+            "stat": "none",
+        },
+    )
+    assert ds["air"].shape == (1, 25, 53), "Dataset shape is incorrect"
+
+
 @pytest.fixture(scope="function")
 def dataset_with_non_indexed_axes():
     """Creates a dataset with non-indexed CF axis coordinates (like GFS forecast)"""
