@@ -17,7 +17,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.12", "3.13", "3.14"]
         os: [windows-latest, ubuntu-latest, macos-latest]
 
     steps:
@@ -37,7 +37,7 @@ jobs:
       - name: Tests
         shell: bash -l {0}
         run: >
-          uv run python -m pytest -rxs --cov=xpublish_edr --cov-report=xml tests
+          uv run python -m pytest -vrxs --cov=xpublish_edr --cov-report=xml tests
 
       - name: Upload coverage reports to Codecov with GitHub Action
         uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5

@@ -2,17 +2,26 @@
 OGC EDR Query param parsing
 """
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 import xarray as xr
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import HTTPException
+from pydantic import BaseModel, Field
 from shapely import Geometry, wkt
+from shapely.errors import GEOSException
 
 from xpublish_edr.format import area_formats, cube_formats, position_formats
-from xpublish_edr.geometry.common import project_bbox, project_geometry
+from xpublish_edr.formats.to_covjson import to_cf_covjson
+from xpublish_edr.geometry.common import (
+    PreparedSpatialGrid,
+    prepare_spatial_grid,
+    project_dataset,
+    project_geometry,
+)
 from xpublish_edr.logger import logger
+from xpublish_edr.utils import _load_dataset
 
 
 class BaseEDRQuery(BaseModel):
@@ -148,111 +157,133 @@ class BaseEDRQuery(BaseModel):
 
         return ds
 
+    def run_query(
+        self,
+        dataset: xr.Dataset,
+        query_params: dict,
+        geometry: Geometry | None = None,
+    ):
+        """Select, spatially filter, project, and format an EDR query.
 
-def validate_wkt(v: str) -> Geometry:
-    """Validate WKT"""
+        This is the shared pipeline for every geometry query. The query-type
+        specific parts -- the spatial selection, the format registry, and the
+        label used in messages -- are provided by :meth:`spatial_select`,
+        :meth:`formats`, and :meth:`query_label` on the subclasses.
+
+        ``geometry`` is the point(s)/polygon to query (parsed from ``coords`` on
+        GET or the request body on POST); cube queries ignore it and use their
+        ``bbox`` field instead.
+        """
+        try:
+            ds = self.select(dataset, query_params)
+        except ValueError as e:
+            logger.error(f"Error selecting from query for {self.query_label()} query: {e}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Error selecting from query: {e.args[0]}",
+            )
+
+        logger.debug(f"Dataset filtered by query params {ds}")
+
+        grid = prepare_spatial_grid(ds, require_regular=True)
+        ds = self.spatial_select(grid, geometry)
+
+        logger.debug(f"Dataset filtered spatially: {ds}")
+
+        try:
+            ds = project_dataset(ds, self.crs, grid.spatial_ref)
+        except Exception as e:
+            logger.error(f"Error projecting dataset for {self.query_label()} query: {e}")
+            raise HTTPException(
+                status_code=404,
+                detail="Error projecting dataset",
+            )
+
+        logger.debug(f"Dataset projected to {self.crs}: {ds}")
+
+        ds = _load_dataset(ds)
+
+        logger.debug("Dataset loaded")
+
+        if self.format:
+            try:
+                format_fn = self.formats()[self.format]
+            except KeyError as e:
+                label = self.query_label()
+                logger.error(f"Error getting format function for {label} query: {e}")
+                raise HTTPException(
+                    404,
+                    f"{self.format} is not a valid format for EDR {label} queries. "
+                    f"Get `./{label}/formats` for valid formats",
+                )
+
+            return format_fn(ds)
+
+        return to_cf_covjson(ds)
+
+    def spatial_select(
+        self,
+        grid: PreparedSpatialGrid,
+        geometry: Geometry | None = None,
+    ) -> xr.Dataset:
+        """Spatially filter the prepared grid for this query type.
+
+        Implemented by subclasses: position/area project ``geometry`` and select
+        by it; cube projects its ``bbox`` field. Implementations own their own
+        selection-error to ``HTTPException`` mapping.
+        """
+        raise NotImplementedError
+
+    def formats(self) -> dict:
+        """Return the response-format registry for this query type."""
+        raise NotImplementedError
+
+    def query_label(self) -> str:
+        """Return the query-type label (``position``/``area``/``cube``)."""
+        raise NotImplementedError
+
+
+def load_wkt(value: str) -> Geometry:
+    """Parse WKT, normalizing any parse failure to ``GEOSException``.
+
+    ``shapely.wkt.loads`` raises ``GEOSException`` for malformed WKT, but other
+    error types leak through for some inputs (e.g. ``UnicodeDecodeError`` for a
+    string GEOS cannot encode). Callers catch ``GEOSException`` to return a 422,
+    so collapse everything else into it rather than letting it escape as a 500.
+    """
     try:
-        return wkt.loads(v)
+        return wkt.loads(value)
+    except GEOSException:
+        raise
     except Exception as e:
-        raise ValueError(f"Invalid WKT: {e}")
+        raise GEOSException(f"Invalid WKT coordinates: {e}") from e
 
 
-class EDRPositionQuery(BaseEDRQuery):
+class WKTGeometryQuery:
+    """Mixin providing WKT ``coords`` geometry parsing for GET query endpoints.
+
+    Position and area GET queries take their geometry from a required ``coords``
+    query parameter (WKT); this parses and projects that geometry. Concrete
+    subclasses declare the ``coords`` field itself, since its title/description
+    differ per query type (Point vs Polygon). Intentionally not part of
+    :class:`BaseEDRQuery`: POST queries read the geometry from the request body
+    and cube queries take their extent from ``bbox``.
     """
-    Capture query parameters for EDR position queries
-    """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    coords: str | None = Field(
-        None,
-        title="Point(s) in WKT format",
-        description="Well Known Text coordinates for the point(s) to query. "
-        "Required for GET; for POST the points are read from the request body.",
-    )
-
-    @field_validator("format", mode="before")
-    def validate_format(cls, v):
-        """Validate the format is a valid position format"""
-        if v not in position_formats().keys():
-            raise ValueError(f"Invalid format: {v}")
-        return v
+    if TYPE_CHECKING:
+        # Supplied at runtime by the concrete query class (``coords``) and
+        # :class:`BaseEDRQuery` (``crs``); declared here only for type checkers.
+        coords: str
+        crs: str
 
     @property
     def geometry(self) -> Geometry:
-        """Shapely point from WKT query params"""
-        if self.coords is None:
-            raise ValueError("coords query parameter is required")
-        return wkt.loads(self.coords)
+        """Shapely geometry parsed from the WKT ``coords`` parameter."""
+        return load_wkt(self.coords)
 
     def project_geometry(self, ds: xr.Dataset) -> Geometry:
-        """Project the geometry to the dataset's CRS"""
+        """Project the query geometry to the dataset's CRS."""
         return project_geometry(ds, self.crs, self.geometry)
-
-
-class EDRAreaQuery(BaseEDRQuery):
-    """
-    Capture query parameters for EDR area queries
-    """
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    coords: str | None = Field(
-        None,
-        title="Polygon in WKT format",
-        description="Well Known Text coordinates. "
-        "Required for GET; for POST the polygon is read from the request body.",
-    )
-
-    @field_validator("format", mode="before")
-    def validate_format(cls, v):
-        """Validate the format is a valid area format"""
-        if v not in area_formats().keys():
-            raise ValueError(f"Invalid format: {v}")
-        return v
-
-    @property
-    def geometry(self) -> Geometry:
-        """Shapely polygon from WKT query params"""
-        if self.coords is None:
-            raise ValueError("coords query parameter is required")
-        return wkt.loads(self.coords)
-
-    def project_geometry(self, ds: xr.Dataset) -> Geometry:
-        """Project the geometry to the dataset's CRS"""
-        return project_geometry(ds, self.crs, self.geometry)
-
-
-class EDRCubeQuery(BaseEDRQuery):
-    """
-    Capture query parameters for EDR cube queries
-    """
-
-    bbox: tuple[float, float, float, float] = Field(
-        ...,
-        title="Bounding box in minx, miny, maxx, maxy",
-        description="Bounding box for the query",
-    )
-
-    @field_validator("format", mode="before")
-    def validate_format(cls, v):
-        """Validate the format is a valid cube format"""
-        if v not in cube_formats().keys():
-            raise ValueError(f"Invalid format: {v}")
-        return v
-
-    @field_validator("bbox", mode="before")
-    def validate_bbox(cls, v):
-        """Validate the bbox is a tuple of 4 floats"""
-        if isinstance(v, str):
-            return tuple(float(v.strip()) for v in v.split(","))
-        if isinstance(v, list):
-            return tuple(float(v.strip()) for v in v[0].split(","))
-        raise ValueError(f"Invalid bbox: {v}")
-
-    def project_bbox(self, ds: xr.Dataset) -> tuple[float, float, float, float]:
-        """Project the bbox to the dataset's CRS"""
-        return project_bbox(ds, self.crs, self.bbox)
 
 
 edr_query_params = {
