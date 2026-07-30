@@ -58,7 +58,7 @@ author = "Alex Kerney"
 # |version| and |release|, also used in various other places throughout the
 # built documents.
 #
-from xpublish_edr import __version__ as VERSION  # noqa
+from xpublish_edr import __version__ as VERSION
 
 version = VERSION
 # The full version, including alpha/beta/rc tags.

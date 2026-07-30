@@ -404,7 +404,7 @@ def test_cf_position_csv(cf_client):
 
     # single time step test
     response = cf_client.get(
-        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv&parameter-name=air&datetime=2013-01-01T00:00:00",  # noqa
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=csv&parameter-name=air&datetime=2013-01-01T00:00:00",
     )
 
     assert response.status_code == 200, "Response did not return successfully"
@@ -496,7 +496,7 @@ def test_cf_position_parquet(cf_client) -> None:
 
     # single time step test
     response = cf_client.get(
-        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=parquet&parameter-name=air&datetime=2013-01-01T00:00:00",  # noqa
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f=parquet&parameter-name=air&datetime=2013-01-01T00:00:00",
     )
 
     assert response.status_code == 200, "Response did not return successfully"
@@ -1095,7 +1095,7 @@ def test_cf_generic_extents_band_and_step():
     lon_pt = 21.5
     lat_pt = 11.0
     response = client.get(
-        f"/datasets/custom/edr/position?coords=POINT({lon_pt} {lat_pt})&parameter-name=var&step=6h&band=2&f=csv",  # noqa
+        f"/datasets/custom/edr/position?coords=POINT({lon_pt} {lat_pt})&parameter-name=var&step=6h&band=2&f=csv",
     )
     assert response.status_code == 200, "Position query should return successfully"
     assert "text/csv" in response.headers["content-type"], "Should return CSV"
