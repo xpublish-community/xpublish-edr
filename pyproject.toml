@@ -90,6 +90,15 @@ lint.extend-select = [
   "T20", # flake8-print
   "UP",  # pyupgrade
 ]
+lint.ignore = [
+  "BLE001", # blanket `except Exception` with a logged fallback is intentional here
+  "S110",   # permissive `try`/`except`/`pass` fallbacks are intentional here
+  "TRY004", # ValueError (not TypeError) is what gets mapped to HTTP 400 responses
+]
+lint.per-file-ignores."xpublish_edr/plugin.py" = [
+  "B008",   # FastAPI `Depends(...)` in argument defaults is idiomatic
+  "RUF012", # pydantic model fields; defaults are copied per-instance
+]
 
 [tool.repo-review]
 ignore = [

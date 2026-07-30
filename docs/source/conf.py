@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 #
 # xpublish_edr documentation build configuration file, created by
 # sphinx-quickstart on Mon Oct  9 21:28:42 2017.
@@ -58,7 +57,7 @@ author = "Alex Kerney"
 # |version| and |release|, also used in various other places throughout the
 # built documents.
 #
-from xpublish_edr import __version__ as VERSION  # noqa
+from xpublish_edr import __version__ as VERSION
 
 version = VERSION
 # The full version, including alpha/beta/rc tags.

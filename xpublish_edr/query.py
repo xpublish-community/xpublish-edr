@@ -4,7 +4,6 @@ OGC EDR Query param parsing
 
 from typing import Literal
 
-import numpy as np
 import pandas as pd
 import xarray as xr
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -117,8 +116,10 @@ class BaseEDRQuery(BaseModel):
         sliced_sel_params = {}
         for key, value in query_params.items():
             # String dimensions are not sliced but they cannot be interpolated so
-            # we select them directly using equality
-            if ds[key].dtype.type is np.str_:
+            # we select them directly using equality. Kind "U" is fixed-width
+            # unicode, "T" is numpy 2's variable-width string dtype (what zarr
+            # v3 string arrays decode to).
+            if ds[key].dtype.kind in "UT":
                 sliced_sel_params[key] = value
                 continue
 
@@ -174,7 +175,7 @@ class EDRPositionQuery(BaseEDRQuery):
     @field_validator("format", mode="before")
     def validate_format(cls, v):
         """Validate the format is a valid position format"""
-        if v not in position_formats().keys():
+        if v not in position_formats():
             raise ValueError(f"Invalid format: {v}")
         return v
 
@@ -207,7 +208,7 @@ class EDRAreaQuery(BaseEDRQuery):
     @field_validator("format", mode="before")
     def validate_format(cls, v):
         """Validate the format is a valid area format"""
-        if v not in area_formats().keys():
+        if v not in area_formats():
             raise ValueError(f"Invalid format: {v}")
         return v
 
@@ -237,7 +238,7 @@ class EDRCubeQuery(BaseEDRQuery):
     @field_validator("format", mode="before")
     def validate_format(cls, v):
         """Validate the format is a valid cube format"""
-        if v not in cube_formats().keys():
+        if v not in cube_formats():
             raise ValueError(f"Invalid format: {v}")
         return v
 

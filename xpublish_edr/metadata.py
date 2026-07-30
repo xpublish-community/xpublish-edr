@@ -322,7 +322,7 @@ def temporal_extent(ds: xr.Dataset) -> TemporalExtent | None:
     return TemporalExtent(
         interval=[str(time_min), str(time_max)],
         values=[f"{time_min}/{time_max}"],
-        trs='TIMECRS["DateTime",TDATUM["Gregorian Calendar"],CS[TemporalDateTime,1],AXIS["Time (T)",unspecified]]',  # noqa
+        trs='TIMECRS["DateTime",TDATUM["Gregorian Calendar"],CS[TemporalDateTime,1],AXIS["Time (T)",unspecified]]',
     )
 
 
@@ -341,7 +341,7 @@ def vertical_extent(ds: xr.Dataset) -> VerticalExtent | None:
     return VerticalExtent(
         interval=[min_z, max_z],
         values=[float(v) for v in np.asarray(elevations).tolist()],
-        vrs=f"VERTCRS[VERT_CS['unknown'],AXIS['Z',{positive}],UNIT[{units},1]]",  # noqa
+        vrs=f"VERTCRS[VERT_CS['unknown'],AXIS['Z',{positive}],UNIT[{units},1]]",
     )
 
 
@@ -508,11 +508,11 @@ def position_query_description(
             templated=True,
             variables=VariablesMetadata(
                 title="Position query",
-                description="Returns position data based on WKT `POINT(lon lat)` or `MULTIPOINT(lon lat, ...)` coordinates",  # noqa
+                description="Returns position data based on WKT `POINT(lon lat)` or `MULTIPOINT(lon lat, ...)` coordinates",
                 query_type="position",
                 coords={
                     "type": "string",
-                    "description": "WKT `POINT(lon lat)` or `MULTIPOINT(lon lat, ...)` coordinates",  # noqa
+                    "description": "WKT `POINT(lon lat)` or `MULTIPOINT(lon lat, ...)` coordinates",
                     "required": True,
                 },
                 output_formats=output_formats,
@@ -538,7 +538,7 @@ def area_query_description(
             templated=True,
             variables=VariablesMetadata(
                 title="Area query",
-                description="Returns data in a polygon based on WKT `POLYGON(lon lat, ...)` coordinates",  # noqa
+                description="Returns data in a polygon based on WKT `POLYGON(lon lat, ...)` coordinates",
                 query_type="area",
                 coords={
                     "type": "string",
