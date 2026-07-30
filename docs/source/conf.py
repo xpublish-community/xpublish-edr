@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 #
 # xpublish_edr documentation build configuration file, created by
 # sphinx-quickstart on Mon Oct  9 21:28:42 2017.

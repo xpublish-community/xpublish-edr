@@ -175,7 +175,7 @@ class EDRPositionQuery(BaseEDRQuery):
     @field_validator("format", mode="before")
     def validate_format(cls, v):
         """Validate the format is a valid position format"""
-        if v not in position_formats().keys():
+        if v not in position_formats():
             raise ValueError(f"Invalid format: {v}")
         return v
 
@@ -208,7 +208,7 @@ class EDRAreaQuery(BaseEDRQuery):
     @field_validator("format", mode="before")
     def validate_format(cls, v):
         """Validate the format is a valid area format"""
-        if v not in area_formats().keys():
+        if v not in area_formats():
             raise ValueError(f"Invalid format: {v}")
         return v
 
@@ -238,7 +238,7 @@ class EDRCubeQuery(BaseEDRQuery):
     @field_validator("format", mode="before")
     def validate_format(cls, v):
         """Validate the format is a valid cube format"""
-        if v not in cube_formats().keys():
+        if v not in cube_formats():
             raise ValueError(f"Invalid format: {v}")
         return v
 
