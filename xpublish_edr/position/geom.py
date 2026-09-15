@@ -19,7 +19,7 @@ from xpublish_edr.geometry.common import (
 from xpublish_edr.geometry.ugrid import IndexedGrid, MeshInfo, variable_location
 from xpublish_edr.logger import logger
 
-#: Temporary dimension holding the three vertices of each containing triangle.
+# Temporary dimension holding the three vertices of each containing triangle.
 VERTEX_DIM = "_vertex"
 
 

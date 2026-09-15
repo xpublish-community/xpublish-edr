@@ -13,6 +13,8 @@ import shapely
 import xarray as xr
 from xpublish.utils.api import DATASET_ID_ATTR_KEY
 
+from xpublish_edr.area.geom import select_by_area
+from xpublish_edr.area.query import EDRAreaQueryGet
 from xpublish_edr.geometry import ugrid as ugrid_module
 from xpublish_edr.geometry.common import (
     GridKind,
@@ -22,6 +24,7 @@ from xpublish_edr.geometry.common import (
     grid_kind,
     prepare_spatial_grid,
     project_dataset,
+    project_geometry,
     selected_spatial_ref,
     selection_targets,
 )
@@ -1155,3 +1158,123 @@ def test_run_query_position_unstructured_multipoint_reprojected():
     assert list(covjson["ranges"]["zeta"]["shape"]) == [4, 2]
     np.testing.assert_allclose(covjson["domain"]["axes"]["x"]["values"], [x0, x1])
     np.testing.assert_allclose(covjson["domain"]["axes"]["y"]["values"], [y0, y1])
+
+
+#: A box entirely interior to the 5x5 lattice, away from any node/centroid lon/lat value.
+AREA_POLYGON_WKT = "POLYGON((-69.8 43.2, -69.8 43.8, -69.2 43.8, -69.2 43.2, -69.8 43.2))"
+AREA_POLYGON = shapely.from_wkt(AREA_POLYGON_WKT)
+
+
+def select_area(
+    ds: xr.Dataset,
+    source: xr.Dataset,
+    polygon: shapely.Geometry,
+) -> xr.Dataset:
+    """Run the full prepare + select pipeline the way ``run_query`` does."""
+    prepared = prepare_spatial_grid(ds, source=source, require_selectable=True)
+    return select_by_area(prepared.ds, polygon, prepared.spatial_ref, grid=prepared.grid)
+
+
+def test_select_by_area_nodes(fvcom_dataset):
+    """Node selection matches every node whose lon/lat falls inside the polygon."""
+    lon = fvcom_dataset["lon"].values
+    lat = fvcom_dataset["lat"].values
+    minx, miny, maxx, maxy = AREA_POLYGON.bounds
+    expected = np.flatnonzero((lon >= minx) & (lon <= maxx) & (lat >= miny) & (lat <= maxy))
+    assert expected.size > 0
+
+    ds = select_area(fvcom_dataset[["zeta"]], fvcom_dataset, AREA_POLYGON)
+
+    assert ds["zeta"].dims == ("time", "pts")
+    assert "node" not in ds.dims
+    assert ds.sizes["pts"] == expected.size
+    np.testing.assert_allclose(ds["lon"].values, lon[expected])
+    np.testing.assert_allclose(ds["lat"].values, lat[expected])
+    np.testing.assert_allclose(
+        ds["zeta"].values,
+        fvcom_dataset["zeta"].isel(node=expected).values,
+    )
+
+
+def test_select_by_area_faces(fvcom_dataset):
+    """Face selection matches every face whose xugrid centroid falls inside the polygon.
+
+    For this planar lattice fixture, xugrid's computed centroids coincide with
+    the fixture's own ``lonc``/``latc`` UGRID face coordinates.
+    """
+    lonc = fvcom_dataset["lonc"].values
+    latc = fvcom_dataset["latc"].values
+    minx, miny, maxx, maxy = AREA_POLYGON.bounds
+    expected = np.flatnonzero((lonc >= minx) & (lonc <= maxx) & (latc >= miny) & (latc <= maxy))
+    assert expected.size > 0
+
+    ds = select_area(fvcom_dataset[["u"]], fvcom_dataset, AREA_POLYGON)
+
+    assert ds["u"].dims == ("time", "pts")
+    assert "nele" not in ds.dims
+    assert ds.sizes["pts"] == expected.size
+    np.testing.assert_allclose(ds["lonc"].values, lonc[expected])
+    np.testing.assert_allclose(ds["latc"].values, latc[expected])
+    np.testing.assert_allclose(
+        ds["u"].values,
+        fvcom_dataset["u"].isel(nele=expected).values,
+    )
+
+
+def test_select_by_area_outside_mesh_is_empty(fvcom_dataset):
+    """A polygon entirely outside the mesh yields a zero-length ``pts``."""
+    outside = shapely.box(-80.0, 30.0, -79.0, 31.0)
+    ds = select_area(fvcom_dataset[["zeta"]], fvcom_dataset, outside)
+    assert ds.sizes["pts"] == 0
+
+
+def test_select_by_area_rejects_mixed_locations(fvcom_dataset):
+    """An area query over both node- and face-located parameters is an error."""
+    with pytest.raises(ValueError, match="mix"):
+        select_area(fvcom_dataset[["zeta", "u"]], fvcom_dataset, AREA_POLYGON)
+
+
+def test_select_by_area_reprojected_polygon(fvcom_dataset):
+    """A polygon supplied in EPSG:3857 selects the same nodes as the lon/lat polygon."""
+    to_3857 = pyproj.Transformer.from_crs(4326, 3857, always_xy=True)
+    x, y = to_3857.transform(*zip(*AREA_POLYGON.exterior.coords))
+    polygon_3857 = shapely.Polygon(np.column_stack([x, y]))
+
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+    polygon_native = project_geometry(fvcom_dataset, "EPSG:3857", polygon_3857, spatial_ref)
+
+    lonlat_ds = select_area(fvcom_dataset[["zeta"]], fvcom_dataset, AREA_POLYGON)
+    reprojected_ds = select_area(fvcom_dataset[["zeta"]], fvcom_dataset, polygon_native)
+
+    assert reprojected_ds.sizes["pts"] == lonlat_ds.sizes["pts"]
+    np.testing.assert_allclose(
+        reprojected_ds["lon"].values,
+        lonlat_ds["lon"].values,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        reprojected_ds["lat"].values,
+        lonlat_ds["lat"].values,
+        atol=1e-6,
+    )
+
+
+def test_run_query_area_unstructured():
+    """An end to end area query returns a ``(t, pts)`` CoverageJSON coverage."""
+    ds = make_fvcom_dataset()
+    ds.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
+
+    lon = ds["lon"].values
+    lat = ds["lat"].values
+    minx, miny, maxx, maxy = AREA_POLYGON.bounds
+    expected = np.flatnonzero((lon >= minx) & (lon <= maxx) & (lat >= miny) & (lat <= maxy))
+
+    query = EDRAreaQueryGet.model_validate(
+        {"coords": AREA_POLYGON_WKT, "parameter-name": "zeta"},
+    )
+    covjson = query.run_query(ds, {}, query.geometry, cache=cachey.Cache(1e9))
+
+    assert covjson["type"] == "Coverage"
+    assert set(covjson["ranges"]) == {"zeta"}
+    assert covjson["ranges"]["zeta"]["axisNames"] == ["t", "pts"]
+    assert list(covjson["ranges"]["zeta"]["shape"]) == [4, expected.size]
