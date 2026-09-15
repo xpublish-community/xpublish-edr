@@ -11,22 +11,31 @@ from xpublish_edr.geometry.common import (
     SpatialRef,
     prepare_spatial_grid,
 )
+from xpublish_edr.geometry.ugrid import IndexedGrid
 
 
 def select_by_area(
     ds: xr.Dataset,
     polygon: shapely.Polygon,
     spatial_ref: SpatialRef | None = None,
+    grid: IndexedGrid | None = None,
 ) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
+
+    ``grid`` is the mesh index for an unstructured dataset
     """
-    grid = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_selectable=True)
+    prepared = prepare_spatial_grid(
+        ds,
+        spatial_ref=spatial_ref,
+        require_selectable=True,
+        grid=grid,
+    )
     return _select_area_regular_xy_grid(
-        grid.ds,
+        prepared.ds,
         polygon,
-        grid.spatial_ref.X,
-        grid.spatial_ref.Y,
+        prepared.spatial_ref.X,
+        prepared.spatial_ref.Y,
     )
 
 

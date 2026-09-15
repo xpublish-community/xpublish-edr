@@ -2,12 +2,13 @@
 Common geometry handling functions
 """
 
+from __future__ import annotations
+
 import enum
 import itertools
 from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import lru_cache, partial
-from typing import Any
+from typing import TYPE_CHECKING
 
 import cf_xarray  # noqa: F401  (registers the ``.cf`` dataset accessor)
 import numpy as np
@@ -19,14 +20,19 @@ import xarray as xr
 from rasterix.rioxarray_compat import guess_dims
 from shapely import Geometry
 
-from xpublish_edr.geometry.ugrid import MeshInfo, detect_mesh
+from xpublish_edr.geometry.proj import transformer_from_crs
+from xpublish_edr.geometry.ugrid import (
+    IndexedGrid,
+    MeshInfo,
+    detect_mesh,
+    get_indexed_grid,
+)
 from xpublish_edr.logger import logger
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import cachey
+
 VECTORIZED_DIM = "pts"
-
-# https://pyproj4.github.io/pyproj/stable/advanced_examples.html#caching-pyproj-objects
-transformer_from_crs = lru_cache(partial(pyproj.Transformer.from_crs, always_xy=True))
-
 
 DEFAULT_CRS = pyproj.CRS.from_epsg(4326)
 
@@ -67,7 +73,7 @@ class PreparedSpatialGrid:
     ds: xr.Dataset
     spatial_ref: SpatialRef
     kind: GridKind | None = None
-    grid: Any = None
+    grid: IndexedGrid | None = None
 
 
 def _is_rotated_pole(crs: pyproj.CRS) -> bool:
@@ -400,18 +406,44 @@ def grid_kind(ds: xr.Dataset, spatial_ref: SpatialRef) -> GridKind | None:
     return None
 
 
+#: Variables that can hold a CF grid mapping written by rioxarray.
+GRID_MAPPING_VARS = ("spatial_ref", "crs")
+
+
+def _carry_grid_mapping(ds: xr.Dataset, source: xr.Dataset) -> xr.Dataset:
+    """Copy a scalar grid mapping variable from ``source`` onto a filtered subset.
+
+    Resolving a CRS materializes a ``spatial_ref`` variable on the dataset it is
+    resolved from (rioxarray's ``write_crs``). When spatial metadata is resolved
+    from the unfiltered ``source`` (which mesh detection requires, since the
+    ``parameter-name`` filter drops the topology variables) carry that variable
+    over so the CRS still travels with the filtered dataset on export.
+    """
+    for name in GRID_MAPPING_VARS:
+        if name in source.coords and name not in ds.variables and source[name].ndim == 0:
+            ds = ds.assign_coords({name: source[name]})
+    return ds
+
+
 def prepare_spatial_grid(
     ds: xr.Dataset,
     spatial_ref: SpatialRef | None = None,
     *,
     require_selectable: bool = False,
     source: xr.Dataset | None = None,
+    cache: cachey.Cache | None = None,
+    grid: IndexedGrid | None = None,
 ) -> PreparedSpatialGrid:
     """Resolve spatial metadata once and materialize affine coordinates if needed.
 
     ``source`` is the unfiltered dataset to resolve spatial metadata from. The
     ``parameter-name`` filter drops the UGRID topology and connectivity
     variables, so mesh detection has to happen against the full dataset.
+
+    For an unstructured (UGRID) dataset a selectable grid also needs a built
+    spatial index; it is built here (via ``cache``, xpublish's application
+    cache) unless an already built ``grid`` is handed in. Metadata-only callers
+    leave ``require_selectable`` False and never need xugrid.
     """
     try:
         spatial_ref = spatial_ref or dataset_spatial_ref(source if source is not None else ds)
@@ -420,6 +452,9 @@ def prepare_spatial_grid(
             raise NotImplementedError("Only 1D coordinates are supported") from e
         raise
 
+    if source is not None:
+        ds = _carry_grid_mapping(ds, source)
+
     if spatial_ref.mesh is None:
         # Affine materialization only applies to regular X/Y grids
         ds = with_spatial_coords(ds, spatial_ref)
@@ -427,7 +462,14 @@ def prepare_spatial_grid(
     kind = grid_kind(ds, spatial_ref)
     if require_selectable and kind is None:
         raise NotImplementedError("Only 1D coordinates are supported")
-    return PreparedSpatialGrid(ds=ds, spatial_ref=spatial_ref, kind=kind)
+
+    if kind is GridKind.UNSTRUCTURED and require_selectable and grid is None:
+        grid = get_indexed_grid(
+            source if source is not None else ds,
+            spatial_ref,
+            cache,
+        )
+    return PreparedSpatialGrid(ds=ds, spatial_ref=spatial_ref, kind=kind, grid=grid)
 
 
 def is_regular_xy_coords(

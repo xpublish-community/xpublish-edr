@@ -60,6 +60,7 @@ class EDRPositionQueryPost(BaseEDRQuery):
                 projected_geometry,
                 self.method,
                 grid.spatial_ref,
+                grid=grid.grid,
             )
         except GEOSException as e:
             logger.error(

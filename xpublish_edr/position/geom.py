@@ -13,6 +13,7 @@ from xpublish_edr.geometry.common import (
     SpatialRef,
     prepare_spatial_grid,
 )
+from xpublish_edr.geometry.ugrid import IndexedGrid
 
 
 def select_by_position(
@@ -20,13 +21,22 @@ def select_by_position(
     point: shapely.Point | shapely.MultiPoint,
     method: Literal["nearest", "linear"] = "nearest",
     spatial_ref: SpatialRef | None = None,
+    grid: IndexedGrid | None = None,
 ) -> xr.Dataset:
     """
     Return a dataset with the position nearest to the given coordinates
+
+    ``grid`` is the mesh index for an unstructured dataset, already built (and
+    cached) by the caller; it is passed through so it is not rebuilt here.
     """
-    grid = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_selectable=True)
-    ds = grid.ds
-    X, Y = grid.spatial_ref.X, grid.spatial_ref.Y
+    prepared = prepare_spatial_grid(
+        ds,
+        spatial_ref=spatial_ref,
+        require_selectable=True,
+        grid=grid,
+    )
+    ds = prepared.ds
+    X, Y = prepared.spatial_ref.X, prepared.spatial_ref.Y
 
     if isinstance(point, shapely.Point):
         return _select_by_position_regular_xy_grid(ds, point, X, Y, method)

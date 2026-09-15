@@ -19,8 +19,12 @@ from xpublish_edr.geometry.common import (
     project_dataset,
     project_geometry,
 )
+from xpublish_edr.geometry.ugrid import UgridSupportUnavailable
 from xpublish_edr.logger import logger
 from xpublish_edr.utils import _load_dataset
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import cachey
 
 
 class BaseEDRQuery(BaseModel):
@@ -163,6 +167,7 @@ class BaseEDRQuery(BaseModel):
         dataset: xr.Dataset,
         query_params: dict,
         geometry: Geometry | None = None,
+        cache: "cachey.Cache | None" = None,
     ):
         """Select, spatially filter, project, and format an EDR query.
 
@@ -173,7 +178,8 @@ class BaseEDRQuery(BaseModel):
 
         ``geometry`` is the point(s)/polygon to query (parsed from ``coords`` on
         GET or the request body on POST); cube queries ignore it and use their
-        ``bbox`` field instead.
+        ``bbox`` field instead. ``cache`` is xpublish's application cache, used
+        to keep an unstructured dataset's spatial index between requests.
         """
         try:
             ds = self.select(dataset, query_params)
@@ -186,7 +192,17 @@ class BaseEDRQuery(BaseModel):
 
         logger.debug(f"Dataset filtered by query params {ds}")
 
-        grid = prepare_spatial_grid(ds, require_selectable=True)
+        try:
+            grid = prepare_spatial_grid(
+                ds,
+                source=dataset,
+                require_selectable=True,
+                cache=cache,
+            )
+        except UgridSupportUnavailable as e:
+            logger.error(f"Cannot query UGRID mesh for {self.query_label()} query: {e}")
+            raise HTTPException(status_code=501, detail=str(e))
+
         ds = self.spatial_select(grid, geometry)
 
         logger.debug(f"Dataset filtered spatially: {ds}")

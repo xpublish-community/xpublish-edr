@@ -55,7 +55,12 @@ class EDRAreaQueryPost(BaseEDRQuery):
                 geometry,
                 grid.spatial_ref,
             )
-            return select_by_area(grid.ds, projected_geometry, grid.spatial_ref)
+            return select_by_area(
+                grid.ds,
+                projected_geometry,
+                grid.spatial_ref,
+                grid=grid.grid,
+            )
         except GEOSException as e:
             logger.error(
                 f"Error parsing coordinates to geometry while selecting by area: {e}",

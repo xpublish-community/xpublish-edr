@@ -66,7 +66,7 @@ class EDRCubeQuery(BaseEDRQuery):
         """
         try:
             bbox = project_bbox(grid.ds, self.crs, self.bbox, grid.spatial_ref)
-            return select_by_bbox(grid.ds, bbox, grid.spatial_ref)
+            return select_by_bbox(grid.ds, bbox, grid.spatial_ref, grid=grid.grid)
         except KeyError as e:
             logger.error(f"Error selecting by bbox: {e}")
             raise HTTPException(

@@ -1,12 +1,19 @@
 """Tests for UGRID (FVCOM-style unstructured mesh) detection and X/Y resolution."""
 
+import dataclasses
+import logging
 import sys
 
+import cachey
 import numpy as np
 import pandas as pd
+import pyproj
 import pytest
+import shapely
 import xarray as xr
+from xpublish.utils.api import DATASET_ID_ATTR_KEY
 
+from xpublish_edr.geometry import ugrid as ugrid_module
 from xpublish_edr.geometry.common import (
     GridKind,
     dataset_spatial_ref,
@@ -14,9 +21,13 @@ from xpublish_edr.geometry.common import (
     prepare_spatial_grid,
 )
 from xpublish_edr.geometry.ugrid import (
+    IndexedGrid,
     UgridSupportUnavailable,
+    _index_crs_for,
     _require_xugrid,
+    build_grid,
     detect_mesh,
+    get_indexed_grid,
     restore_ugrid_attrs,
     variable_location,
 )
@@ -204,10 +215,56 @@ def make_curvilinear_dataset() -> xr.Dataset:
     )
 
 
+def make_triangle_dataset(lon: np.ndarray, lat: np.ndarray) -> xr.Dataset:
+    """Build a minimal UGRID dataset with a single triangular face."""
+    return xr.Dataset(
+        data_vars={
+            "nv": (
+                ("three", "nele"),
+                np.array([[0], [1], [2]], dtype="int32"),
+                {"cf_role": "face_node_connectivity", "start_index": 0},
+            ),
+            "mesh_topology": (
+                (),
+                np.int32(0),
+                {
+                    "cf_role": "mesh_topology",
+                    "topology_dimension": 2,
+                    "node_coordinates": "lon lat",
+                    "face_node_connectivity": "nv",
+                    "face_dimension": "nele",
+                },
+            ),
+            "zeta": (("node",), np.arange(lon.size, dtype="float32"), {"location": "node"}),
+        },
+        coords={
+            "lon": (
+                ("node",),
+                lon,
+                {"standard_name": "longitude", "units": "degrees_east"},
+            ),
+            "lat": (
+                ("node",),
+                lat,
+                {"standard_name": "latitude", "units": "degrees_north"},
+            ),
+        },
+        attrs={"Conventions": "CF-1.11, UGRID-1.0"},
+    )
+
+
 @pytest.fixture
 def fvcom_dataset() -> xr.Dataset:
     """A default 5x5-node FVCOM-style UGRID dataset."""
     return make_fvcom_dataset()
+
+
+@pytest.fixture
+def fvcom_grid(fvcom_dataset) -> IndexedGrid:
+    """An :class:`IndexedGrid` built from the default FVCOM fixture."""
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+    assert spatial_ref.mesh is not None
+    return build_grid(fvcom_dataset, spatial_ref.mesh, spatial_ref.crs)
 
 
 def test_restore_ugrid_attrs_from_encoding():
@@ -403,3 +460,242 @@ def test_require_xugrid_missing_extra(monkeypatch):
     monkeypatch.setitem(sys.modules, "xugrid", None)
     with pytest.raises(UgridSupportUnavailable, match=r"install xpublish-edr\[ugrid\]"):
         _require_xugrid()
+
+
+def test_build_grid_parses_fvcom_layout(fvcom_dataset, fvcom_grid):
+    """xugrid parses the 1-based, vertex-first ``nv(three, nele)`` connectivity."""
+    side = 5
+    grid = fvcom_grid.grid
+    assert grid.n_face == 2 * (side - 1) ** 2
+    assert grid.n_node == side * side
+    connectivity = grid.face_node_connectivity
+    assert connectivity.shape == (grid.n_face, 3)
+    assert connectivity.min() == 0
+    assert connectivity.max() == grid.n_node - 1
+
+    assert fvcom_grid.mesh.topology == "mesh_topology"
+    assert fvcom_grid.nbytes > 0
+    assert fvcom_grid.build_seconds > 0
+
+    assert fvcom_grid.node_xy.shape == (grid.n_node, 2)
+    assert fvcom_grid.face_xy.shape == (grid.n_face, 2)
+
+
+def test_build_grid_indexes_in_local_aeqd(fvcom_dataset, fvcom_grid):
+    """A regional geographic mesh is indexed in a local azimuthal equidistant plane."""
+    assert fvcom_grid.crs.to_epsg() == 4326
+    assert not fvcom_grid.index_crs.is_geographic
+    assert fvcom_grid.index_crs.coordinate_operation.method_name == "Azimuthal Equidistant"
+
+    lon0 = float(fvcom_dataset["lon"].values.mean())
+    lat0 = float(fvcom_dataset["lat"].values.mean())
+    centre = fvcom_grid.project(np.array([lon0]), np.array([lat0]))
+    assert centre.shape == (1, 2)
+    np.testing.assert_allclose(centre[0], [0.0, 0.0], atol=1.0)
+
+    # The mesh itself is held in the index plane, i.e. metres, not degrees
+    assert np.abs(fvcom_grid.node_xy).max() > 1e3
+
+
+def test_index_crs_for_projected_crs_is_identity():
+    """A projected dataset CRS is indexed as-is."""
+    crs = pyproj.CRS.from_epsg(3857)
+    assert _index_crs_for((-1e6, -1e6, 1e6, 1e6), crs) == crs
+
+
+def test_index_crs_for_global_mesh_is_identity():
+    """A near-global geographic mesh keeps its own CRS."""
+    crs = pyproj.CRS.from_epsg(4326)
+    assert _index_crs_for((-180.0, -80.0, 180.0, 80.0), crs) == crs
+
+
+def test_nearest_nodes(fvcom_grid):
+    """Nearest node lookup returns the node itself for slightly offset points."""
+    expected = np.array([0, 3, 7, 12, 24])
+    xy = fvcom_grid.node_xy[expected] + np.array([1.0, -1.0])
+    np.testing.assert_array_equal(fvcom_grid.nearest_nodes(xy), expected)
+
+
+def test_containing_and_nearest_faces(fvcom_grid):
+    """Faces are located inside the mesh and fall back to nearest outside it."""
+    inside = fvcom_grid.face_xy[[0, 5, 31]]
+    np.testing.assert_array_equal(fvcom_grid.containing_faces(inside), [0, 5, 31])
+
+    outside = fvcom_grid.project(np.array([-80.0]), np.array([30.0]))
+    assert fvcom_grid.containing_faces(outside)[0] == -1
+
+    nearest = fvcom_grid.nearest_faces(outside)
+    assert 0 <= nearest[0] < fvcom_grid.grid.n_face
+
+
+def test_barycentric_weights(fvcom_grid):
+    """Barycentric weights are convex inside the mesh and flagged outside."""
+    inside = fvcom_grid.face_xy[[0, 5, 31]]
+    outside = fvcom_grid.project(np.array([-80.0]), np.array([30.0]))
+    xy = np.vstack([inside, outside])
+
+    faces, weights = fvcom_grid.barycentric(xy)
+    np.testing.assert_array_equal(faces[:3], [0, 5, 31])
+    assert faces[3] == -1
+
+    assert (weights[:3] >= -1e-9).all()
+    np.testing.assert_allclose(weights[:3].sum(axis=1), 1.0, atol=1e-9)
+    np.testing.assert_allclose(weights[3], 0.0, atol=1e-12)
+
+    connectivity = fvcom_grid.grid.face_node_connectivity
+    for i in range(3):
+        vertices = fvcom_grid.node_xy[connectivity[faces[i]]]
+        recovered = (vertices * weights[i][:, None]).sum(axis=0)
+        np.testing.assert_allclose(recovered, xy[i], atol=1e-6)
+
+
+def test_project_geometry(fvcom_grid):
+    """Query geometry is projected into the index plane with the same transformer."""
+    point = shapely.Point(-69.5, 43.5)
+    projected = fvcom_grid.project_geometry(point)
+    expected = fvcom_grid.project(np.array([-69.5]), np.array([43.5]))[0]
+    np.testing.assert_allclose([projected.x, projected.y], expected)
+
+    polygon = shapely.box(-70.0, 43.0, -69.0, 44.0)
+    projected_polygon = fvcom_grid.project_geometry(polygon)
+    assert projected_polygon.area > 1e8  # square metres, not square degrees
+
+
+def test_nearest_nodes_uses_metric_distance():
+    """Nearest node is measured in metres, not degrees.
+
+    At 43 degrees north 0.5 degrees of longitude is ~40.7 km while 0.4 degrees
+    of latitude is ~44.5 km, so a naive lookup in degree space picks the wrong
+    node.
+    """
+    lon = np.array([-68.5, -69.0, -69.5])
+    lat = np.array([43.0, 43.4, 42.9])
+    ds = make_triangle_dataset(lon, lat)
+    spatial_ref = dataset_spatial_ref(ds)
+    assert spatial_ref.mesh is not None
+    grid = build_grid(ds, spatial_ref.mesh, spatial_ref.crs)
+
+    query_lon, query_lat = -69.0, 43.0
+    degree_distance = np.hypot(lon - query_lon, lat - query_lat)
+    assert int(degree_distance.argmin()) == 1
+
+    xy = grid.project(np.array([query_lon]), np.array([query_lat]))
+    (node,) = grid.nearest_nodes(xy)
+    np.testing.assert_allclose(
+        grid.node_xy[node],
+        grid.project(lon[:1], lat[:1])[0],
+        atol=1e-6,
+    )
+
+
+def test_build_grid_dask_backed():
+    """A chunked dataset builds the same grid as the in-memory one."""
+    ds = make_fvcom_dataset(dask=True)
+    spatial_ref = dataset_spatial_ref(ds)
+    assert spatial_ref.mesh is not None
+    grid = build_grid(ds, spatial_ref.mesh, spatial_ref.crs)
+
+    reference = build_grid(make_fvcom_dataset(), spatial_ref.mesh, spatial_ref.crs)
+    assert isinstance(grid.node_xy, np.ndarray)
+    np.testing.assert_allclose(grid.node_xy, reference.node_xy)
+    np.testing.assert_array_equal(
+        grid.grid.face_node_connectivity,
+        reference.grid.face_node_connectivity,
+    )
+
+
+def test_get_indexed_grid_caches_by_dataset_id(fvcom_dataset):
+    """The same dataset id reuses the cached grid; a different id builds a new one."""
+    cache = cachey.Cache(available_bytes=1e9)
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+
+    fvcom_dataset.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
+    first = get_indexed_grid(fvcom_dataset, spatial_ref, cache)
+    second = get_indexed_grid(fvcom_dataset, spatial_ref, cache)
+    assert first is second
+
+    other = fvcom_dataset.copy()
+    other.attrs[DATASET_ID_ATTR_KEY] = "fvcom-other"
+    assert get_indexed_grid(other, spatial_ref, cache) is not first
+
+
+def test_get_indexed_grid_without_dataset_id(fvcom_dataset):
+    """Without a dataset id (or a cache) the grid is rebuilt per call."""
+    cache = cachey.Cache(available_bytes=1e9)
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+
+    assert DATASET_ID_ATTR_KEY not in fvcom_dataset.attrs
+    assert get_indexed_grid(fvcom_dataset, spatial_ref, cache) is not get_indexed_grid(
+        fvcom_dataset,
+        spatial_ref,
+        cache,
+    )
+
+    fvcom_dataset.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
+    assert get_indexed_grid(fvcom_dataset, spatial_ref, None) is not get_indexed_grid(
+        fvcom_dataset,
+        spatial_ref,
+        None,
+    )
+
+
+def test_get_indexed_grid_warns_when_cache_is_too_small(fvcom_dataset, caplog, monkeypatch):
+    """A grid larger than the cache is still returned, with a one-off warning."""
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+    fvcom_dataset.attrs[DATASET_ID_ATTR_KEY] = "fvcom-big"
+    huge = dataclasses.replace(
+        build_grid(fvcom_dataset, spatial_ref.mesh, spatial_ref.crs),
+        nbytes=int(20e6),
+    )
+    monkeypatch.setattr(ugrid_module, "build_grid", lambda *a, **kw: huge)
+    monkeypatch.setattr(ugrid_module, "_CACHE_WARNED_KEYS", set())
+
+    # xpublish's default cache is 1 MB
+    cache = cachey.Cache(available_bytes=1e6)
+    with caplog.at_level(logging.WARNING, logger="cf_edr"):
+        assert get_indexed_grid(fvcom_dataset, spatial_ref, cache) is huge
+        assert get_indexed_grid(fvcom_dataset, spatial_ref, cache) is huge
+
+    warnings = [r for r in caplog.records if "available_bytes" in r.message]
+    assert len(warnings) == 1
+    assert "fvcom-big" in warnings[0].message
+
+
+def test_prepare_spatial_grid_builds_indexed_grid(fvcom_dataset):
+    """A selectable unstructured grid carries a built (and cached) index."""
+    cache = cachey.Cache(available_bytes=1e9)
+    fvcom_dataset.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
+    filtered = fvcom_dataset[["zeta"]]
+
+    prepared = prepare_spatial_grid(
+        filtered,
+        source=fvcom_dataset,
+        require_selectable=True,
+        cache=cache,
+    )
+    assert prepared.kind is GridKind.UNSTRUCTURED
+    assert isinstance(prepared.grid, IndexedGrid)
+    assert prepared.grid.grid.n_face == 32
+
+    again = prepare_spatial_grid(
+        filtered,
+        source=fvcom_dataset,
+        require_selectable=True,
+        cache=cache,
+    )
+    assert again.grid is prepared.grid
+
+
+def test_prepare_spatial_grid_metadata_path_needs_no_xugrid(fvcom_dataset, monkeypatch):
+    """Without ``require_selectable`` no index is built, so xugrid is not needed."""
+    monkeypatch.setitem(sys.modules, "xugrid", None)
+    prepared = prepare_spatial_grid(fvcom_dataset)
+    assert prepared.kind is GridKind.UNSTRUCTURED
+    assert prepared.grid is None
+
+
+def test_prepare_spatial_grid_requires_xugrid(fvcom_dataset, monkeypatch):
+    """Selecting on a mesh without xugrid raises ``UgridSupportUnavailable``."""
+    monkeypatch.setitem(sys.modules, "xugrid", None)
+    with pytest.raises(UgridSupportUnavailable, match=r"install xpublish-edr\[ugrid\]"):
+        prepare_spatial_grid(fvcom_dataset, require_selectable=True)
