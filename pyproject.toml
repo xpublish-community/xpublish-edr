@@ -73,7 +73,7 @@ dev = [
   "pytest-github-actions-annotate-failures",
   "pytest-xdist",
   "referencing",
-  "schemathesis>=4.11.2",
+  "schemathesis>=4.25",
   "uvicorn",
   "xpublish-ogc-core>=0.1.1",
 ]
