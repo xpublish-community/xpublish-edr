@@ -24,7 +24,7 @@ def select_by_position(
     """
     Return a dataset with the position nearest to the given coordinates
     """
-    grid = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_regular=True)
+    grid = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_selectable=True)
     ds = grid.ds
     X, Y = grid.spatial_ref.X, grid.spatial_ref.Y
 

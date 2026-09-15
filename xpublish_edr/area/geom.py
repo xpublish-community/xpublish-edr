@@ -21,7 +21,7 @@ def select_by_area(
     """
     Return a dataset with the area within the given polygon
     """
-    grid = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_regular=True)
+    grid = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_selectable=True)
     return _select_area_regular_xy_grid(
         grid.ds,
         polygon,

@@ -186,7 +186,7 @@ class BaseEDRQuery(BaseModel):
 
         logger.debug(f"Dataset filtered by query params {ds}")
 
-        grid = prepare_spatial_grid(ds, require_regular=True)
+        grid = prepare_spatial_grid(ds, require_selectable=True)
         ds = self.spatial_select(grid, geometry)
 
         logger.debug(f"Dataset filtered spatially: {ds}")

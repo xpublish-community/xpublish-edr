@@ -513,14 +513,27 @@ def extent(
     )
 
 
-def extract_parameters(ds: xr.Dataset, *, extents: Extent) -> dict[str, Parameter]:
+def extract_parameters(
+    ds: xr.Dataset,
+    *,
+    extents: Extent,
+    spatial_ref: SpatialRef | None = None,
+) -> dict[str, Parameter]:
     """
     Extract the parameters from the dataset into collection metadata specific format
+
+    UGRID structural variables (the topology variable and the connectivity arrays
+    such as FVCOM's ``nv``/``nbe``/``aw*``) describe the mesh rather than data on
+    it, so they are never advertised as queryable parameters.
     """
+    mesh = spatial_ref.mesh if spatial_ref is not None else None
+    structural: frozenset[str] = mesh.structural_vars if mesh is not None else frozenset()
     return {
         str(k): parameter(v, extents=extents)
         for k, v in ds.data_vars.items()
-        if "axis" not in v.attrs and v.ndim >= 2  # always 2 spatial dims
+        if "axis" not in v.attrs
+        and v.ndim >= 2  # always 2 spatial dims
+        and str(k) not in structural
     }
 
 
@@ -675,7 +688,7 @@ def collection_metadata(
 
     extents = extent(ds, spatial_ref)
 
-    parameters = extract_parameters(ds, extents=extents)
+    parameters = extract_parameters(ds, extents=extents, spatial_ref=spatial_ref)
 
     supported_crs = supported_crs_details(ds)
 

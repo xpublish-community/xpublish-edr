@@ -4,7 +4,7 @@ Handle selection and formatting for cube queries
 
 import xarray as xr
 
-from xpublish_edr.geometry.common import SpatialRef, prepare_spatial_grid
+from xpublish_edr.geometry.common import GridKind, SpatialRef, prepare_spatial_grid
 
 
 def select_by_bbox(
@@ -17,7 +17,9 @@ def select_by_bbox(
 
     Assumes that the dataset is in the same CRS as the bbox
     """
-    grid = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_regular=True)
+    grid = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_selectable=True)
+    if grid.kind is not GridKind.REGULAR:
+        raise NotImplementedError("Cube queries require a regular X/Y grid")
     ds = grid.ds
     X, Y = grid.spatial_ref.X, grid.spatial_ref.Y
     indexes = ds.indexes

@@ -2,10 +2,12 @@
 Common geometry handling functions
 """
 
+import enum
 import itertools
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache, partial
+from typing import Any
 
 import cf_xarray  # noqa: F401  (registers the ``.cf`` dataset accessor)
 import numpy as np
@@ -17,6 +19,7 @@ import xarray as xr
 from rasterix.rioxarray_compat import guess_dims
 from shapely import Geometry
 
+from xpublish_edr.geometry.ugrid import MeshInfo, detect_mesh
 from xpublish_edr.logger import logger
 
 VECTORIZED_DIM = "pts"
@@ -47,6 +50,14 @@ class SpatialRef:
     crs: pyproj.CRS
     X: str
     Y: str
+    mesh: MeshInfo | None = None
+
+
+class GridKind(enum.Enum):
+    """The kind of spatial grid a dataset can be selected on."""
+
+    REGULAR = "regular"
+    UNSTRUCTURED = "unstructured"
 
 
 @dataclass
@@ -55,6 +66,8 @@ class PreparedSpatialGrid:
 
     ds: xr.Dataset
     spatial_ref: SpatialRef
+    kind: GridKind | None = None
+    grid: Any = None
 
 
 def _is_rotated_pole(crs: pyproj.CRS) -> bool:
@@ -162,13 +175,21 @@ def _resolve_xy_names(
     ds: xr.Dataset,
     crs: pyproj.CRS,
     coordinates: tuple[str, ...] | None = None,
+    mesh: MeshInfo | None = None,
 ) -> tuple[str, str]:
     """Resolve the X and Y coordinate variable names for a dataset.
 
-    Priority: grid-mapping coordinates / CF detection, then GeoZarr
-    ``spatial:dimensions``, then a final fall back to cf_xarray's ``X``/``Y``
-    axes (today's behavior).
+    Priority: UGRID node coordinates, then grid-mapping coordinates / CF
+    detection, then GeoZarr ``spatial:dimensions``, then a final fall back to
+    cf_xarray's ``X``/``Y`` axes (today's behavior).
+
+    UGRID comes first because meshes routinely carry both node and face
+    longitude/latitude coordinates (FVCOM's ``lon``/``lonc``), which makes CF
+    detection ambiguous.
     """
+    if mesh is not None:
+        return mesh.node_coordinates
+
     names = _xy_from_cf(ds, crs, restrict=coordinates)
     if names is not None:
         return names
@@ -267,9 +288,10 @@ def _resolve_crs(
 
 def dataset_spatial_ref(ds: xr.Dataset) -> SpatialRef:
     """Resolve the CRS and X/Y coordinate variable names for a dataset."""
+    mesh = detect_mesh(ds)
     crs, coordinates = _resolve_crs(ds)
-    X, Y = _resolve_xy_names(ds, crs, coordinates=coordinates)
-    return SpatialRef(crs=crs, X=X, Y=Y)
+    X, Y = _resolve_xy_names(ds, crs, coordinates=coordinates, mesh=mesh)
+    return SpatialRef(crs=crs, X=X, Y=Y, mesh=mesh)
 
 
 def dataset_xy_names(ds: xr.Dataset) -> tuple[str, str]:
@@ -366,24 +388,46 @@ def _is_regular_xy_coords(ds: xr.Dataset, spatial_ref: SpatialRef) -> bool:
     return coord_is_regular(ds[X]) and coord_is_regular(ds[Y])
 
 
+def grid_kind(ds: xr.Dataset, spatial_ref: SpatialRef) -> GridKind | None:
+    """Classify the dataset's spatial grid, or ``None`` if it is not selectable.
+
+    2D curvilinear grids and mesh-less scattered points fall through to ``None``.
+    """
+    if _is_regular_xy_coords(ds, spatial_ref):
+        return GridKind.REGULAR
+    if spatial_ref.mesh is not None:
+        return GridKind.UNSTRUCTURED
+    return None
+
+
 def prepare_spatial_grid(
     ds: xr.Dataset,
     spatial_ref: SpatialRef | None = None,
     *,
-    require_regular: bool = False,
+    require_selectable: bool = False,
+    source: xr.Dataset | None = None,
 ) -> PreparedSpatialGrid:
-    """Resolve spatial metadata once and materialize affine coordinates if needed."""
+    """Resolve spatial metadata once and materialize affine coordinates if needed.
+
+    ``source`` is the unfiltered dataset to resolve spatial metadata from. The
+    ``parameter-name`` filter drops the UGRID topology and connectivity
+    variables, so mesh detection has to happen against the full dataset.
+    """
     try:
-        spatial_ref = spatial_ref or dataset_spatial_ref(ds)
+        spatial_ref = spatial_ref or dataset_spatial_ref(source if source is not None else ds)
     except ValueError as e:
-        if require_regular:
+        if require_selectable:
             raise NotImplementedError("Only 1D coordinates are supported") from e
         raise
 
-    ds = with_spatial_coords(ds, spatial_ref)
-    if require_regular and not _is_regular_xy_coords(ds, spatial_ref):
+    if spatial_ref.mesh is None:
+        # Affine materialization only applies to regular X/Y grids
+        ds = with_spatial_coords(ds, spatial_ref)
+
+    kind = grid_kind(ds, spatial_ref)
+    if require_selectable and kind is None:
         raise NotImplementedError("Only 1D coordinates are supported")
-    return PreparedSpatialGrid(ds=ds, spatial_ref=spatial_ref)
+    return PreparedSpatialGrid(ds=ds, spatial_ref=spatial_ref, kind=kind)
 
 
 def is_regular_xy_coords(

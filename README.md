@@ -23,6 +23,16 @@ or, if you are a `pip` users
 pip install xpublish_edr
 ```
 
+Querying datasets stored on a UGRID unstructured mesh (e.g. FVCOM) additionally
+requires [xugrid](https://deltares.github.io/xugrid/) and
+[numba-celltree](https://deltares.github.io/numba_celltree/), available as the
+`ugrid` extra (`all` installs every optional feature):
+
+```shell
+pip install "xpublish-edr[ugrid]"
+pip install "xpublish-edr[all]"
+```
+
 ### Example
 
 ```python
