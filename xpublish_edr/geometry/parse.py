@@ -24,47 +24,6 @@ def _media_type(content_type: str | None) -> str:
     return (content_type or "").split(";", 1)[0].strip().lower()
 
 
-def parse_position_body(
-    body: bytes,
-    content_type: str | None,
-) -> shapely.Point | shapely.MultiPoint:
-    """Dispatch body parsing based on Content-Type.
-
-    Supported types:
-      - text/csv
-      - application/geo+json, application/json
-    """
-    media_type = _media_type(content_type)
-    if media_type == "text/csv":
-        return parse_csv_points(body)
-    if media_type in JSON_MEDIA_TYPES:
-        return parse_geojson_points(body)
-    raise ValueError(
-        f"Unsupported Content-Type {content_type!r}. Use text/csv or application/geo+json.",
-    )
-
-
-def parse_area_body(
-    body: bytes,
-    content_type: str | None,
-) -> shapely.Polygon | shapely.MultiPolygon:
-    """Dispatch area body parsing based on Content-Type.
-
-    Supported types:
-      - application/geo+json, application/json: Polygon / MultiPolygon /
-        Feature / FeatureCollection / GeometryCollection
-      - application/wkt, text/wkt, text/plain: raw WKT Polygon or MultiPolygon
-    """
-    media_type = _media_type(content_type)
-    if media_type in JSON_MEDIA_TYPES:
-        return parse_geojson_polygons(body)
-    if media_type in WKT_MEDIA_TYPES:
-        return parse_wkt_polygons(body)
-    raise ValueError(
-        f"Unsupported Content-Type {content_type!r}. Use application/geo+json or application/wkt.",
-    )
-
-
 def parse_csv_points(body: bytes) -> shapely.Point | shapely.MultiPoint:
     """Parse a CSV body with x/y (or lon/lat) columns into a (Multi)Point."""
     text = body.decode("utf-8")
