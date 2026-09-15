@@ -128,10 +128,22 @@ ds.attrs["spatial:dimensions"] = ["y", "x"]
 
 `datetime` and `z` queries also require indexed CF `T` and `Z` coordinates.
 
-Spatial selection currently expects regular 1D X/Y coordinate grids, or an
-affine transform that can be materialized into regular 1D X/Y coordinates. 2D
-curvilinear spatial selection and `proj:projjson` CRS attrs are not currently
-supported.
+Position and area queries support regular 1D X/Y coordinate grids, an affine
+transform that can be materialized into regular 1D X/Y coordinates, and
+[UGRID-1.0](https://ugrid-conventions.github.io/ugrid-conventions/) triangular
+meshes (e.g. FVCOM) when the `ugrid` extra is installed. Both node- and
+face-located variables are supported; `method=nearest` selects the nearest
+node (or the containing face) and `method=linear` barycentrically interpolates
+node-located variables (face-located variables return the containing face's
+value, since they are piecewise constant). The mesh's spatial index is kept in
+xpublish's application cache, so servers publishing large meshes should raise
+`cache_kws={"available_bytes": ...}` on `xpublish.Rest` -- the default is
+1 MB, which is too small for most real meshes.
+
+Still unsupported: cube queries on unstructured meshes, 2D curvilinear grids,
+scattered points without connectivity, `proj:projjson` CRS attrs, and `z`
+selection on 2D sigma coordinates such as FVCOM's `siglay(siglay, node)`,
+which returns a 404.
 
 ## OGC EDR Spec Compliance
 
