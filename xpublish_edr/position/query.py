@@ -80,6 +80,12 @@ class EDRPositionQueryPost(BaseEDRQuery):
                     "Ensure that dataset has valid CF metadata and has 1D coordinates."
                 ),
             )
+        except ValueError as e:
+            logger.error(f"Error selecting by position: {e}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Error selecting by position: {e}",
+            )
 
 
 class EDRPositionQueryGet(WKTGeometryQuery, EDRPositionQueryPost):

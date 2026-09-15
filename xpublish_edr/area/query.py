@@ -76,6 +76,12 @@ class EDRAreaQueryPost(BaseEDRQuery):
                 status_code=404,
                 detail="Dataset does not have CF Convention compliant metadata",
             )
+        except ValueError as e:
+            logger.error(f"Error selecting by area: {e}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Error selecting by area: {e}",
+            )
 
 
 class EDRAreaQueryGet(WKTGeometryQuery, EDRAreaQueryPost):

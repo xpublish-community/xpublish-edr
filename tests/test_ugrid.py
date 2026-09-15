@@ -16,9 +16,14 @@ from xpublish.utils.api import DATASET_ID_ATTR_KEY
 from xpublish_edr.geometry import ugrid as ugrid_module
 from xpublish_edr.geometry.common import (
     GridKind,
+    PreparedSpatialGrid,
     dataset_spatial_ref,
+    finalize_unstructured_selection,
     grid_kind,
     prepare_spatial_grid,
+    project_dataset,
+    selected_spatial_ref,
+    selection_targets,
 )
 from xpublish_edr.geometry.ugrid import (
     IndexedGrid,
@@ -32,6 +37,9 @@ from xpublish_edr.geometry.ugrid import (
     variable_location,
 )
 from xpublish_edr.metadata import collection_metadata
+from xpublish_edr.position import geom as position_geom
+from xpublish_edr.position.geom import select_by_position
+from xpublish_edr.position.query import EDRPositionQueryGet
 
 UGRID_KEYS = (
     "cf_role",
@@ -155,7 +163,7 @@ def make_fvcom_dataset(
                 siglay,
                 {"standard_name": "ocean_sigma_coordinate", "positive": "up"},
             ),
-            "time": (("time",), time),
+            "time": (("time",), time, {"standard_name": "time", "long_name": "time"}),
         },
         attrs={"Conventions": "CF-1.11, UGRID-1.0", "source": "FVCOM_4.4.1"},
     )
@@ -699,3 +707,451 @@ def test_prepare_spatial_grid_requires_xugrid(fvcom_dataset, monkeypatch):
     monkeypatch.setitem(sys.modules, "xugrid", None)
     with pytest.raises(UgridSupportUnavailable, match=r"install xpublish-edr\[ugrid\]"):
         prepare_spatial_grid(fvcom_dataset, require_selectable=True)
+
+
+def select_position(
+    ds: xr.Dataset,
+    source: xr.Dataset,
+    point: shapely.Geometry,
+    method: str = "nearest",
+) -> xr.Dataset:
+    """Run the full prepare + select pipeline the way ``run_query`` does."""
+    prepared = prepare_spatial_grid(ds, source=source, require_selectable=True)
+    return select_by_position(
+        prepared.ds,
+        point,
+        method,
+        prepared.spatial_ref,
+        grid=prepared.grid,
+    )
+
+
+def zeta_at(lon, lat, n_times: int = 4) -> np.ndarray:
+    """The fixture's node field ``2*lon + 3*lat + 1 + 0.1*t``, shaped ``(time, pts)``."""
+    lon = np.atleast_1d(np.asarray(lon, dtype="float64"))
+    lat = np.atleast_1d(np.asarray(lat, dtype="float64"))
+    t_index = np.arange(n_times, dtype="float64")
+    return (2.0 * lon + 3.0 * lat + 1.0)[None, :] + 0.1 * t_index[:, None]
+
+
+def test_selection_targets_follow_the_parameter_filter(fvcom_dataset):
+    """Which mesh dimensions are selectable depends on the filtered variables."""
+    mesh = detect_mesh(fvcom_dataset)
+    assert mesh is not None
+
+    (node_target,) = selection_targets(fvcom_dataset[["zeta"]], mesh)
+    assert node_target == ("lon", "lat", "node", "node")
+
+    (face_target,) = selection_targets(fvcom_dataset[["u"]], mesh)
+    assert face_target == ("lonc", "latc", "nele", "face")
+
+    both = selection_targets(fvcom_dataset[["zeta", "u"]], mesh)
+    assert [t.location for t in both] == ["node", "face"]
+
+    assert selection_targets(fvcom_dataset[["zeta"]].isel(node=0), mesh) == []
+
+
+def test_selection_targets_require_face_coordinates(fvcom_dataset):
+    """A face selection without UGRID ``face_coordinates`` is an error, not a crash."""
+    ds = fvcom_dataset.drop_vars(["lonc", "latc"])
+    ds["mesh_topology"].attrs.pop("face_coordinates")
+    mesh = detect_mesh(ds)
+    assert mesh is not None
+    assert mesh.face_coordinates is None
+
+    with pytest.raises(ValueError, match="Face-located variables need face coordinates"):
+        selection_targets(ds[["u"]], mesh)
+
+
+def test_select_by_position_nearest_single_point(fvcom_dataset):
+    """A single point snaps to the nearest node and yields ``pts`` of length one."""
+    ds = select_position(
+        fvcom_dataset[["zeta"]],
+        fvcom_dataset,
+        shapely.Point(-69.5 + 1e-4, 43.5 + 1e-4),
+    )
+
+    assert ds["zeta"].dims == ("time", "pts")
+    assert ds.sizes["pts"] == 1
+    assert "node" not in ds.dims
+    np.testing.assert_allclose(ds["lon"].values, [-69.5])
+    np.testing.assert_allclose(ds["lat"].values, [43.5])
+    # Node 12 of the 5x5 lattice
+    np.testing.assert_allclose(
+        ds["zeta"].values,
+        fvcom_dataset["zeta"].isel(node=12).values[:, None],
+    )
+
+
+def test_select_by_position_nearest_multipoint(fvcom_dataset):
+    """A MULTIPOINT keeps the requested order along ``pts``."""
+    points = shapely.MultiPoint(
+        [(-70.0 + 1e-4, 43.0 + 1e-4), (-69.5, 43.5), (-69.0 - 1e-4, 44.0 - 1e-4)],
+    )
+    ds = select_position(fvcom_dataset[["zeta"]], fvcom_dataset, points)
+
+    assert ds.sizes["pts"] == 3
+    np.testing.assert_allclose(ds["lon"].values, [-70.0, -69.5, -69.0])
+    np.testing.assert_allclose(ds["lat"].values, [43.0, 43.5, 44.0])
+    np.testing.assert_allclose(
+        ds["zeta"].values,
+        fvcom_dataset["zeta"].isel(node=[0, 12, 24]).values,
+    )
+
+
+def test_select_by_position_nearest_face_variable(fvcom_dataset, fvcom_grid):
+    """Face variables use the containing face, or the nearest centroid outside."""
+    face = 17
+    lonc = float(fvcom_dataset["lonc"].values[face])
+    latc = float(fvcom_dataset["latc"].values[face])
+
+    ds = select_position(fvcom_dataset[["u"]], fvcom_dataset, shapely.Point(lonc, latc))
+    assert ds["u"].dims == ("time", "pts")
+    assert "nele" not in ds.dims
+    np.testing.assert_allclose(ds["lonc"].values, [lonc])
+    np.testing.assert_allclose(ds["latc"].values, [latc])
+    np.testing.assert_allclose(
+        ds["u"].values,
+        fvcom_dataset["u"].isel(nele=face).values[:, None],
+    )
+
+    outside = shapely.Point(-80.0, 30.0)
+    (expected,) = fvcom_grid.nearest_faces(fvcom_grid.project([-80.0], [30.0]))
+    ds = select_position(fvcom_dataset[["u"]], fvcom_dataset, outside)
+    np.testing.assert_allclose(
+        ds["u"].values,
+        fvcom_dataset["u"].isel(nele=int(expected)).values[:, None],
+    )
+
+
+def test_select_by_position_nearest_mixed_locations(fvcom_dataset):
+    """A node+face request collapses both mesh dimensions onto the same ``pts``."""
+    points = shapely.MultiPoint([(-69.5, 43.5), (-69.9, 43.1)])
+    ds = select_position(fvcom_dataset[["zeta", "u"]], fvcom_dataset, points)
+
+    assert "node" not in ds.dims
+    assert "nele" not in ds.dims
+    assert ds.sizes["pts"] == 2
+    assert ds["zeta"].dims == ("time", "pts")
+    assert ds["u"].dims == ("time", "pts")
+    assert ds["lon"].dims == ("pts",)
+    assert ds["lonc"].dims == ("pts",)
+
+
+def test_select_by_position_linear_recovers_the_planar_field(fvcom_dataset, fvcom_grid):
+    """Barycentric interpolation reproduces the fixture's linear node field."""
+    lonc = fvcom_dataset["lonc"].values
+    latc = fvcom_dataset["latc"].values
+    points = [
+        (float(lonc[0]), float(latc[0])),
+        (float(lonc[17]), float(latc[17])),
+        # Midpoint of the interior edge between nodes 6 and 12
+        (-69.625, 43.375),
+    ]
+    ds = select_position(
+        fvcom_dataset[["zeta"]],
+        fvcom_dataset,
+        shapely.MultiPoint(points),
+        method="linear",
+    )
+
+    lon = np.array([p[0] for p in points])
+    lat = np.array([p[1] for p in points])
+    np.testing.assert_allclose(ds["lon"].values, lon)
+    np.testing.assert_allclose(ds["lat"].values, lat)
+    assert ds["zeta"].dims == ("time", "pts")
+
+    # Exact against the barycentric combination of the enclosing nodes ...
+    xy = fvcom_grid.project(lon, lat)
+    faces, weights = fvcom_grid.barycentric(xy)
+    assert (faces >= 0).all()
+    vertices = fvcom_grid.grid.face_node_connectivity[faces]
+    expected = np.einsum(
+        "tpv,pv->tp",
+        fvcom_dataset["zeta"].values[:, vertices],
+        weights,
+    )
+    np.testing.assert_allclose(ds["zeta"].values, expected, atol=1e-9)
+
+    # ... and close to the analytic field, up to the local aeqd distortion
+    np.testing.assert_allclose(ds["zeta"].values, zeta_at(lon, lat), atol=1e-3)
+
+
+def test_select_by_position_linear_outside_falls_back_to_nearest(fvcom_dataset, caplog):
+    """Outside the mesh, linear degrades to the nearest node and warns."""
+    with caplog.at_level(logging.WARNING, logger="cf_edr"):
+        ds = select_position(
+            fvcom_dataset[["zeta"]],
+            fvcom_dataset,
+            shapely.Point(-80.0, 30.0),
+            method="linear",
+        )
+
+    # Node 0 (-70, 43) is the corner nearest to the query point
+    np.testing.assert_allclose(
+        ds["zeta"].values,
+        fvcom_dataset["zeta"].isel(node=0).values[:, None],
+    )
+    # The query point is echoed back, not the node's position
+    np.testing.assert_allclose(ds["lon"].values, [-80.0])
+    np.testing.assert_allclose(ds["lat"].values, [30.0])
+
+    assert any("outside the mesh" in record.message for record in caplog.records)
+
+
+def test_select_by_position_linear_face_variable_is_piecewise_constant(fvcom_dataset, caplog):
+    """Face variables are not interpolated; the containing face value is used."""
+    face = 11
+    lonc = float(fvcom_dataset["lonc"].values[face])
+    latc = float(fvcom_dataset["latc"].values[face])
+
+    with caplog.at_level(logging.INFO, logger="cf_edr"):
+        ds = select_position(
+            fvcom_dataset[["u"]],
+            fvcom_dataset,
+            shapely.Point(lonc, latc),
+            method="linear",
+        )
+
+    np.testing.assert_allclose(
+        ds["u"].values,
+        fvcom_dataset["u"].isel(nele=face).values[:, None],
+    )
+    assert any("not interpolated" in record.message for record in caplog.records)
+
+
+def test_select_by_position_linear_mixed_locations(fvcom_dataset):
+    """A mixed request interpolates node data and isels face data onto one ``pts``."""
+    points = [(-69.6, 43.4), (-69.2, 43.8)]
+    ds = select_position(
+        fvcom_dataset[["zeta", "u"]],
+        fvcom_dataset,
+        shapely.MultiPoint(points),
+        method="linear",
+    )
+
+    lon = np.array([p[0] for p in points])
+    lat = np.array([p[1] for p in points])
+    assert ds.sizes["pts"] == 2
+    assert ds["zeta"].dims == ("time", "pts")
+    assert ds["u"].dims == ("time", "pts")
+    np.testing.assert_allclose(ds["lon"].values, lon)
+    np.testing.assert_allclose(ds["zeta"].values, zeta_at(lon, lat), atol=1e-3)
+    # Face data stays on the face centroids, and stays piecewise constant
+    assert set(np.asarray(ds["u"].values).ravel().tolist()) <= set(
+        np.asarray(fvcom_dataset["u"].values).ravel().tolist(),
+    )
+    assert ds["lonc"].dims == ("pts",)
+
+
+def test_select_by_position_unstructured_requires_mesh_variables(fvcom_dataset):
+    """Selecting a dataset with no mesh-located variables is a client error."""
+    prepared = prepare_spatial_grid(
+        fvcom_dataset[["zeta"]],
+        source=fvcom_dataset,
+        require_selectable=True,
+    )
+    with pytest.raises(ValueError, match="No mesh-located variables selected"):
+        select_by_position(
+            prepared.ds.isel(node=0),
+            shapely.Point(-69.5, 43.5),
+            "nearest",
+            prepared.spatial_ref,
+            grid=prepared.grid,
+        )
+
+
+def test_select_by_position_unstructured_requires_a_built_grid(fvcom_dataset, monkeypatch):
+    """The unstructured path refuses to run without an index."""
+    prepared = PreparedSpatialGrid(
+        ds=fvcom_dataset[["zeta"]],
+        spatial_ref=dataset_spatial_ref(fvcom_dataset),
+        kind=GridKind.UNSTRUCTURED,
+        grid=None,
+    )
+    monkeypatch.setattr(position_geom, "prepare_spatial_grid", lambda *a, **kw: prepared)
+    with pytest.raises(ValueError, match="Unstructured grid index was not built"):
+        select_by_position(prepared.ds, shapely.Point(-69.5, 43.5))
+
+
+def test_select_by_position_unstructured_rejects_polygons(fvcom_dataset):
+    """Only Point/MultiPoint geometries are valid for a position query."""
+    prepared = prepare_spatial_grid(
+        fvcom_dataset[["zeta"]],
+        source=fvcom_dataset,
+        require_selectable=True,
+    )
+    with pytest.raises(ValueError, match="must be Point or MultiPoint"):
+        select_by_position(
+            prepared.ds,
+            shapely.box(-70, 43, -69, 44),
+            "nearest",
+            prepared.spatial_ref,
+            grid=prepared.grid,
+        )
+
+
+def test_finalize_unstructured_selection(fvcom_dataset):
+    """Finalizing drops mesh scaffolding and tags the surviving X/Y axes."""
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+    selected = select_position(fvcom_dataset, fvcom_dataset, shapely.Point(-69.5, 43.5))
+    assert {"x", "y", "siglay", "lonc", "latc"} <= set(selected.coords)
+    assert {"nv", "nbe", "mesh_topology"} <= set(selected.variables)
+
+    ds = finalize_unstructured_selection(selected, spatial_ref, {"zeta"})
+
+    assert set(ds.variables).isdisjoint({"nv", "nbe", "mesh_topology"})
+    assert set(ds.coords).isdisjoint({"x", "y", "siglay", "lonc", "latc"})
+    assert ds["lon"].attrs["axis"] == "X"
+    assert ds["lat"].attrs["axis"] == "Y"
+    assert ds.cf.axes["X"] == ["lon"]
+    assert ds.cf.axes["Y"] == ["lat"]
+    assert "zeta" in ds
+
+
+def test_finalize_unstructured_selection_keeps_requested_structural_var(fvcom_dataset):
+    """``parameter-name=nv`` keeps the connectivity variable it asked for."""
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+    selected = select_position(fvcom_dataset[["nv"]], fvcom_dataset, shapely.Point(-69.5, 43.5))
+
+    ds = finalize_unstructured_selection(selected, spatial_ref, {"nv"})
+    assert "nv" in ds
+
+    dropped = finalize_unstructured_selection(selected, spatial_ref, {"zeta"})
+    assert "nv" not in dropped
+
+
+def test_selected_spatial_ref_falls_back_to_face_coordinates(fvcom_dataset):
+    """A face-only selection reports the face coordinate pair as its X/Y."""
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+    assert (spatial_ref.X, spatial_ref.Y) == ("lon", "lat")
+
+    node_only = select_position(fvcom_dataset[["zeta"]], fvcom_dataset, shapely.Point(-69.5, 43.5))
+    assert selected_spatial_ref(node_only, spatial_ref) is spatial_ref
+
+    face_only = select_position(fvcom_dataset[["u"]], fvcom_dataset, shapely.Point(-69.5, 43.5))
+    effective = selected_spatial_ref(face_only, spatial_ref)
+    assert (effective.X, effective.Y) == ("lonc", "latc")
+    assert effective.crs == spatial_ref.crs
+    assert effective.mesh is spatial_ref.mesh
+
+
+def test_project_dataset_unstructured_same_crs(fvcom_dataset):
+    """Without reprojection the X/Y axis attributes survive onto ``pts``."""
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+    selected = select_position(fvcom_dataset[["zeta"]], fvcom_dataset, shapely.Point(-69.5, 43.5))
+    ds = finalize_unstructured_selection(selected, spatial_ref, {"zeta"})
+
+    projected = project_dataset(ds, "EPSG:4326", selected_spatial_ref(ds, spatial_ref))
+    assert projected.sizes["pts"] == 1
+    assert projected["lon"].attrs["axis"] == "X"
+    assert projected["lat"].attrs["axis"] == "Y"
+    assert projected.cf.axes["X"] == ["lon"]
+    assert projected.cf.axes["Y"] == ["lat"]
+
+
+def test_project_dataset_unstructured_reprojection(fvcom_dataset):
+    """Reprojecting a ``pts`` result swaps lon/lat for projected coordinates."""
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+    points = shapely.MultiPoint([(-69.5, 43.5), (-69.25, 43.75)])
+    selected = select_position(fvcom_dataset[["zeta"]], fvcom_dataset, points)
+    ds = finalize_unstructured_selection(selected, spatial_ref, {"zeta"})
+
+    projected = project_dataset(ds, "EPSG:3857", selected_spatial_ref(ds, spatial_ref))
+
+    assert projected.sizes["pts"] == 2
+    assert "lon" not in projected.variables
+    assert "lat" not in projected.variables
+    assert projected["projection_x_coordinate"].dims == ("pts",)
+    assert projected["projection_y_coordinate"].dims == ("pts",)
+    assert projected.cf.axes["X"] == ["projection_x_coordinate"]
+    assert projected.cf.axes["Y"] == ["projection_y_coordinate"]
+
+    expected_x, expected_y = pyproj.Transformer.from_crs(
+        4326,
+        3857,
+        always_xy=True,
+    ).transform([-69.5, -69.25], [43.5, 43.75])
+    np.testing.assert_allclose(projected["projection_x_coordinate"].values, expected_x)
+    np.testing.assert_allclose(projected["projection_y_coordinate"].values, expected_y)
+
+
+def test_project_dataset_unstructured_face_selection(fvcom_dataset):
+    """A face-only selection projects on its own coordinate pair."""
+    spatial_ref = dataset_spatial_ref(fvcom_dataset)
+    selected = select_position(fvcom_dataset[["u"]], fvcom_dataset, shapely.Point(-69.5, 43.5))
+    ds = finalize_unstructured_selection(selected, spatial_ref, {"u"})
+
+    projected = project_dataset(ds, "EPSG:3857", selected_spatial_ref(ds, spatial_ref))
+    assert "lonc" not in projected.variables
+    assert projected.cf.axes["X"] == ["projection_x_coordinate"]
+
+
+@pytest.mark.parametrize("method", ["nearest", "linear"])
+def test_run_query_position_unstructured(method):
+    """An end to end position query returns a ``(t, pts)`` CoverageJSON coverage."""
+    ds = make_fvcom_dataset()
+    ds.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
+
+    query = EDRPositionQueryGet.model_validate(
+        {"coords": "POINT(-69.5 43.5)", "parameter-name": "zeta", "method": method},
+    )
+    covjson = query.run_query(ds, {}, query.geometry, cache=cachey.Cache(1e9))
+
+    assert covjson["type"] == "Coverage"
+    assert set(covjson["ranges"]) == {"zeta"}
+    assert covjson["ranges"]["zeta"]["axisNames"] == ["t", "pts"]
+    assert list(covjson["ranges"]["zeta"]["shape"]) == [4, 1]
+    assert {"x", "y", "t"} <= set(covjson["domain"]["axes"])
+    assert covjson["domain"]["axes"]["x"]["values"] == [-69.5]
+    assert covjson["domain"]["axes"]["y"]["values"] == [43.5]
+    np.testing.assert_allclose(
+        covjson["ranges"]["zeta"]["values"],
+        zeta_at(-69.5, 43.5).ravel(),
+        atol=1e-5,
+    )
+
+
+def test_run_query_position_unstructured_face_parameter():
+    """A face-located parameter round trips through the pipeline."""
+    ds = make_fvcom_dataset()
+    ds.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
+    face = 17
+    lonc = float(ds["lonc"].values[face])
+    latc = float(ds["latc"].values[face])
+
+    query = EDRPositionQueryGet.model_validate(
+        {"coords": f"POINT({lonc} {latc})", "parameter-name": "u"},
+    )
+    covjson = query.run_query(ds, {}, query.geometry, cache=cachey.Cache(1e9))
+
+    assert set(covjson["ranges"]) == {"u"}
+    assert covjson["ranges"]["u"]["axisNames"] == ["t", "pts"]
+    assert covjson["domain"]["axes"]["x"]["values"] == pytest.approx([lonc])
+    np.testing.assert_allclose(
+        covjson["ranges"]["u"]["values"],
+        ds["u"].isel(nele=face).values,
+    )
+
+
+def test_run_query_position_unstructured_multipoint_reprojected():
+    """A MULTIPOINT query in EPSG:3857 selects the same nodes and reprojects back."""
+    ds = make_fvcom_dataset()
+    ds.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
+
+    to_3857 = pyproj.Transformer.from_crs(4326, 3857, always_xy=True)
+    (x0, x1), (y0, y1) = to_3857.transform([-69.5, -69.25], [43.5, 43.75])
+
+    query = EDRPositionQueryGet.model_validate(
+        {
+            "coords": f"MULTIPOINT({x0} {y0}, {x1} {y1})",
+            "parameter-name": "zeta",
+            "crs": "EPSG:3857",
+        },
+    )
+    covjson = query.run_query(ds, {}, query.geometry, cache=cachey.Cache(1e9))
+
+    assert covjson["ranges"]["zeta"]["axisNames"] == ["t", "pts"]
+    assert list(covjson["ranges"]["zeta"]["shape"]) == [4, 2]
+    np.testing.assert_allclose(covjson["domain"]["axes"]["x"]["values"], [x0, x1])
+    np.testing.assert_allclose(covjson["domain"]["axes"]["y"]["values"], [y0, y1])

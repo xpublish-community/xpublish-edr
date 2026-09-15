@@ -4,11 +4,12 @@ Common geometry handling functions
 
 from __future__ import annotations
 
+import dataclasses
 import enum
 import itertools
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import cf_xarray  # noqa: F401  (registers the ``.cf`` dataset accessor)
 import numpy as np
@@ -406,7 +407,95 @@ def grid_kind(ds: xr.Dataset, spatial_ref: SpatialRef) -> GridKind | None:
     return None
 
 
-#: Variables that can hold a CF grid mapping written by rioxarray.
+class SelectionTarget(NamedTuple):
+    """A mesh dimension that can be selected on, with its coordinate pair.
+
+    A UGRID dataset carries data on mesh nodes, on mesh faces, or both. After
+    the ``parameter-name`` filter a dataset may hold only one of the two, so
+    selection dispatches per target rather than on a single X/Y pair.
+    """
+
+    X: str
+    Y: str
+    dim: str
+    location: Literal["node", "face"]
+
+
+def selection_targets(ds: xr.Dataset, mesh: MeshInfo) -> list[SelectionTarget]:
+    """Return the mesh selection targets present in the (possibly filtered) dataset.
+
+    ``ds[["zeta"]]`` keeps only the node dimension, ``ds[["u"]]`` only the face
+    dimension, and ``ds[["zeta", "u"]]`` both.
+    """
+    targets: list[SelectionTarget] = []
+    if mesh.node_dim in ds.dims:
+        node_x, node_y = mesh.node_coordinates
+        targets.append(SelectionTarget(node_x, node_y, mesh.node_dim, "node"))
+    if mesh.face_dim in ds.dims:
+        face_coordinates = mesh.face_coordinates
+        if face_coordinates is None or not all(n in ds.variables for n in face_coordinates):
+            raise ValueError(
+                "Face-located variables need face coordinates (UGRID face_coordinates)",
+            )
+        face_x, face_y = face_coordinates
+        targets.append(SelectionTarget(face_x, face_y, mesh.face_dim, "face"))
+    return targets
+
+
+def selected_spatial_ref(ds: xr.Dataset, spatial_ref: SpatialRef) -> SpatialRef:
+    """Return the spatial reference whose X/Y actually survive in ``ds``.
+
+    The mesh node coordinates are the dataset's canonical X/Y, but a
+    face-located selection (``parameter-name=uwind_speed``) keeps only the face
+    coordinates, so the effective X/Y for projection and export differ.
+    """
+    if spatial_ref.X in ds.variables and spatial_ref.Y in ds.variables:
+        return spatial_ref
+    mesh = spatial_ref.mesh
+    if mesh is not None and mesh.face_coordinates is not None:
+        face_x, face_y = mesh.face_coordinates
+        if face_x in ds.variables and face_y in ds.variables:
+            return dataclasses.replace(spatial_ref, X=face_x, Y=face_y)
+    return spatial_ref
+
+
+def finalize_unstructured_selection(
+    ds: xr.Dataset,
+    spatial_ref: SpatialRef,
+    requested: set[str] | None = None,
+) -> xr.Dataset:
+    """Tidy an unstructured selection result so the formatters can consume it.
+
+    Drops the mesh's structural variables (unless explicitly requested by
+    ``parameter-name``), drops every non X/Y coordinate left on the vectorized
+    ``pts`` dimension (FVCOM's projected ``x``/``y``, the sigma coordinates,
+    and whichever of the node/face coordinate pairs is not the effective X/Y)
+    and tags the surviving X/Y with CF ``axis`` attributes.
+    """
+    mesh = spatial_ref.mesh
+    if mesh is None:
+        return ds
+
+    structural = [
+        name
+        for name in mesh.structural_vars
+        if name in ds.variables and (requested is None or name not in requested)
+    ]
+    if structural:
+        ds = ds.drop_vars(structural)
+
+    effective = selected_spatial_ref(ds, spatial_ref)
+    keep = {effective.X, effective.Y}
+    extra_coords = [
+        name for name in ds.coords if VECTORIZED_DIM in ds[name].dims and name not in keep
+    ]
+    if extra_coords:
+        ds = ds.drop_vars(extra_coords)
+
+    return _ensure_cf_axes(ds, effective, force=True)
+
+
+# Variables that can hold a CF grid mapping written by rioxarray.
 GRID_MAPPING_VARS = ("spatial_ref", "crs")
 
 
@@ -599,6 +688,7 @@ def project_bbox(
 def _ensure_cf_axes(
     ds: xr.Dataset,
     spatial_ref: SpatialRef | None = None,
+    force: bool = False,
 ) -> xr.Dataset:
     """Tag the resolved X/Y coordinates with CF ``axis`` attributes if missing.
 
@@ -606,9 +696,14 @@ def _ensure_cf_axes(
     ``proj:``/``spatial:`` conventions, leaving the coordinate variables without
     CF ``axis`` attributes. Downstream formatters use ``ds.cf.axes``; tag the
     coordinates so output works even when no reprojection occurs.
+
+    ``force`` tags the resolved X/Y even when ``ds.cf.axes`` already resolves an
+    X and a Y (which cf_xarray will do from standard names alone). Unstructured
+    results need that: a mesh carries two longitude/latitude pairs, so the pair
+    that survived selection has to be marked unambiguously.
     """
     axes = ds.cf.axes
-    if "X" in axes and "Y" in axes:
+    if not force and "X" in axes and "Y" in axes:
         return ds
     if spatial_ref is None:
         try:

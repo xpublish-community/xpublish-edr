@@ -14,10 +14,13 @@ from shapely.errors import GEOSException
 from xpublish_edr.format import area_formats, cube_formats, position_formats
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.common import (
+    GridKind,
     PreparedSpatialGrid,
+    finalize_unstructured_selection,
     prepare_spatial_grid,
     project_dataset,
     project_geometry,
+    selected_spatial_ref,
 )
 from xpublish_edr.geometry.ugrid import UgridSupportUnavailable
 from xpublish_edr.logger import logger
@@ -207,8 +210,18 @@ class BaseEDRQuery(BaseModel):
 
         logger.debug(f"Dataset filtered spatially: {ds}")
 
+        if grid.kind is GridKind.UNSTRUCTURED:
+            # The mesh's structural variables and its unused coordinate pairs
+            # are not data; the effective X/Y depends on whether the requested
+            # parameters live on nodes or on faces.
+            requested = set(self.parameters.split(",")) if self.parameters else None
+            ds = finalize_unstructured_selection(ds, grid.spatial_ref, requested)
+            spatial_ref = selected_spatial_ref(ds, grid.spatial_ref)
+        else:
+            spatial_ref = grid.spatial_ref
+
         try:
-            ds = project_dataset(ds, self.crs, grid.spatial_ref)
+            ds = project_dataset(ds, self.crs, spatial_ref)
         except Exception as e:
             logger.error(f"Error projecting dataset for {self.query_label()} query: {e}")
             raise HTTPException(

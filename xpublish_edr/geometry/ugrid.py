@@ -29,8 +29,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 UGRID_SUPPORT_MESSAGE = "Dataset uses a UGRID mesh; install xpublish-edr[ugrid] to query it"
 
-#: UGRID reference attributes that ``decode_coords="all"`` may relocate into
-#: ``.encoding`` but that xugrid (and our own parsing) only reads from ``.attrs``.
+# UGRID reference attributes that ``decode_coords="all"`` may relocate into
+# ``.encoding`` but that xugrid (and our own parsing) only reads from ``.attrs``.
 UGRID_TOPOLOGY_ATTRS = (
     "cf_role",
     "topology_dimension",
@@ -40,7 +40,7 @@ UGRID_TOPOLOGY_ATTRS = (
     "face_dimension",
 )
 
-#: Number of vertices per face we support (triangular meshes only).
+# Number of vertices per face we support (triangular meshes only).
 TRIANGLE_VERTICES = 3
 
 
@@ -431,7 +431,7 @@ def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
     )
 
 
-#: Cache keys we have already warned about, so the warning is logged once.
+# Cache keys we have already warned about, so the warning is logged once.
 _CACHE_WARNED_KEYS: set[str] = set()
 
 
