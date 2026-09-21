@@ -348,6 +348,11 @@ class IndexedGrid:
     dataset's own ``crs`` (see :func:`_index_crs_for`). Every method takes (or
     returns) coordinates in ``index_crs``; use :meth:`project` or
     :meth:`project_geometry` to get there from dataset coordinates.
+
+    The derived geometry, the node/face coordinate arrays in both the index
+    plane (``node_xy``, ``face_xy``) and the dataset CRS (``node_xy_crs``,
+    ``face_xy_crs``), is materialized once, in :func:`build_grid`, rather than
+    recomputed per access.
     """
 
     grid: Any  # xugrid.Ugrid2d
@@ -355,22 +360,32 @@ class IndexedGrid:
     crs: pyproj.CRS
     index_crs: pyproj.CRS
     to_index: pyproj.Transformer
+    # Node coordinates in the index CRS, shaped ``(n_node, 2)``.
+    node_xy: np.ndarray
+    # Face centroids in the index CRS, shaped ``(n_face, 2)``. xugrid computes
+    # these from the connectivity, not from UGRID ``face_coordinates``.
+    face_xy: np.ndarray
+    # Node coordinates in the dataset CRS, shaped ``(n_node, 2)``.
+    node_xy_crs: np.ndarray
+    # Face centroids in the dataset CRS, shaped ``(n_face, 2)``.
+    face_xy_crs: np.ndarray
+    # Attrs of the two node coordinate variables in the source dataset.
+    node_coord_attrs: tuple[dict, dict]
+    # Attrs of the two face coordinate variables, or the node attrs when the
+    # mesh declares no ``face_coordinates``.
+    face_coord_attrs: tuple[dict, dict]
     nbytes: int
     build_seconds: float
 
-    @property
-    def node_xy(self) -> np.ndarray:
-        """Mesh node coordinates in the index CRS, shaped ``(n_node, 2)``."""
-        return np.column_stack([self.grid.node_x, self.grid.node_y])
-
-    @property
-    def face_xy(self) -> np.ndarray:
-        """Mesh face centroids in the index CRS, shaped ``(n_face, 2)``.
-
-        xugrid computes these from the connectivity rather than reading the
-        UGRID ``face_coordinates`` variables.
-        """
-        return np.column_stack([self.grid.face_x, self.grid.face_y])
+    def xy_for(
+        self,
+        location: Literal["node", "face"],
+        idx: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Dataset-CRS X and Y for the given node or face indices."""
+        xy = self.node_xy_crs if location == "node" else self.face_xy_crs
+        selected = xy[np.asarray(idx)]
+        return selected[:, 0], selected[:, 1]
 
     def project(self, x, y) -> np.ndarray:
         """Project dataset-CRS coordinate arrays into the index plane."""
@@ -457,6 +472,15 @@ def _ellipsoid_proj4(crs: pyproj.CRS) -> str:
     return f"+a={semi_major} +rf={inverse_flattening}"
 
 
+def _coord_attrs(ds: xr.Dataset, names: tuple[str, str] | None) -> tuple[dict, dict] | None:
+    """Return the attrs of a coordinate name pair, or ``None`` if either is absent."""
+    if names is None:
+        return None
+    if not all(name in ds.variables for name in names):
+        return None
+    return dict(ds[names[0]].attrs), dict(ds[names[1]].attrs)
+
+
 def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
     """Build (and eagerly index) a xugrid mesh for the dataset.
 
@@ -465,6 +489,11 @@ def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
     and face KDTrees are touched while building so that their construction (and
     numba's JIT compilation) is paid once, at build time, and cached on the
     ``Ugrid2d`` instance.
+
+    The node and face coordinate arrays are materialized here too, in both the
+    index plane and the dataset CRS, so that every selection can report where a
+    node or face actually is without recomputing them per request; see
+    :class:`IndexedGrid`.
     """
     xugrid = _require_xugrid()
 
@@ -481,6 +510,10 @@ def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
 
     node_x = np.asarray(grid.node_x)
     node_y = np.asarray(grid.node_y)
+    # Captured before any reprojection: these are the dataset's own coordinates
+    node_xy_crs = np.column_stack([node_x, node_y]).astype("float64", copy=False)
+    face_xy_crs = node_xy_crs[np.asarray(grid.face_node_connectivity)].mean(axis=1)
+
     bounds = (
         float(node_x.min()),
         float(node_y.min()),
@@ -501,8 +534,16 @@ def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
         logger.debug(f"Built UGRID {index} in {time.perf_counter() - index_started:.3f}s")
 
     connectivity = np.asarray(grid.face_node_connectivity)
+    node_xy = np.column_stack([grid.node_x, grid.node_y]).astype("float64", copy=False)
+    face_xy = np.column_stack([grid.face_x, grid.face_y]).astype("float64", copy=False)
+
+    node_coord_attrs = _coord_attrs(ds, mesh.node_coordinates) or ({}, {})
+    face_coord_attrs = _coord_attrs(ds, mesh.face_coordinates) or node_coord_attrs
+
     # The celltree and KDTrees roughly triple the footprint of the raw geometry
-    nbytes = 3 * int(node_x.nbytes + node_y.nbytes + connectivity.nbytes)
+    nbytes = 3 * int(node_x.nbytes + node_y.nbytes + connectivity.nbytes) + int(
+        node_xy.nbytes + face_xy.nbytes + node_xy_crs.nbytes + face_xy_crs.nbytes,
+    )
 
     build_seconds = time.perf_counter() - started
     logger.info(
@@ -516,6 +557,12 @@ def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
         crs=crs,
         index_crs=index_crs,
         to_index=transformer_from_crs(crs_from=crs, crs_to=index_crs),
+        node_xy=node_xy,
+        face_xy=face_xy,
+        node_xy_crs=node_xy_crs,
+        face_xy_crs=face_xy_crs,
+        node_coord_attrs=node_coord_attrs,
+        face_coord_attrs=face_coord_attrs,
         nbytes=nbytes,
         build_seconds=build_seconds,
     )

@@ -417,6 +417,10 @@ class SelectionTarget(NamedTuple):
     A UGRID dataset carries data on mesh nodes, on mesh faces, or both. After
     the ``parameter-name`` filter a dataset may hold only one of the two, so
     selection dispatches per target rather than on a single X/Y pair.
+
+    ``X``/``Y`` are the names the selection's coordinates are reported under;
+    they are not necessarily present in the dataset being selected from (see
+    :func:`ensure_xy_coords`).
     """
 
     X: str
@@ -430,20 +434,54 @@ def selection_targets(ds: xr.Dataset, mesh: MeshInfo) -> list[SelectionTarget]:
 
     ``ds[["zeta"]]`` keeps only the node dimension, ``ds[["u"]]`` only the face
     dimension, and ``ds[["zeta", "u"]]`` both.
+
+    UGRID makes ``face_coordinates`` optional, and face selection goes through
+    xugrid's computed centroids anyway, so a mesh without them is not an error:
+    the face target simply reports its coordinates under the node coordinate
+    names, which :func:`ensure_xy_coords` fills in from the grid.
     """
     targets: list[SelectionTarget] = []
     if mesh.node_dim in ds.dims:
         node_x, node_y = mesh.node_coordinates
         targets.append(SelectionTarget(node_x, node_y, mesh.node_dim, "node"))
     if mesh.face_dim in ds.dims:
-        face_coordinates = mesh.face_coordinates
-        if face_coordinates is None or not all(n in ds.variables for n in face_coordinates):
-            raise ValueError(
-                "Face-located variables need face coordinates (UGRID face_coordinates)",
-            )
-        face_x, face_y = face_coordinates
+        face_x, face_y = mesh.face_coordinates or mesh.node_coordinates
         targets.append(SelectionTarget(face_x, face_y, mesh.face_dim, "face"))
     return targets
+
+
+def ensure_xy_coords(
+    ds: xr.Dataset,
+    target: SelectionTarget,
+    grid: IndexedGrid,
+    idx: np.ndarray,
+) -> xr.Dataset:
+    """Assign the target's X/Y on ``pts`` when the selection did not carry them.
+
+    Called after an ``isel`` that collapsed ``target.dim`` onto the vectorized
+    ``pts`` dimension, with the index array that ``isel`` used. The coordinates
+    can be missing two ways: a face selection on a mesh that declares no UGRID
+    ``face_coordinates``, and node coordinates that are stored as data variables
+    and so were dropped by the ``parameter-name`` filter. Either way the
+    positions are known from the grid, which holds them in the dataset CRS.
+
+    Coordinates already present are left alone, including the (not normally
+    reachable, since the ``isel`` moved every ``target.dim`` variable) case of a
+    name that survived on some other dimension.
+    """
+    missing = [name for name in (target.X, target.Y) if name not in ds.variables]
+    if not missing:
+        return ds
+
+    x, y = grid.xy_for(target.location, idx)
+    attrs = grid.node_coord_attrs if target.location == "node" else grid.face_coord_attrs
+    values = {target.X: (x, attrs[0]), target.Y: (y, attrs[1])}
+    return ds.assign_coords(
+        {
+            name: xr.Variable(VECTORIZED_DIM, values[name][0], attrs=dict(values[name][1]))
+            for name in missing
+        },
+    )
 
 
 def selected_spatial_ref(ds: xr.Dataset, spatial_ref: SpatialRef) -> SpatialRef:
@@ -451,7 +489,9 @@ def selected_spatial_ref(ds: xr.Dataset, spatial_ref: SpatialRef) -> SpatialRef:
 
     The mesh node coordinates are the dataset's canonical X/Y, but a
     face-located selection (``parameter-name=uwind_speed``) keeps only the face
-    coordinates, so the effective X/Y for projection and export differ.
+    coordinates, so the effective X/Y for projection and export differ. When the
+    mesh declares no ``face_coordinates`` the centroids are reported under the
+    node names instead (:func:`ensure_xy_coords`), and those stay the X/Y.
     """
     if spatial_ref.X in ds.variables and spatial_ref.Y in ds.variables:
         return spatial_ref

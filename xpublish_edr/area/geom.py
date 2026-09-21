@@ -10,10 +10,11 @@ from xpublish_edr.geometry.common import (
     VECTORIZED_DIM,
     GridKind,
     SpatialRef,
+    ensure_xy_coords,
     prepare_spatial_grid,
     selection_targets,
 )
-from xpublish_edr.geometry.ugrid import IndexedGrid
+from xpublish_edr.geometry.ugrid import IndexedGrid, MeshInfo, variable_location
 
 
 def select_by_area(
@@ -52,6 +53,34 @@ def select_by_area(
     )
 
 
+def _mixed_location_message(ds: xr.Dataset, mesh: MeshInfo) -> str:
+    """Build the error naming the node- and face-located parameters to choose from.
+
+    An area query returns a single point set, so the caller has to restrict
+    ``parameter-name`` to one mesh location (nodes or faces).
+    Listing what is available on each makes it easier for users to recover from an error.
+
+    The mesh's structural variables (the connectivities, which live on the face
+    dimension) are not parameters, so they are only named when a location has
+    nothing else.
+    """
+    parameters: dict[str, list[str]] = {"node": [], "face": []}
+    structural: dict[str, list[str]] = {"node": [], "face": []}
+    for name in ds.data_vars:
+        location = variable_location(ds[name], mesh)
+        if location is None:
+            continue
+        group = structural if str(name) in mesh.structural_vars else parameters
+        group[location].append(str(name))
+
+    node, face = (parameters[loc] or structural[loc] for loc in ("node", "face"))
+    return (
+        "Area queries select either node- or face-located parameters; "
+        f"use parameter-name to choose from node: {', '.join(node)} "
+        f"or face: {', '.join(face)}"
+    )
+
+
 def _select_area_unstructured(
     ds: xr.Dataset,
     polygon: shapely.Polygon,
@@ -66,8 +95,8 @@ def _select_area_unstructured(
     tested against the mesh nodes; face-located parameters against xugrid's
     computed face centroids (not the UGRID ``face_coordinates`` variables).
     A dataset with both node- and face-located parameters selected is
-    rejected, since the two locations would produce ``pts`` of different
-    lengths.
+    rejected (with a message naming the parameters on each location), since
+    the two locations would produce ``pts`` of different lengths.
 
     Like the regular-grid path, a polygon that crosses the antimeridian is
     not split and is matched as given.
@@ -80,7 +109,7 @@ def _select_area_unstructured(
     if not targets:
         raise ValueError("No mesh-located variables selected")
     if len(targets) > 1:
-        raise ValueError("Area queries cannot mix node- and face-located parameters")
+        raise ValueError(_mixed_location_message(ds, mesh))
     (target,) = targets
 
     polygon_index = grid.project_geometry(polygon)
@@ -92,7 +121,8 @@ def _select_area_unstructured(
     inside = shapely.intersects_xy(polygon_index, xy[cand, 0], xy[cand, 1])
     idx = cand[inside]
 
-    return ds.isel({target.dim: xr.Variable(VECTORIZED_DIM, idx)})
+    selected = ds.isel({target.dim: xr.Variable(VECTORIZED_DIM, idx)})
+    return ensure_xy_coords(selected, target, grid, idx)
 
 
 def _select_area_regular_xy_grid(

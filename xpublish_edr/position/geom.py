@@ -13,6 +13,7 @@ from xpublish_edr.geometry.common import (
     GridKind,
     SelectionTarget,
     SpatialRef,
+    ensure_xy_coords,
     prepare_spatial_grid,
     selection_targets,
 )
@@ -134,7 +135,8 @@ def _select_faces(
 ) -> xr.Dataset:
     """Select the containing (or nearest) face for each point."""
     faces = _face_indices(grid, xy)
-    return ds.isel({target.dim: xr.Variable(VECTORIZED_DIM, faces)})
+    selected = ds.isel({target.dim: xr.Variable(VECTORIZED_DIM, faces)})
+    return ensure_xy_coords(selected, target, grid, faces)
 
 
 def _barycentric_with_fallback(
@@ -180,8 +182,11 @@ def _interpolate_nodes(
     faces, weights = _barycentric_with_fallback(grid, xy)
     vertices = np.asarray(grid.grid.face_node_connectivity)[faces]
 
-    x_attrs = dict(ds[target.X].attrs) if target.X in ds.variables else {}
-    y_attrs = dict(ds[target.Y].attrs) if target.Y in ds.variables else {}
+    # The node coordinates may have been data variables that ``parameter-name``
+    # dropped, in which case the grid still remembers how they were described.
+    node_attrs = grid.node_coord_attrs
+    x_attrs = dict(ds[target.X].attrs) if target.X in ds.variables else dict(node_attrs[0])
+    y_attrs = dict(ds[target.Y].attrs) if target.Y in ds.variables else dict(node_attrs[1])
 
     # Coordinates on the node dimension cannot be meaningfully interpolated;
     # X/Y are replaced by the query point below and the rest are dropped.
@@ -257,13 +262,18 @@ def _select_by_position_unstructured(
 
     if method == "nearest":
         indexers = {}
+        selected_indices: list[tuple[SelectionTarget, np.ndarray]] = []
         for target in targets:
             if target.location == "node":
                 indices = np.asarray(grid.nearest_nodes(xy))
             else:
                 indices = _face_indices(grid, xy)
             indexers[target.dim] = xr.Variable(VECTORIZED_DIM, indices)
-        return ds.isel(indexers)
+            selected_indices.append((target, indices))
+        selected = ds.isel(indexers)
+        for target, indices in selected_indices:
+            selected = ensure_xy_coords(selected, target, grid, indices)
+        return selected
 
     node_target = next((t for t in targets if t.location == "node"), None)
     face_target = next((t for t in targets if t.location == "face"), None)
@@ -281,6 +291,11 @@ def _select_by_position_unstructured(
     node_names, face_names = _split_by_location(ds, face_target, mesh)
     node_part = _interpolate_nodes(ds[node_names], node_target, grid, pts, xy)
     face_part = _select_faces(ds[face_names], face_target, grid, xy)
+    shared = {face_target.X, face_target.Y} & {node_target.X, node_target.Y}
+    if shared:
+        # Without UGRID face coordinates both targets report under the node
+        # coordinate names; the node part's query points are the result's X/Y.
+        face_part = face_part.drop_vars([n for n in shared if n in face_part.variables])
     merged = xr.merge([node_part, face_part], combine_attrs="override")
     merged.attrs = dict(ds.attrs)
     return merged

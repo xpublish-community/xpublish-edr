@@ -164,6 +164,19 @@ def make_leading_1d_topology_dataset() -> xr.Dataset:
     )
 
 
+def drop_face_coordinates(ds: xr.Dataset) -> xr.Dataset:
+    """Return ``ds`` without ``lonc``/``latc`` or the ``face_coordinates`` attr.
+
+    UGRID makes face coordinates optional, and plenty of real meshes omit them.
+    The topology variable is copied so the caller's dataset keeps its attrs.
+    """
+    out = ds.drop_vars(["lonc", "latc"])
+    topology = out["mesh_topology"].copy()
+    topology.attrs = {k: v for k, v in topology.attrs.items() if k != "face_coordinates"}
+    out["mesh_topology"] = topology
+    return out
+
+
 @pytest.fixture
 def fvcom_dataset() -> xr.Dataset:
     """A default 5x5-node FVCOM-style UGRID dataset."""
@@ -435,6 +448,66 @@ def test_build_grid_parses_fvcom_layout(fvcom_dataset, fvcom_grid):
 
     assert fvcom_grid.node_xy.shape == (grid.n_node, 2)
     assert fvcom_grid.face_xy.shape == (grid.n_face, 2)
+
+
+def test_indexed_grid_materializes_derived_arrays(fvcom_dataset, fvcom_grid):
+    """The derived geometry is materialized once at build time, not per access."""
+    assert isinstance(fvcom_grid.node_xy, np.ndarray)
+    assert isinstance(fvcom_grid.face_xy, np.ndarray)
+    # Plain attributes, not properties that rebuild on every access
+    assert fvcom_grid.node_xy is fvcom_grid.node_xy
+    assert fvcom_grid.face_xy is fvcom_grid.face_xy
+    assert fvcom_grid.node_xy.dtype == np.dtype("float64")
+    assert fvcom_grid.face_xy.dtype == np.dtype("float64")
+
+    # ... and the dataset-CRS copies, which the index plane arrays are not
+    np.testing.assert_allclose(fvcom_grid.node_xy_crs[:, 0], fvcom_dataset["lon"].values)
+    np.testing.assert_allclose(fvcom_grid.node_xy_crs[:, 1], fvcom_dataset["lat"].values)
+    # On this planar lattice xugrid's centroids coincide with lonc/latc
+    np.testing.assert_allclose(
+        fvcom_grid.face_xy_crs[:, 0],
+        fvcom_dataset["lonc"].values,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        fvcom_grid.face_xy_crs[:, 1],
+        fvcom_dataset["latc"].values,
+        atol=1e-6,
+    )
+
+    assert fvcom_grid.node_coord_attrs[0]["standard_name"] == "longitude"
+    assert fvcom_grid.node_coord_attrs[1]["units"] == "degrees_north"
+    assert fvcom_grid.face_coord_attrs[0]["standard_name"] == "longitude"
+
+    # The cache entry accounts for the derived arrays it carries
+    connectivity = np.asarray(fvcom_grid.grid.face_node_connectivity)
+    geometry = 3 * int(
+        fvcom_grid.node_xy[:, 0].nbytes + fvcom_grid.node_xy[:, 1].nbytes + connectivity.nbytes,
+    )
+    assert fvcom_grid.nbytes > geometry
+
+
+def test_indexed_grid_xy_for(fvcom_dataset, fvcom_grid):
+    """``xy_for`` returns dataset-CRS coordinates for node or face indices."""
+    x, y = fvcom_grid.xy_for("node", np.array([0, 5]))
+    np.testing.assert_allclose(x, fvcom_dataset["lon"].values[[0, 5]])
+    np.testing.assert_allclose(y, fvcom_dataset["lat"].values[[0, 5]])
+
+    face_x, face_y = fvcom_grid.xy_for("face", np.array([3, 17]))
+    np.testing.assert_allclose(face_x, fvcom_dataset["lonc"].values[[3, 17]], atol=1e-6)
+    np.testing.assert_allclose(face_y, fvcom_dataset["latc"].values[[3, 17]], atol=1e-6)
+
+
+def test_indexed_grid_face_coord_attrs_fall_back_to_node(fvcom_dataset):
+    """Without UGRID face coordinates the node coordinate attrs stand in."""
+    grid = grid_for(drop_face_coordinates(fvcom_dataset))
+    assert grid.mesh.face_coordinates is None
+    assert grid.face_coord_attrs == grid.node_coord_attrs
+    np.testing.assert_allclose(
+        grid.face_xy_crs[:, 0],
+        fvcom_dataset["lonc"].values,
+        atol=1e-6,
+    )
 
 
 def test_build_grid_indexes_in_local_aeqd(fvcom_dataset, fvcom_grid):
@@ -782,16 +855,15 @@ def test_selection_targets_follow_the_parameter_filter(fvcom_dataset):
     assert selection_targets(fvcom_dataset[["zeta"]].isel(node=0), mesh) == []
 
 
-def test_selection_targets_require_face_coordinates(fvcom_dataset):
-    """A face selection without UGRID ``face_coordinates`` is an error, not a crash."""
-    ds = fvcom_dataset.drop_vars(["lonc", "latc"])
-    ds["mesh_topology"].attrs.pop("face_coordinates")
+def test_selection_targets_without_face_coordinates(fvcom_dataset):
+    """UGRID face coordinates are optional; the node coordinate names stand in."""
+    ds = drop_face_coordinates(fvcom_dataset)
     mesh = detect_mesh(ds)
     assert mesh is not None
     assert mesh.face_coordinates is None
 
-    with pytest.raises(ValueError, match="Face-located variables need face coordinates"):
-        selection_targets(ds[["u"]], mesh)
+    (face_target,) = selection_targets(ds[["u"]], mesh)
+    assert face_target == ("lon", "lat", "nele", "face")
 
 
 def test_select_by_position_nearest_single_point(fvcom_dataset):
@@ -852,6 +924,82 @@ def test_select_by_position_nearest_face_variable(fvcom_dataset, fvcom_grid):
     np.testing.assert_allclose(
         ds["u"].values,
         fvcom_dataset["u"].isel(nele=int(expected)).values[:, None],
+    )
+
+
+def test_select_by_position_face_without_face_coordinates(fvcom_dataset):
+    """A face selection with no ``face_coordinates`` reports the centroids as lon/lat."""
+    ds = drop_face_coordinates(fvcom_dataset)
+    face = 17
+    lonc = float(fvcom_dataset["lonc"].values[face])
+    latc = float(fvcom_dataset["latc"].values[face])
+
+    selected = select_position(ds[["u"]], ds, shapely.Point(lonc, latc))
+
+    assert selected["u"].dims == ("time", "pts")
+    assert selected["lon"].dims == ("pts",)
+    np.testing.assert_allclose(selected["lon"].values, [lonc], atol=1e-6)
+    np.testing.assert_allclose(selected["lat"].values, [latc], atol=1e-6)
+    assert selected["lon"].attrs["standard_name"] == "longitude"
+    assert selected["lat"].attrs["units"] == "degrees_north"
+    np.testing.assert_allclose(
+        selected["u"].values,
+        fvcom_dataset["u"].isel(nele=face).values[:, None],
+    )
+
+    # The node coordinate names are the effective X/Y for a face-only selection
+    spatial_ref = dataset_spatial_ref(ds)
+    effective = selected_spatial_ref(selected, spatial_ref)
+    assert (effective.X, effective.Y) == ("lon", "lat")
+
+
+def test_select_by_position_linear_without_face_coordinates(fvcom_dataset):
+    """Linear selection still works when the mesh declares no face coordinates."""
+    ds = drop_face_coordinates(fvcom_dataset)
+    face = 11
+    lonc = float(fvcom_dataset["lonc"].values[face])
+    latc = float(fvcom_dataset["latc"].values[face])
+
+    face_only = select_position(ds[["u"]], ds, shapely.Point(lonc, latc), method="linear")
+    np.testing.assert_allclose(face_only["lon"].values, [lonc], atol=1e-6)
+    np.testing.assert_allclose(
+        face_only["u"].values,
+        fvcom_dataset["u"].isel(nele=face).values[:, None],
+    )
+
+    points = [(-69.6, 43.4), (-69.2, 43.8)]
+    mixed = select_position(
+        ds[["zeta", "u"]],
+        ds,
+        shapely.MultiPoint(points),
+        method="linear",
+    )
+    assert mixed["zeta"].dims == ("time", "pts")
+    assert mixed["u"].dims == ("time", "pts")
+    # Both locations share the node coordinate names; the query points win
+    np.testing.assert_allclose(mixed["lon"].values, [p[0] for p in points])
+    np.testing.assert_allclose(mixed["lat"].values, [p[1] for p in points])
+
+
+def test_select_by_position_node_coords_as_data_vars(fvcom_dataset):
+    """Node coordinates dropped by ``parameter-name`` are restored from the grid."""
+    ds = fvcom_dataset.reset_coords(["lon", "lat"])
+    assert "lon" in ds.data_vars
+
+    filtered = ds[["zeta"]]
+    assert "lon" not in filtered.variables
+    assert "lat" not in filtered.variables
+
+    selected = select_position(filtered, ds, shapely.Point(-69.5 + 1e-4, 43.5 + 1e-4))
+
+    assert selected["lon"].dims == ("pts",)
+    np.testing.assert_allclose(selected["lon"].values, [-69.5])
+    np.testing.assert_allclose(selected["lat"].values, [43.5])
+    assert selected["lon"].attrs["standard_name"] == "longitude"
+    assert selected["lat"].attrs["units"] == "degrees_north"
+    np.testing.assert_allclose(
+        selected["zeta"].values,
+        fvcom_dataset["zeta"].isel(node=12).values[:, None],
     )
 
 
@@ -1165,6 +1313,23 @@ def test_run_query_position_unstructured_face_parameter():
     )
 
 
+def test_run_query_position_node_coords_as_data_vars():
+    """A mesh whose node coordinates are data variables still exports x/y axes."""
+    ds = make_fvcom_dataset().reset_coords(["lon", "lat"])
+    ds.attrs[DATASET_ID_ATTR_KEY] = "fvcom-data-var-coords"
+
+    query = EDRPositionQueryGet.model_validate(
+        {"coords": "POINT(-69.5 43.5)", "parameter-name": "zeta"},
+    )
+    covjson = query.run_query(ds, {}, query.geometry, cache=cachey.Cache(1e9))
+
+    assert covjson["type"] == "Coverage"
+    assert set(covjson["ranges"]) == {"zeta"}
+    assert {"x", "y", "t"} <= set(covjson["domain"]["axes"])
+    assert covjson["domain"]["axes"]["x"]["values"] == [-69.5]
+    assert covjson["domain"]["axes"]["y"]["values"] == [43.5]
+
+
 def test_run_query_position_unstructured_multipoint_reprojected():
     """A MULTIPOINT query in EPSG:3857 selects the same nodes and reprojects back."""
     ds = make_fvcom_dataset()
@@ -1249,6 +1414,28 @@ def test_select_by_area_faces(fvcom_dataset):
     )
 
 
+def test_select_by_area_faces_without_face_coordinates(fvcom_dataset):
+    """Without ``face_coordinates`` the selected centroids are reported as lon/lat."""
+    lonc = fvcom_dataset["lonc"].values
+    latc = fvcom_dataset["latc"].values
+    minx, miny, maxx, maxy = AREA_POLYGON.bounds
+    expected = np.flatnonzero((lonc >= minx) & (lonc <= maxx) & (latc >= miny) & (latc <= maxy))
+    assert expected.size > 0
+
+    ds = drop_face_coordinates(fvcom_dataset)
+    selected = select_area(ds[["u"]], ds, AREA_POLYGON)
+
+    assert selected["u"].dims == ("time", "pts")
+    assert selected.sizes["pts"] == expected.size
+    np.testing.assert_allclose(selected["lon"].values, lonc[expected], atol=1e-6)
+    np.testing.assert_allclose(selected["lat"].values, latc[expected], atol=1e-6)
+    assert selected["lon"].attrs["standard_name"] == "longitude"
+    np.testing.assert_allclose(
+        selected["u"].values,
+        fvcom_dataset["u"].isel(nele=expected).values,
+    )
+
+
 def test_select_by_area_outside_mesh_is_empty(fvcom_dataset):
     """A polygon entirely outside the mesh yields a zero-length ``pts``."""
     outside = shapely.box(-80.0, 30.0, -79.0, 31.0)
@@ -1257,9 +1444,23 @@ def test_select_by_area_outside_mesh_is_empty(fvcom_dataset):
 
 
 def test_select_by_area_rejects_mixed_locations(fvcom_dataset):
-    """An area query over both node- and face-located parameters is an error."""
-    with pytest.raises(ValueError, match="mix"):
+    """A mixed-location area query names the parameters to choose between."""
+    with pytest.raises(ValueError, match="parameter-name") as excinfo:
         select_area(fvcom_dataset[["zeta", "u"]], fvcom_dataset, AREA_POLYGON)
+
+    message = str(excinfo.value)
+    assert "node: zeta" in message
+    assert "face: u" in message
+
+    # The mesh scaffolding is not a parameter anyone can ask for
+    with pytest.raises(ValueError) as unfiltered:
+        select_area(fvcom_dataset, fvcom_dataset, AREA_POLYGON)
+
+    message = str(unfiltered.value)
+    assert "node: zeta, h" in message
+    assert "face: u" in message
+    assert "nv" not in message
+    assert "nbe" not in message
 
 
 def test_select_by_area_reprojected_polygon(fvcom_dataset):
