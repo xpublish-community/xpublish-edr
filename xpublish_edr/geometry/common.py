@@ -566,6 +566,7 @@ def prepare_spatial_grid(
     source: xr.Dataset | None = None,
     cache: cachey.Cache | None = None,
     grid: IndexedGrid | None = None,
+    build_index: bool = True,
 ) -> PreparedSpatialGrid:
     """Resolve spatial metadata once and materialize affine coordinates if needed.
 
@@ -577,7 +578,10 @@ def prepare_spatial_grid(
     For an unstructured (UGRID) dataset a selectable grid also needs a built
     spatial index; it is built here (via ``cache``, xpublish's application
     cache) unless an already built ``grid`` is handed in. Metadata-only callers
-    leave ``require_selectable`` False and never need xugrid.
+    leave ``require_selectable`` False and never need xugrid. ``build_index``
+    lets a caller that cannot use an unstructured grid at all (e.g. cube
+    queries) classify the grid's ``kind`` without paying to build that index;
+    it is ignored when ``grid`` is already provided.
     """
     if spatial_ref is None:
         mesh = detect_mesh(source) if source is not None else None
@@ -601,7 +605,7 @@ def prepare_spatial_grid(
     if require_selectable and kind is None:
         raise NotImplementedError("Only 1D coordinates are supported")
 
-    if kind is GridKind.UNSTRUCTURED and require_selectable and grid is None:
+    if kind is GridKind.UNSTRUCTURED and require_selectable and build_index and grid is None:
         grid = get_indexed_grid(
             source if source is not None else ds,
             spatial_ref,

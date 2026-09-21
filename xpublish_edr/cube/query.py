@@ -1,5 +1,7 @@
 """Query parameter model for EDR cube queries"""
 
+from typing import ClassVar
+
 import xarray as xr
 from fastapi import HTTPException
 from pydantic import Field, field_validator
@@ -19,6 +21,10 @@ class EDRCubeQuery(BaseEDRQuery):
     """
     Capture query parameters for EDR cube queries
     """
+
+    # Cube selection slices a regular X/Y grid by bbox; there is no bbox
+    # selection defined for an unstructured (UGRID) mesh.
+    supports_unstructured: ClassVar[bool] = False
 
     bbox: tuple[float, float, float, float] = Field(
         ...,

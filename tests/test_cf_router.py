@@ -1352,14 +1352,29 @@ def test_fvcom_position_z_selection_not_supported(fvcom_client):
     assert response.status_code == 404
 
 
-def test_fvcom_cube_not_implemented(fvcom_client):
-    """Cube queries on a mesh are not implemented and never return 200."""
-    lenient = TestClient(fvcom_client.app, raise_server_exceptions=False)
-    response = lenient.get(
+def test_fvcom_cube_not_implemented(monkeypatch):
+    """Cube queries on a mesh return 501 without ever building the mesh index."""
+
+    def _must_not_build(*args, **kwargs):
+        raise AssertionError("index must not be built for cube")
+
+    monkeypatch.setattr("xpublish_edr.geometry.ugrid.build_grid", _must_not_build)
+
+    # A fresh app/client, since the module-scoped fvcom_client may already
+    # hold a built grid in its cache from an earlier test.
+    rest = xpublish.Rest(
+        {"fvcom": make_fvcom_dataset(dask=True)},
+        plugins={"edr": CfEdrPlugin()},
+        cache_kws={"available_bytes": 1e9},
+    )
+    client = TestClient(rest.app)
+
+    response = client.get(
         "/datasets/fvcom/edr/cube",
         params={"parameter-name": "zeta", "bbox": "-69.8,43.2,-69.2,43.8"},
     )
-    assert response.status_code != 200
+    assert response.status_code == 501, response.text
+    assert "unstructured" in response.json()["detail"]
 
 
 def test_fvcom_missing_extra_returns_501(monkeypatch):

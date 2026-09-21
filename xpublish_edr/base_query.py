@@ -2,7 +2,7 @@
 OGC EDR Query param parsing
 """
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 import pandas as pd
 import xarray as xr
@@ -35,6 +35,11 @@ class BaseEDRQuery(BaseModel):
     """
     Base class for EDR queries
     """
+
+    # Whether this query type can be spatially selected on an unstructured
+    # (UGRID) grid. ``True`` by default; ``EDRCubeQuery`` overrides this to
+    # ``False`` since bbox selection needs a regular X/Y grid.
+    supports_unstructured: ClassVar[bool] = True
 
     format: str | None = Field(
         None,
@@ -210,10 +215,20 @@ class BaseEDRQuery(BaseModel):
                 source=dataset,
                 require_selectable=True,
                 cache=cache,
+                build_index=self.supports_unstructured,
             )
         except UgridSupportUnavailable as e:
             logger.error(f"Cannot query UGRID mesh for {self.query_label()} query: {e}")
             raise HTTPException(status_code=501, detail=str(e))
+
+        if grid.kind is GridKind.UNSTRUCTURED and not self.supports_unstructured:
+            raise HTTPException(
+                status_code=501,
+                detail=(
+                    f"{self.query_label().capitalize()} queries are not supported "
+                    "on unstructured (UGRID) grids"
+                ),
+            )
 
         ds = self.spatial_select(grid, geometry)
 
