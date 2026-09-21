@@ -107,7 +107,9 @@ class MeshInfo:
     node_coordinates: tuple[str, str]
     face_coordinates: tuple[str, str] | None
     face_node_connectivity: str
-    start_index: int
+    #: The connectivity's declared ``start_index``, or ``None`` when it declares
+    #: none; see :func:`resolve_start_index`, which infers it from the values.
+    start_index: int | None
     structural_vars: frozenset[str]
 
 
@@ -175,23 +177,12 @@ def _structural_vars(ds: xr.Dataset, topology: str, vertex_dim: str) -> frozense
     return frozenset(structural)
 
 
-def detect_mesh(ds: xr.Dataset) -> MeshInfo | None:
-    """Detect a 2D triangular UGRID mesh in the dataset.
+def _parse_topology(ds: xr.Dataset, topology: str) -> MeshInfo | None:
+    """Parse one mesh topology variable, or ``None`` if it is not a 2D triangular mesh.
 
-    Returns ``None`` when the dataset carries no usable mesh topology. Only
-    cf_xarray is used, so this works without the optional ``ugrid`` extra.
+    No data is read: the connectivity's ``start_index`` is taken from its attrs
+    and left as ``None`` when it declares none.
     """
-    ds = restore_ugrid_attrs(ds)
-
-    try:
-        topologies = list(ds.cf.cf_roles.get("mesh_topology", []))
-    except Exception as e:
-        logger.debug(f"Could not inspect cf_roles for UGRID topologies: {e}")
-        return None
-    if not topologies:
-        return None
-
-    topology = str(topologies[0])
     attrs = ds[topology].attrs
 
     try:
@@ -220,10 +211,11 @@ def detect_mesh(ds: xr.Dataset) -> MeshInfo | None:
         return None
     face_dim, vertex_dim = dims
 
+    declared = conn.attrs.get("start_index")
     try:
-        start_index = int(conn.attrs.get("start_index", 0))
+        start_index = None if declared is None else int(declared)
     except (TypeError, ValueError):
-        start_index = 0
+        start_index = None
 
     return MeshInfo(
         topology=topology,
@@ -236,6 +228,96 @@ def detect_mesh(ds: xr.Dataset) -> MeshInfo | None:
         start_index=start_index,
         structural_vars=_structural_vars(ds, topology, vertex_dim),
     )
+
+
+def detect_mesh(ds: xr.Dataset) -> MeshInfo | None:
+    """Detect a 2D triangular UGRID mesh in the dataset.
+
+    A UGRID file may declare several topologies (a 1D network alongside a 2D
+    mesh, say), and the usable one is not necessarily listed first, so every
+    ``mesh_topology`` variable is tried and the first that parses is returned.
+    ``None`` means none of them describes a 2D triangular mesh.
+
+    Only cf_xarray is used, so this works without the optional ``ugrid`` extra,
+    and no data is loaded -- it runs on every metadata request.
+    """
+    ds = restore_ugrid_attrs(ds)
+
+    try:
+        topologies = [str(name) for name in ds.cf.cf_roles.get("mesh_topology", [])]
+    except Exception as e:
+        logger.debug(f"Could not inspect cf_roles for UGRID topologies: {e}")
+        return None
+
+    for topology in topologies:
+        mesh = _parse_topology(ds, topology)
+        if mesh is None:
+            continue
+        if len(topologies) > 1:
+            logger.debug(
+                f"Using UGRID topology {topology!r} of {topologies} "
+                "(the first that describes a 2D triangular mesh)",
+            )
+        return mesh
+    return None
+
+
+def resolve_start_index(
+    conn_values: np.ndarray,
+    n_node: int,
+    declared: int | None,
+) -> int:
+    """Resolve the base index of a face-node connectivity array.
+
+    UGRID lets a connectivity variable declare ``start_index``, but real FVCOM
+    output routinely ships a 1-based ``nv`` without it. When nothing is
+    declared, infer: a connectivity whose (non fill) values run from ``1`` to
+    ``n_node`` can only be 1-based, since a 0-based one would address a node
+    that does not exist.
+    """
+    if declared is not None:
+        return declared
+
+    values = conn_values[conn_values >= 0]
+    if values.size and int(values.min()) == 1 and int(values.max()) == n_node:
+        logger.info(
+            "UGRID face_node_connectivity declares no start_index; "
+            f"values run 1..{n_node}, so it is read as 1-based",
+        )
+        return 1
+    return 0
+
+
+def _topology_for_xugrid(ds: xr.Dataset, mesh: MeshInfo) -> tuple[xr.Dataset, int]:
+    """Return a dataset xugrid can parse the mesh from, plus the start index.
+
+    xugrid reads the topology strictly from attributes, so fill in what UGRID
+    allows a file to omit: without ``face_dimension`` it raises on a vertex
+    first connectivity that also has face coordinates (and silently builds a
+    three-face mesh when it does not), and without ``start_index`` it takes a
+    1-based connectivity at face value and addresses nodes past the end of the
+    mesh.
+
+    The connectivity is loaded once here and handed to xugrid as an in-memory
+    array, so a dask backed dataset is not read twice. Only a shallow copy is
+    mutated; the caller's dataset (and its attrs) are left alone.
+    """
+    out = restore_ugrid_attrs(ds)
+    if out is ds:
+        out = ds.copy(deep=False)
+
+    topology = out[mesh.topology]
+    if "face_dimension" not in topology.attrs:
+        topology.attrs = {**topology.attrs, "face_dimension": mesh.face_dim}
+
+    name = mesh.face_node_connectivity
+    values = np.asarray(ds[name].values)
+    start_index = resolve_start_index(values, int(ds.sizes[mesh.node_dim]), mesh.start_index)
+
+    connectivity = out[name].copy(data=values)
+    connectivity.attrs = {**connectivity.attrs, "start_index": start_index}
+    out[name] = connectivity
+    return out, start_index
 
 
 def variable_location(
@@ -387,7 +469,15 @@ def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
     xugrid = _require_xugrid()
 
     started = time.perf_counter()
-    grid = xugrid.Ugrid2d.from_dataset(restore_ugrid_attrs(ds), topology=mesh.topology)
+    topology_ds, start_index = _topology_for_xugrid(ds, mesh)
+    grid = xugrid.Ugrid2d.from_dataset(topology_ds, topology=mesh.topology)
+
+    if int(np.asarray(grid.face_node_connectivity).max()) >= grid.n_node:
+        raise ValueError(
+            "UGRID connectivity references nodes outside the mesh "
+            f"({mesh.face_node_connectivity} read with start_index={start_index}, "
+            f"{grid.n_node} nodes)",
+        )
 
     node_x = np.asarray(grid.node_x)
     node_y = np.asarray(grid.node_y)

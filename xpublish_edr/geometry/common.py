@@ -293,9 +293,13 @@ def _resolve_crs(
     return get_default_grid_mapping(ds), None
 
 
-def dataset_spatial_ref(ds: xr.Dataset) -> SpatialRef:
-    """Resolve the CRS and X/Y coordinate variable names for a dataset."""
-    mesh = detect_mesh(ds)
+def dataset_spatial_ref(ds: xr.Dataset, mesh: MeshInfo | None = None) -> SpatialRef:
+    """Resolve the CRS and X/Y coordinate variable names for a dataset.
+
+    ``mesh`` is an already detected UGRID mesh, passed in by callers that have
+    run :func:`detect_mesh` themselves so it is not detected twice.
+    """
+    mesh = mesh if mesh is not None else detect_mesh(ds)
     crs, coordinates = _resolve_crs(ds)
     X, Y = _resolve_xy_names(ds, crs, coordinates=coordinates, mesh=mesh)
     return SpatialRef(crs=crs, X=X, Y=Y, mesh=mesh)
@@ -525,23 +529,28 @@ def prepare_spatial_grid(
 ) -> PreparedSpatialGrid:
     """Resolve spatial metadata once and materialize affine coordinates if needed.
 
-    ``source`` is the unfiltered dataset to resolve spatial metadata from. The
-    ``parameter-name`` filter drops the UGRID topology and connectivity
-    variables, so mesh detection has to happen against the full dataset.
+    ``source`` is the unfiltered dataset, used to resolve spatial metadata for a
+    UGRID mesh: the ``parameter-name`` filter drops the topology and
+    connectivity variables from ``ds``, so mesh detection has to happen against
+    the full dataset.
 
     For an unstructured (UGRID) dataset a selectable grid also needs a built
     spatial index; it is built here (via ``cache``, xpublish's application
     cache) unless an already built ``grid`` is handed in. Metadata-only callers
     leave ``require_selectable`` False and never need xugrid.
     """
-    try:
-        spatial_ref = spatial_ref or dataset_spatial_ref(source if source is not None else ds)
-    except ValueError as e:
-        if require_selectable:
-            raise NotImplementedError("Only 1D coordinates are supported") from e
-        raise
+    if spatial_ref is None:
+        mesh = detect_mesh(source) if source is not None else None
+        metadata_source = source if mesh is not None else ds
+        try:
+            spatial_ref = dataset_spatial_ref(metadata_source, mesh=mesh)
+        except ValueError as e:
+            if require_selectable:
+                raise NotImplementedError("Only 1D coordinates are supported") from e
+            raise
 
-    if source is not None:
+    if source is not None and spatial_ref.mesh is not None:
+        # The CRS was resolved from (and materialized on) ``source``
         ds = _carry_grid_mapping(ds, source)
 
     if spatial_ref.mesh is None:

@@ -33,9 +33,11 @@ from xpublish_edr.geometry.ugrid import (
     UgridSupportUnavailable,
     _index_crs_for,
     _require_xugrid,
+    _topology_for_xugrid,
     build_grid,
     detect_mesh,
     get_indexed_grid,
+    resolve_start_index,
     restore_ugrid_attrs,
     variable_location,
 )
@@ -123,6 +125,42 @@ def make_triangle_dataset(lon: np.ndarray, lat: np.ndarray) -> xr.Dataset:
             ),
         },
         attrs={"Conventions": "CF-1.11, UGRID-1.0"},
+    )
+
+
+def make_leading_1d_topology_dataset() -> xr.Dataset:
+    """The FVCOM fixture with a 1D network topology listed before the 2D mesh.
+
+    UGRID allows several topologies in one file; only the 2D triangular one is
+    usable here, and it is not necessarily the first one listed. cf_xarray sorts
+    ``cf_roles`` by variable name, hence ``edge_network``.
+    """
+    base = make_fvcom_dataset()
+    n_node = base.sizes["node"]
+    edges = np.column_stack(
+        [np.arange(n_node - 1, dtype="int32"), np.arange(1, n_node, dtype="int32")],
+    )
+    return xr.Dataset(
+        data_vars={
+            "edge_network": (
+                (),
+                np.int32(0),
+                {
+                    "cf_role": "mesh_topology",
+                    "topology_dimension": 1,
+                    "node_coordinates": "lon lat",
+                    "edge_node_connectivity": "edges",
+                },
+            ),
+            "edges": (
+                ("nedges", "two"),
+                edges,
+                {"cf_role": "edge_node_connectivity", "start_index": 0},
+            ),
+            **{name: base[name] for name in base.data_vars},
+        },
+        coords={name: base[name] for name in base.coords},
+        attrs=dict(base.attrs),
     )
 
 
@@ -222,6 +260,51 @@ def test_detect_mesh_returns_none_for_regular_grid():
 def test_detect_mesh_returns_none_for_quad_mesh():
     """Only triangular meshes are supported."""
     assert detect_mesh(make_quad_mesh_dataset()) is None
+
+
+def test_detect_mesh_skips_non_2d_topology(caplog):
+    """A 1D topology listed first does not hide the 2D mesh behind it."""
+    ds = make_leading_1d_topology_dataset()
+    topologies = list(ds.cf.cf_roles["mesh_topology"])
+    assert topologies[0] == "edge_network"
+
+    with caplog.at_level(logging.DEBUG, logger="cf_edr"):
+        mesh = detect_mesh(ds)
+
+    assert mesh is not None
+    assert mesh.topology == "mesh_topology"
+    assert mesh.face_dim == "nele"
+    assert any("mesh_topology" in record.message for record in caplog.records)
+
+
+def test_detect_mesh_start_index_is_none_when_undeclared():
+    """An undeclared ``start_index`` is reported as unknown, not assumed to be 0."""
+    mesh = detect_mesh(make_fvcom_dataset(start_index=None))
+    assert mesh is not None
+    assert mesh.start_index is None
+
+
+@pytest.mark.parametrize(
+    ("values", "n_node", "declared", "expected"),
+    [
+        pytest.param([[1, 2, 3]], 3, 0, 0, id="declared-zero-wins"),
+        pytest.param([[0, 1, 2]], 3, 1, 1, id="declared-one-wins"),
+        pytest.param([[1, 2, 3], [2, 3, 1]], 3, None, 1, id="inferred-one-based"),
+        pytest.param([[0, 1, 2], [1, 2, 0]], 3, None, 0, id="inferred-zero-based"),
+        pytest.param([[1, 2, 3], [1, 2, -1]], 3, None, 1, id="inferred-one-based-with-fill"),
+        pytest.param([[0, 1, 2], [0, 1, -1]], 3, None, 0, id="inferred-zero-based-with-fill"),
+    ],
+)
+def test_resolve_start_index(values, n_node, declared, expected):
+    """The declared ``start_index`` wins; otherwise it is inferred from the values."""
+    assert resolve_start_index(np.array(values, dtype="int32"), n_node, declared) == expected
+
+
+def test_resolve_start_index_logs_when_inferred(caplog):
+    """Inferring a 1-based connectivity is noted in the log."""
+    with caplog.at_level(logging.INFO, logger="cf_edr"):
+        assert resolve_start_index(np.array([[1, 2, 3]], dtype="int32"), 3, None) == 1
+    assert any("1-based" in record.message for record in caplog.records)
 
 
 def test_variable_location(fvcom_dataset):
@@ -475,6 +558,89 @@ def test_build_grid_dask_backed():
         grid.grid.face_node_connectivity,
         reference.grid.face_node_connectivity,
     )
+
+
+def grid_for(ds: xr.Dataset) -> IndexedGrid:
+    """Resolve the mesh and build its index, the way the query pipeline does."""
+    spatial_ref = dataset_spatial_ref(ds)
+    assert spatial_ref.mesh is not None
+    return build_grid(ds, spatial_ref.mesh, spatial_ref.crs)
+
+
+def test_build_grid_without_face_dimension():
+    """A mesh with no ``face_dimension`` attr still gets all of its faces."""
+    ds = make_fvcom_dataset(face_dimension=False)
+    assert "face_dimension" not in ds["mesh_topology"].attrs
+
+    grid = grid_for(ds).grid
+    assert grid.n_face == 32
+    assert grid.n_node == 25
+    connectivity = grid.face_node_connectivity
+    assert connectivity.min() == 0
+    assert connectivity.max() == grid.n_node - 1
+
+
+def test_build_grid_without_face_dimension_or_face_coordinates():
+    """Neither ``face_dimension`` nor ``face_coordinates`` are required."""
+    ds = make_fvcom_dataset(face_dimension=False).drop_vars(["lonc", "latc"])
+    ds["mesh_topology"].attrs.pop("face_coordinates")
+
+    grid = grid_for(ds).grid
+    assert grid.n_face == 32
+    assert grid.face_node_connectivity.max() == grid.n_node - 1
+
+
+def test_build_grid_infers_one_based_connectivity(fvcom_dataset):
+    """A 1-based ``nv`` with no ``start_index`` attr is still read correctly."""
+    ds = make_fvcom_dataset(start_index=None)
+    assert "start_index" not in ds["nv"].attrs
+    assert int(ds["nv"].values.min()) == 1
+
+    indexed = grid_for(ds)
+    grid = indexed.grid
+    assert grid.face_node_connectivity.min() == 0
+    assert grid.face_node_connectivity.max() == grid.n_node - 1
+
+    node = 12
+    xy = indexed.project(ds["lon"].values[[node]], ds["lat"].values[[node]])
+    np.testing.assert_array_equal(indexed.nearest_nodes(xy), [node])
+    np.testing.assert_allclose(indexed.node_xy[node], xy[0], atol=1e-6)
+
+
+def test_build_grid_infers_one_based_connectivity_without_face_dimension():
+    """The inferred start index and the inferred face dimension combine."""
+    ds = make_fvcom_dataset(start_index=None, face_dimension=False)
+    grid = grid_for(ds).grid
+    assert grid.n_face == 32
+    assert grid.face_node_connectivity.max() == grid.n_node - 1
+
+
+def test_build_grid_rejects_out_of_range_connectivity():
+    """A connectivity that points past the last node is an error, not a silent mesh."""
+    ds = make_fvcom_dataset(start_index=None)
+    # Lie about the start index so the 1-based values are read as 0-based
+    ds["nv"].attrs["start_index"] = 0
+
+    with pytest.raises(ValueError, match="outside the mesh"):
+        grid_for(ds)
+
+
+def test_topology_for_xugrid_does_not_mutate_the_source(fvcom_dataset):
+    """Preparing the topology for xugrid leaves the caller's dataset alone."""
+    ds = make_fvcom_dataset(start_index=None, face_dimension=False, dask=True)
+    mesh = detect_mesh(ds)
+    assert mesh is not None
+
+    out, start_index = _topology_for_xugrid(ds, mesh)
+
+    assert start_index == 1
+    assert out["mesh_topology"].attrs["face_dimension"] == "nele"
+    assert out["nv"].attrs["start_index"] == 1
+    # The connectivity is loaded once, here, rather than again inside xugrid
+    assert isinstance(out["nv"].data, np.ndarray)
+
+    assert "face_dimension" not in ds["mesh_topology"].attrs
+    assert "start_index" not in ds["nv"].attrs
 
 
 def test_get_indexed_grid_caches_by_dataset_id(fvcom_dataset):

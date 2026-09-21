@@ -6,16 +6,21 @@ import pyproj
 import pytest
 import xarray as xr
 import xarray.testing as xrt
+import xpublish
+from fastapi.testclient import TestClient
 from shapely import MultiPoint, Point, from_wkt
 
 from xpublish_edr.area.geom import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import (
+    GridKind,
     dataset_spatial_ref,
     is_regular_xy_coords,
+    prepare_spatial_grid,
     project_dataset,
     with_spatial_coords,
 )
+from xpublish_edr.plugin import CfEdrPlugin
 from xpublish_edr.position.geom import select_by_position
 from xpublish_edr.area.query import EDRAreaQueryGet
 from xpublish_edr.cube.query import EDRCubeQuery
@@ -1008,3 +1013,62 @@ def test_spatial_resolution_and_position_selection(spatial_selection_case):
     projected = project_dataset(selected, query.crs, sr)
     npt.assert_approx_equal(projected.cf["X"].values.item(), x, significant=5)
     npt.assert_approx_equal(projected.cf["Y"].values.item(), y, significant=5)
+
+
+@pytest.fixture(scope="function")
+def two_grid_dataset():
+    """A regular grid carrying a second, unrelated longitude/latitude pair.
+
+    Neither pair declares a CF ``axis`` attribute, so cf_xarray sees two
+    longitude and two latitude candidates on the full dataset and cannot pick
+    one. ``parameter-name=air`` drops the second grid, which makes the filtered
+    dataset unambiguous -- so spatial metadata for a non-mesh dataset has to be
+    resolved from the filtered dataset rather than from the source.
+    """
+    lon = np.linspace(-70.0, -69.0, 4)
+    lat = np.linspace(43.0, 44.0, 3)
+    lon2 = np.linspace(-70.0, -69.0, 5)
+    lat2 = np.linspace(43.0, 44.0, 6)
+    time = pd.date_range("2024-01-01", periods=2, freq="h")
+    longitude = {"standard_name": "longitude", "units": "degrees_east"}
+    latitude = {"standard_name": "latitude", "units": "degrees_north"}
+
+    return xr.Dataset(
+        {
+            "air": (("time", "lat", "lon"), np.arange(24.0).reshape(2, 3, 4), {"units": "K"}),
+            "sst": (("time", "lat2", "lon2"), np.arange(60.0).reshape(2, 6, 5), {"units": "K"}),
+        },
+        coords={
+            "lon": ("lon", lon, longitude),
+            "lat": ("lat", lat, latitude),
+            "lon2": ("lon2", lon2, longitude),
+            "lat2": ("lat2", lat2, latitude),
+            "time": ("time", time),
+        },
+    )
+
+
+def test_prepare_spatial_grid_resolves_from_the_filtered_dataset(two_grid_dataset):
+    """Without a mesh, spatial metadata comes from the filtered dataset."""
+    prepared = prepare_spatial_grid(
+        two_grid_dataset[["air"]],
+        source=two_grid_dataset,
+        require_selectable=True,
+    )
+
+    assert prepared.spatial_ref.X == "lon"
+    assert prepared.spatial_ref.Y == "lat"
+    assert prepared.spatial_ref.mesh is None
+    assert prepared.kind is GridKind.REGULAR
+
+
+def test_position_query_on_a_dataset_with_two_grids(two_grid_dataset):
+    """End to end, a position query on the filtered parameter still works."""
+    rest = xpublish.Rest({"two": two_grid_dataset}, plugins={"edr": CfEdrPlugin()})
+    client = TestClient(rest.app)
+
+    response = client.get(
+        "/datasets/two/edr/position?parameter-name=air&coords=POINT(-69.5 43.5)",
+    )
+    assert response.status_code == 200, response.text
+    assert set(response.json()["ranges"]) == {"air"}

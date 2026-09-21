@@ -37,7 +37,7 @@ def _triangles(side: int) -> np.ndarray:
 def make_fvcom_dataset(
     *,
     side: int = 5,
-    start_index: int = 1,
+    start_index: int | None = 1,
     face_dimension: bool = True,
     dask: bool = False,
     attrs_in_encoding: bool = False,
@@ -47,6 +47,11 @@ def make_fvcom_dataset(
     The mesh is a ``side x side`` lattice of nodes over lon -70..-69 / lat 43..44,
     split into triangles. ``nv`` is transposed (vertex dimension first) and
     optionally 1-based, exactly like real FVCOM output.
+
+    ``start_index=None`` models the common real-world case of a 1-based ``nv``
+    that never declares ``start_index``: the values stay 1-based but the
+    attribute is omitted. ``face_dimension=False`` likewise omits the topology's
+    ``face_dimension`` attribute.
 
     Shared by ``tests/test_ugrid.py`` (unit-level UGRID tests) and
     ``tests/test_cf_router.py`` (end-to-end ``fvcom_client`` tests), which
@@ -62,7 +67,10 @@ def make_fvcom_dataset(
     n_faces = tris.shape[0]
     lonc = lon[tris].mean(axis=1)
     latc = lat[tris].mean(axis=1)
-    nv = (tris + start_index).T.astype("int32")
+    nv = (tris + (1 if start_index is None else start_index)).T.astype("int32")
+    nv_attrs = {"cf_role": "face_node_connectivity"}
+    if start_index is not None:
+        nv_attrs["start_index"] = start_index
 
     time = pd.date_range("2024-01-01", periods=4, freq="h")
     t_index = np.arange(time.size, dtype="float32")
@@ -84,11 +92,7 @@ def make_fvcom_dataset(
 
     ds = xr.Dataset(
         data_vars={
-            "nv": (
-                ("three", "nele"),
-                nv,
-                {"cf_role": "face_node_connectivity", "start_index": start_index},
-            ),
+            "nv": (("three", "nele"), nv, nv_attrs),
             "nbe": (("three", "nele"), np.zeros((3, n_faces), dtype="int32")),
             "mesh_topology": ((), np.int32(0), topology_attrs),
             "zeta": (
@@ -148,7 +152,8 @@ def make_fvcom_dataset(
         topology = ds["mesh_topology"]
         moved = {k: topology.attrs.pop(k) for k in UGRID_KEYS if k in topology.attrs}
         topology.encoding.update(moved)
-        ds["nv"].encoding["start_index"] = ds["nv"].attrs.pop("start_index")
+        if "start_index" in ds["nv"].attrs:
+            ds["nv"].encoding["start_index"] = ds["nv"].attrs.pop("start_index")
 
     return ds
 
