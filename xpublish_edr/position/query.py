@@ -75,6 +75,8 @@ class EDRPositionQueryPost(BaseEDRQuery):
                 ),
             )
         except ValueError as e:
+            # Mesh selection problems (MeshSelectionError) and a non-Point/
+            # MultiPoint geometry are both request-level errors.
             logger.error(f"Error selecting by position: {e}")
             raise HTTPException(
                 status_code=404,

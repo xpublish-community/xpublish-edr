@@ -19,7 +19,13 @@ from xpublish_edr.geometry.common import (
     prepare_spatial_grid,
     selection_targets,
 )
-from xpublish_edr.geometry.ugrid import MeshIndex, MeshInfo, get_mesh_index, variable_location
+from xpublish_edr.geometry.ugrid import (
+    MeshIndex,
+    MeshInfo,
+    MeshSelectionError,
+    get_mesh_index,
+    variable_location,
+)
 from xpublish_edr.logger import logger
 
 # Temporary dimension holding the three vertices of each containing triangle.
@@ -276,7 +282,7 @@ def _select_by_position_unstructured(
 
     targets = selection_targets(ds, mesh)
     if not targets:
-        raise ValueError("No mesh-located variables selected")
+        raise MeshSelectionError("No mesh-located variables selected")
 
     if method == "nearest":
         indexers = {}

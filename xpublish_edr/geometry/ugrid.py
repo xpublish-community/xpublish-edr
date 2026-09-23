@@ -61,6 +61,27 @@ class UgridSupportUnavailable(ImportError):
     """Raised when a UGRID mesh needs to be queried but xugrid is not installed."""
 
 
+class InvalidMeshError(ValueError):
+    """Raised when a detected UGRID mesh's own metadata is internally inconsistent.
+
+    Distinguishes a broken dataset (the mesh :func:`build_grid` was asked to
+    build cannot actually be built, e.g. its connectivity references nodes
+    that do not exist) from a bad *request*; callers map it to a 500 rather
+    than the 404s used for request-level selection errors.
+    """
+
+
+class MeshSelectionError(ValueError):
+    """Raised for a user-facing mesh *selection* problem on an otherwise valid mesh.
+
+    Covers cases like a ``parameter-name`` filter that leaves no mesh-located
+    variables, or one that mixes node- and face-located parameters in an area
+    query. Distinct from :class:`InvalidMeshError` (a broken dataset) and from
+    a bare ``ValueError`` (which may not be a request-level problem at all);
+    callers map it to a 404.
+    """
+
+
 def _require_xugrid():
     """Import and return ``xugrid``, or raise :class:`UgridSupportUnavailable`."""
     try:
@@ -685,7 +706,7 @@ def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> MeshIndex:
     grid = xugrid.Ugrid2d.from_dataset(topology_ds, topology=mesh.topology)
 
     if int(np.asarray(grid.face_node_connectivity).max()) >= grid.n_node:
-        raise ValueError(
+        raise InvalidMeshError(
             "UGRID connectivity references nodes outside the mesh "
             f"({mesh.face_node_connectivity} read with start_index={start_index}, "
             f"{grid.n_node} nodes)",

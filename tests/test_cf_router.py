@@ -1173,6 +1173,7 @@ def test_fvcom_metadata(fvcom_client):
 
 def test_fvcom_position_nearest(fvcom_client):
     """A single point snaps to the nearest node and returns a ``(t, pts=1)`` coverage."""
+    pytest.importorskip("xugrid")
     response = fvcom_client.get(
         "/datasets/fvcom/edr/position",
         params={"parameter-name": "zeta", "coords": "POINT(-69.5 43.5)"},
@@ -1194,6 +1195,7 @@ def test_fvcom_position_nearest(fvcom_client):
 
 def test_fvcom_position_multipoint(fvcom_client):
     """A MULTIPOINT of two points yields a ``(t, pts=2)`` coverage."""
+    pytest.importorskip("xugrid")
     coords = "MULTIPOINT((-69.75 43.25),(-69.25 43.75))"
     response = fvcom_client.get(
         "/datasets/fvcom/edr/position",
@@ -1207,6 +1209,7 @@ def test_fvcom_position_multipoint(fvcom_client):
 
 def test_fvcom_position_linear(fvcom_client):
     """``method=linear`` barycentrically interpolates the fixture's linear field."""
+    pytest.importorskip("xugrid")
     response = fvcom_client.get(
         "/datasets/fvcom/edr/position",
         params={
@@ -1225,6 +1228,7 @@ def test_fvcom_position_linear(fvcom_client):
 
 def test_fvcom_position_epsg3857(fvcom_client):
     """A query point supplied in EPSG:3857 selects the same node, reprojected back."""
+    pytest.importorskip("xugrid")
     to_3857 = pyproj.Transformer.from_crs(4326, 3857, always_xy=True)
     x, y = to_3857.transform(-69.5, 43.5)
 
@@ -1244,6 +1248,7 @@ def test_fvcom_position_epsg3857(fvcom_client):
 
 def test_fvcom_position_face_variable(fvcom_client):
     """A face-located parameter round trips with ``pts`` axes."""
+    pytest.importorskip("xugrid")
     response = fvcom_client.get(
         "/datasets/fvcom/edr/position",
         params={"parameter-name": "u", "coords": "POINT(-69.5 43.5)"},
@@ -1254,6 +1259,7 @@ def test_fvcom_position_face_variable(fvcom_client):
 
 def test_fvcom_position_datetime_narrows_time(fvcom_client):
     """A ``datetime`` interval narrows the time axis shape."""
+    pytest.importorskip("xugrid")
     full = fvcom_client.get(
         "/datasets/fvcom/edr/position",
         params={"parameter-name": "zeta", "coords": "POINT(-69.5 43.5)"},
@@ -1278,6 +1284,7 @@ def test_fvcom_position_datetime_narrows_time(fvcom_client):
 
 def test_fvcom_position_csv(fvcom_client):
     """CSV output has lon/lat/time/zeta columns and no mesh scaffolding columns."""
+    pytest.importorskip("xugrid")
     response = fvcom_client.get(
         "/datasets/fvcom/edr/position",
         params={"parameter-name": "zeta", "coords": "POINT(-69.5 43.5)", "f": "csv"},
@@ -1291,6 +1298,7 @@ def test_fvcom_position_csv(fvcom_client):
 
 def test_fvcom_position_geojson(fvcom_client):
     """GeoJSON output is a FeatureCollection of Points."""
+    pytest.importorskip("xugrid")
     response = fvcom_client.get(
         "/datasets/fvcom/edr/position",
         params={"parameter-name": "zeta", "coords": "POINT(-69.5 43.5)", "f": "geojson"},
@@ -1307,6 +1315,7 @@ def test_fvcom_position_netcdf(fvcom_client, tmp_path):
     """NetCDF output opens with xarray and carries the ``pts`` dimension."""
     import xarray as xr
 
+    pytest.importorskip("xugrid")
     response = fvcom_client.get(
         "/datasets/fvcom/edr/position",
         params={"parameter-name": "zeta", "coords": "POINT(-69.5 43.5)", "f": "nc"},
@@ -1323,6 +1332,7 @@ def test_fvcom_position_netcdf(fvcom_client, tmp_path):
 
 def test_fvcom_area(fvcom_client):
     """An area query returns a ``(t, pts)`` coverage with at least one point."""
+    pytest.importorskip("xugrid")
     response = fvcom_client.get(
         "/datasets/fvcom/edr/area",
         params={"parameter-name": "zeta", "coords": FVCOM_AREA_POLYGON_WKT},
@@ -1336,6 +1346,7 @@ def test_fvcom_area(fvcom_client):
 
 def test_fvcom_area_mixed_locations_is_404(fvcom_client):
     """An area query mixing node- and face-located parameters is a client error."""
+    pytest.importorskip("xugrid")
     response = fvcom_client.get(
         "/datasets/fvcom/edr/area",
         params={"parameter-name": "zeta,u", "coords": FVCOM_AREA_POLYGON_WKT},
@@ -1375,6 +1386,92 @@ def test_fvcom_cube_not_implemented(monkeypatch):
     )
     assert response.status_code == 501, response.text
     assert "unstructured" in response.json()["detail"]
+
+
+def test_fvcom_invalid_mesh_returns_500():
+    """A mesh whose connectivity is broken server-side is a 500, not an unhandled crash.
+
+    Mirrors ``test_build_grid_rejects_out_of_range_connectivity`` in
+    ``tests/test_ugrid.py``, but through the router: this is a dataset problem
+    (not a bad request), so it must come back as a clean ``HTTPException``
+    rather than propagate out of the ASGI app.
+    """
+    pytest.importorskip("xugrid")
+    ds = make_fvcom_dataset(start_index=None)
+    # Lie about the start index so the 1-based values are read as 0-based,
+    # which makes the connectivity reference nodes past the end of the mesh.
+    ds["nv"].attrs["start_index"] = 0
+
+    rest = xpublish.Rest(
+        {"fvcom": ds},
+        plugins={"edr": CfEdrPlugin()},
+        cache_kws={"available_bytes": 1e9},
+    )
+    client = TestClient(rest.app)
+
+    response = client.get(
+        "/datasets/fvcom/edr/position",
+        params={"parameter-name": "zeta", "coords": "POINT(-69.5 43.5)"},
+    )
+    assert response.status_code == 500, response.text
+    assert "invalid UGRID mesh" in response.json()["detail"]
+    assert "outside the mesh" in response.json()["detail"]
+
+
+def _fvcom_dataset_with_time_only_var(**kwargs):
+    """The FVCOM fixture plus a data variable with no mesh (node/face) dimension.
+
+    Selecting only this variable leaves neither mesh dimension in the filtered
+    dataset, which is the ``MeshSelectionError`` ("No mesh-located variables
+    selected") path -- distinct from the mixed-location path already covered by
+    ``test_fvcom_area_mixed_locations_is_404``.
+    """
+    import numpy as np
+    import xarray as xr
+
+    ds = make_fvcom_dataset(**kwargs)
+    ds["time_only"] = xr.DataArray(
+        np.arange(ds.sizes["time"], dtype="float32"),
+        dims=("time",),
+        attrs={"units": "1"},
+    )
+    return ds
+
+
+def test_fvcom_position_no_mesh_variable_is_404():
+    """A ``parameter-name`` with no mesh dimension is a client error, not a crash."""
+    pytest.importorskip("xugrid")
+    rest = xpublish.Rest(
+        {"fvcom": _fvcom_dataset_with_time_only_var()},
+        plugins={"edr": CfEdrPlugin()},
+        cache_kws={"available_bytes": 1e9},
+    )
+    client = TestClient(rest.app)
+
+    response = client.get(
+        "/datasets/fvcom/edr/position",
+        params={"parameter-name": "time_only", "coords": "POINT(-69.5 43.5)"},
+    )
+    assert response.status_code == 404, response.text
+    assert "No mesh-located variables selected" in response.json()["detail"]
+
+
+def test_fvcom_area_no_mesh_variable_is_404():
+    """A ``parameter-name`` with no mesh dimension is a client error, not a crash."""
+    pytest.importorskip("xugrid")
+    rest = xpublish.Rest(
+        {"fvcom": _fvcom_dataset_with_time_only_var()},
+        plugins={"edr": CfEdrPlugin()},
+        cache_kws={"available_bytes": 1e9},
+    )
+    client = TestClient(rest.app)
+
+    response = client.get(
+        "/datasets/fvcom/edr/area",
+        params={"parameter-name": "time_only", "coords": FVCOM_AREA_POLYGON_WKT},
+    )
+    assert response.status_code == 404, response.text
+    assert "No mesh-located variables selected" in response.json()["detail"]
 
 
 def test_fvcom_missing_extra_returns_501(monkeypatch):

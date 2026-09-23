@@ -6,7 +6,24 @@ import xpublish
 from fastapi.testclient import TestClient
 from xpublish_ogc_core.plugin import OgcCorePlugin
 
+from xpublish_edr.geometry import ugrid as ugrid_module
 from xpublish_edr.plugin import CfEdrPlugin
+
+
+@pytest.fixture(autouse=True)
+def _reset_ugrid_cache_warned_keys():
+    """Clear the UGRID "cache too small" one-off warning state around each test.
+
+    ``xpublish_edr.geometry.ugrid._CACHE_WARNED_KEYS`` is module-level, global
+    state: without resetting it, whichever test happens to warn about a given
+    cache key first "uses up" that warning for every later test, making
+    ``test_get_mesh_index_warns_when_cache_is_too_small`` (and any other test
+    asserting on that warning) depend on test order.
+    """
+    ugrid_module._CACHE_WARNED_KEYS.clear()
+    yield
+    ugrid_module._CACHE_WARNED_KEYS.clear()
+
 
 # UGRID reference attrs that ``make_fvcom_dataset(attrs_in_encoding=True)`` moves
 # from ``.attrs`` to ``.encoding`` to model ``decode_coords="all"`` datasets.

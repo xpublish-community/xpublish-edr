@@ -17,7 +17,13 @@ from xpublish_edr.geometry.common import (
     prepare_spatial_grid,
     selection_targets,
 )
-from xpublish_edr.geometry.ugrid import MeshIndex, MeshInfo, get_mesh_index, variable_location
+from xpublish_edr.geometry.ugrid import (
+    MeshIndex,
+    MeshInfo,
+    MeshSelectionError,
+    get_mesh_index,
+    variable_location,
+)
 
 
 def select_prepared_area(
@@ -124,9 +130,9 @@ def _select_area_unstructured(
 
     targets = selection_targets(ds, mesh)
     if not targets:
-        raise ValueError("No mesh-located variables selected")
+        raise MeshSelectionError("No mesh-located variables selected")
     if len(targets) > 1:
-        raise ValueError(_mixed_location_message(ds, mesh))
+        raise MeshSelectionError(_mixed_location_message(ds, mesh))
     (target,) = targets
 
     polygon_index = mesh_index.project_geometry(polygon)

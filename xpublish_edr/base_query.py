@@ -23,7 +23,7 @@ from xpublish_edr.geometry.common import (
     project_geometry,
     selected_spatial_ref,
 )
-from xpublish_edr.geometry.ugrid import UgridSupportUnavailable, get_mesh_index
+from xpublish_edr.geometry.ugrid import InvalidMeshError, UgridSupportUnavailable, get_mesh_index
 from xpublish_edr.logger import logger
 from xpublish_edr.metadata import indexed_cf_axis
 from xpublish_edr.utils import _load_dataset
@@ -226,6 +226,12 @@ class BaseEDRQuery(BaseModel):
             except UgridSupportUnavailable as e:
                 logger.error(f"Cannot query UGRID mesh for {self.query_label()} query: {e}")
                 raise HTTPException(status_code=501, detail=str(e))
+            except InvalidMeshError as e:
+                logger.error(f"Invalid UGRID mesh for {self.query_label()} query: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Dataset has an invalid UGRID mesh: {e}",
+                )
             prepared = dataclasses.replace(prepared, mesh_index=mesh_index)
 
         ds = self.spatial_select(prepared, geometry)

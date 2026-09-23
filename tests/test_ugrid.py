@@ -191,6 +191,7 @@ def raw_fvcom_dataset() -> xr.Dataset:
 @pytest.fixture
 def fvcom_mesh_index(fvcom_dataset) -> MeshIndex:
     """A :class:`MeshIndex` built from the default FVCOM fixture."""
+    pytest.importorskip("xugrid")
     spatial_ref = dataset_spatial_ref(fvcom_dataset)
     assert spatial_ref.mesh is not None
     return build_grid(fvcom_dataset, spatial_ref.mesh, spatial_ref.crs)
@@ -296,6 +297,27 @@ def test_detect_mesh_raw_fvcom_returns_none_for_regular_grid():
     assert detect_mesh(airds) is None
 
 
+def test_detect_mesh_raw_fvcom_needs_lon_lat(raw_fvcom_dataset):
+    """An ``nv`` connectivity with no recognizable lon/lat pair is not a mesh."""
+    stripped = raw_fvcom_dataset.drop_vars(["lon", "lat", "lonc", "latc"])
+    assert detect_mesh(stripped) is None
+
+
+def test_synthetic_topology_name_avoids_collision(raw_fvcom_dataset, caplog):
+    """The synthesized topology name dodges a same-named variable already in ``ds``."""
+    ds = raw_fvcom_dataset.assign(
+        fvcom_mesh_topology=((), np.int32(0), {"unrelated": "not a real topology"}),
+    )
+
+    with caplog.at_level(logging.INFO, logger="cf_edr"):
+        mesh = detect_mesh(ds)
+
+    assert mesh is not None
+    assert mesh.synthetic is True
+    assert mesh.topology == "fvcom_mesh_topology_1"
+    assert any("fvcom_mesh_topology_1" in record.message for record in caplog.records)
+
+
 def test_detect_mesh_zero_based_start_index():
     """``start_index`` defaults to (and is read as) 0 when the mesh is 0-based."""
     mesh = detect_mesh(make_fvcom_dataset(start_index=0))
@@ -333,6 +355,30 @@ def test_detect_mesh_returns_none_for_regular_grid():
     assert detect_mesh(airds) is None
 
 
+def test_detect_mesh_falls_back_to_fvcom_when_cf_roles_raises(raw_fvcom_dataset, monkeypatch):
+    """A cf_xarray failure inspecting ``cf_roles`` does not crash detection.
+
+    Raw FVCOM output declares no ``cf_role`` attributes at all, so this is
+    also the path real FVCOM files take; simulating the failure directly
+    exercises it regardless of what cf_xarray happens to do with them today.
+    """
+    import cf_xarray.accessor
+
+    def _raising_cf_roles(self):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        cf_xarray.accessor.CFAccessor,
+        "cf_roles",
+        property(_raising_cf_roles),
+    )
+
+    mesh = detect_mesh(raw_fvcom_dataset)
+
+    assert mesh is not None
+    assert mesh.synthetic is True
+
+
 def test_detect_mesh_returns_none_for_quad_mesh():
     """Only triangular meshes are supported."""
     assert detect_mesh(make_quad_mesh_dataset()) is None
@@ -358,6 +404,120 @@ def test_detect_mesh_start_index_is_none_when_undeclared():
     mesh = detect_mesh(make_fvcom_dataset(start_index=None))
     assert mesh is not None
     assert mesh.start_index is None
+
+
+def test_detect_mesh_non_integer_start_index_is_none_but_still_parses():
+    """A ``start_index`` that cannot be parsed as an int is treated as undeclared."""
+    lon = np.array([0.0, 1.0, 0.5])
+    lat = np.array([0.0, 0.0, 1.0])
+    ds = make_triangle_dataset(lon, lat)
+    ds["nv"].attrs["start_index"] = "zero"
+
+    mesh = detect_mesh(ds)
+
+    assert mesh is not None
+    assert mesh.start_index is None
+
+
+def _make_topology_dataset(lon: np.ndarray, lat: np.ndarray) -> xr.Dataset:
+    """A minimal UGRID dataset like :func:`make_triangle_dataset`, but whose
+    connectivity is named ``face_nodes`` rather than ``nv``.
+
+    ``detect_mesh`` falls back to raw-FVCOM detection when the topology
+    variable fails to parse, and that fallback recognizes ``nv`` by name alone
+    (real FVCOM output carries no ``cf_role``/``source`` hints at all); reusing
+    :func:`make_triangle_dataset` would let that fallback quietly rescue a
+    topology this test means to reject. Naming the connectivity something else
+    keeps these cases from matching either detection path.
+    """
+    return xr.Dataset(
+        data_vars={
+            "face_nodes": (
+                ("three", "nele"),
+                np.array([[0], [1], [2]], dtype="int32"),
+                {"cf_role": "face_node_connectivity", "start_index": 0},
+            ),
+            "mesh_topology": (
+                (),
+                np.int32(0),
+                {
+                    "cf_role": "mesh_topology",
+                    "topology_dimension": 2,
+                    "node_coordinates": "lon lat",
+                    "face_node_connectivity": "face_nodes",
+                    "face_dimension": "nele",
+                },
+            ),
+        },
+        coords={
+            "lon": (("node",), lon, {"standard_name": "longitude", "units": "degrees_east"}),
+            "lat": (("node",), lat, {"standard_name": "latitude", "units": "degrees_north"}),
+        },
+        attrs={"Conventions": "CF-1.11, UGRID-1.0"},
+    )
+
+
+def _malformed_topology_cases():
+    """Builders for UGRID topologies that ``detect_mesh`` must reject (``None``)."""
+    lon = np.array([0.0, 1.0, 0.5])
+    lat = np.array([0.0, 0.0, 1.0])
+
+    def one_coordinate_name():
+        ds = _make_topology_dataset(lon, lat)
+        ds["mesh_topology"].attrs["node_coordinates"] = "lon"
+        return ds
+
+    def three_coordinate_names():
+        ds = _make_topology_dataset(lon, lat)
+        ds["mesh_topology"].attrs["node_coordinates"] = "lon lat lon"
+        return ds
+
+    def nonexistent_coordinate():
+        ds = _make_topology_dataset(lon, lat)
+        ds["mesh_topology"].attrs["node_coordinates"] = "lon nonexistent"
+        return ds
+
+    def coordinates_on_different_dims():
+        ds = _make_topology_dataset(lon, lat)
+        return ds.assign_coords(lat=(("other",), lat))
+
+    def coordinates_are_2d():
+        ds = _make_topology_dataset(lon, lat)
+        ds = ds.drop_vars(["lon", "lat"])
+        return ds.assign_coords(
+            lon=(("node", "extra"), lon[:, None]),
+            lat=(("node", "extra"), lat[:, None]),
+        )
+
+    def non_integer_topology_dimension():
+        ds = _make_topology_dataset(lon, lat)
+        ds["mesh_topology"].attrs["topology_dimension"] = "two"
+        return ds
+
+    def missing_connectivity_variable():
+        ds = _make_topology_dataset(lon, lat)
+        ds["mesh_topology"].attrs["face_node_connectivity"] = "does_not_exist"
+        return ds
+
+    def wrong_vertex_count():
+        return make_quad_mesh_dataset()
+
+    return [
+        pytest.param(one_coordinate_name, id="node_coordinates-one-name"),
+        pytest.param(three_coordinate_names, id="node_coordinates-three-names"),
+        pytest.param(nonexistent_coordinate, id="node_coordinates-missing-variable"),
+        pytest.param(coordinates_on_different_dims, id="node-coords-different-dims"),
+        pytest.param(coordinates_are_2d, id="node-coords-2d"),
+        pytest.param(non_integer_topology_dimension, id="non-integer-topology-dimension"),
+        pytest.param(missing_connectivity_variable, id="missing-connectivity-variable"),
+        pytest.param(wrong_vertex_count, id="wrong-vertex-count"),
+    ]
+
+
+@pytest.mark.parametrize("build", _malformed_topology_cases())
+def test_detect_mesh_rejects_malformed_topology(build):
+    """A malformed UGRID topology is quietly rejected (``None``), not raised as an error."""
+    assert detect_mesh(build()) is None
 
 
 @pytest.mark.parametrize(
@@ -482,7 +642,7 @@ def test_collection_metadata_for_mesh(fvcom_dataset):
 
 def test_require_xugrid_returns_module():
     """The dev environment installs the ``ugrid`` extra."""
-    import xugrid
+    xugrid = pytest.importorskip("xugrid")
 
     assert _require_xugrid() is xugrid
 
@@ -662,6 +822,7 @@ def test_nearest_nodes_uses_metric_distance():
     of latitude is ~44.5 km, so a naive lookup in degree space picks the wrong
     node.
     """
+    pytest.importorskip("xugrid")
     lon = np.array([-68.5, -69.0, -69.5])
     lat = np.array([43.0, 43.4, 42.9])
     ds = make_triangle_dataset(lon, lat)
@@ -684,6 +845,7 @@ def test_nearest_nodes_uses_metric_distance():
 
 def test_build_grid_dask_backed():
     """A chunked dataset builds the same grid as the in-memory one."""
+    pytest.importorskip("xugrid")
     ds = make_fvcom_dataset(dask=True)
     spatial_ref = dataset_spatial_ref(ds)
     assert spatial_ref.mesh is not None
@@ -700,6 +862,7 @@ def test_build_grid_dask_backed():
 
 def mesh_index_for(ds: xr.Dataset) -> MeshIndex:
     """Resolve the mesh and build its index, the way the query pipeline does."""
+    pytest.importorskip("xugrid")
     spatial_ref = dataset_spatial_ref(ds)
     assert spatial_ref.mesh is not None
     return build_grid(ds, spatial_ref.mesh, spatial_ref.crs)
@@ -783,6 +946,7 @@ def test_topology_for_xugrid_does_not_mutate_the_source(fvcom_dataset):
 
 def test_get_mesh_index_caches_by_dataset_id(fvcom_dataset):
     """The same dataset id reuses the cached mesh index; a different id builds a new one."""
+    pytest.importorskip("xugrid")
     cache = cachey.Cache(available_bytes=1e9)
     spatial_ref = dataset_spatial_ref(fvcom_dataset)
 
@@ -798,6 +962,7 @@ def test_get_mesh_index_caches_by_dataset_id(fvcom_dataset):
 
 def test_get_mesh_index_without_dataset_id(fvcom_dataset):
     """Without a dataset id (or a cache) the index is rebuilt per call."""
+    pytest.importorskip("xugrid")
     cache = cachey.Cache(available_bytes=1e9)
     spatial_ref = dataset_spatial_ref(fvcom_dataset)
 
@@ -818,6 +983,7 @@ def test_get_mesh_index_without_dataset_id(fvcom_dataset):
 
 def test_get_mesh_index_warns_when_cache_is_too_small(fvcom_dataset, caplog, monkeypatch):
     """An index larger than the cache is still returned, with a one-off warning."""
+    pytest.importorskip("xugrid")
     spatial_ref = dataset_spatial_ref(fvcom_dataset)
     fvcom_dataset.attrs[DATASET_ID_ATTR_KEY] = "fvcom-big"
     huge = dataclasses.replace(
@@ -879,6 +1045,7 @@ def test_prepare_spatial_grid_selectable_path_also_needs_no_xugrid(fvcom_dataset
 
 def prepare_selectable(ds: xr.Dataset, source: xr.Dataset) -> PreparedSpatialGrid:
     """Prepare ``ds`` and (for a mesh) build its index, the way ``run_query`` does."""
+    pytest.importorskip("xugrid")
     prepared = prepare_spatial_grid(ds, source=source, require_selectable=True)
     if prepared.kind is GridKind.UNSTRUCTURED:
         prepared = dataclasses.replace(
@@ -1191,6 +1358,57 @@ def test_select_by_position_linear_mixed_locations(fvcom_dataset):
     assert ds["lonc"].dims == ("pts",)
 
 
+def test_select_by_position_linear_passes_through_non_mesh_variable(fvcom_dataset):
+    """A selected variable with no vertex dimension passes through untouched.
+
+    ``_interpolate_nodes`` only interpolates variables that picked up the
+    vertex dimension from the ``isel``; a variable on neither mesh dimension
+    (e.g. a plain time series) is not touched by that ``isel`` at all, so it
+    takes the ``VERTEX_DIM not in da.dims`` branch and is copied as-is.
+    """
+    ds = fvcom_dataset.assign(
+        time_only=(("time",), np.arange(fvcom_dataset.sizes["time"], dtype="float32")),
+    )
+    point = shapely.Point(-69.5, 43.5)
+
+    selected = select_position(ds[["zeta", "time_only"]], ds, point, method="linear")
+
+    assert selected["time_only"].dims == ("time",)
+    np.testing.assert_allclose(selected["time_only"].values, ds["time_only"].values)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "values"),
+    [
+        pytest.param("bool", None, id="bool"),
+        pytest.param("U8", "label", id="string"),
+    ],
+)
+def test_select_by_position_linear_non_numeric_uses_first_vertex(fvcom_dataset, dtype, values):
+    """A non-numeric node-located variable cannot be interpolated, so the
+    containing face's first vertex value is used instead of a weighted blend.
+    """
+    n_node = fvcom_dataset.sizes["node"]
+    if dtype == "bool":
+        flag = (np.arange(n_node) % 2 == 0).astype("bool")
+    else:
+        flag = np.array([f"{values}{i}" for i in range(n_node)], dtype=dtype)
+    ds = fvcom_dataset.assign(flag=(("node",), flag))
+
+    face = 11
+    point = shapely.Point(float(ds["lonc"].values[face]), float(ds["latc"].values[face]))
+
+    selected = select_position(ds[["zeta", "flag"]], ds, point, method="linear")
+
+    spatial_ref = dataset_spatial_ref(ds)
+    mesh_index = build_grid(ds, spatial_ref.mesh, spatial_ref.crs)
+    vertices = np.asarray(mesh_index.ugrid.face_node_connectivity)[face]
+    expected = flag[vertices[0]]
+
+    assert selected["flag"].dims == ("pts",)
+    assert selected["flag"].values[0] == expected
+
+
 def test_select_by_position_unstructured_requires_mesh_variables(fvcom_dataset):
     """Selecting a dataset with no mesh-located variables is a client error."""
     prepared = prepare_selectable(fvcom_dataset[["zeta"]], fvcom_dataset)
@@ -1305,6 +1523,7 @@ def test_project_dataset_unstructured_face_selection(fvcom_dataset):
 @pytest.mark.parametrize("method", ["nearest", "linear"])
 def test_run_query_position_unstructured(method):
     """An end to end position query returns a ``(t, pts)`` CoverageJSON coverage."""
+    pytest.importorskip("xugrid")
     ds = make_fvcom_dataset()
     ds.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
 
@@ -1329,6 +1548,7 @@ def test_run_query_position_unstructured(method):
 
 def test_run_query_position_unstructured_face_parameter():
     """A face-located parameter round trips through the pipeline."""
+    pytest.importorskip("xugrid")
     ds = make_fvcom_dataset()
     ds.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
     face = 17
@@ -1351,6 +1571,7 @@ def test_run_query_position_unstructured_face_parameter():
 
 def test_run_query_position_node_coords_as_data_vars():
     """A mesh whose node coordinates are data variables still exports x/y axes."""
+    pytest.importorskip("xugrid")
     ds = make_fvcom_dataset().reset_coords(["lon", "lat"])
     ds.attrs[DATASET_ID_ATTR_KEY] = "fvcom-data-var-coords"
 
@@ -1368,6 +1589,7 @@ def test_run_query_position_node_coords_as_data_vars():
 
 def test_run_query_position_unstructured_multipoint_reprojected():
     """A MULTIPOINT query in EPSG:3857 selects the same nodes and reprojects back."""
+    pytest.importorskip("xugrid")
     ds = make_fvcom_dataset()
     ds.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
 
@@ -1525,6 +1747,7 @@ def test_select_by_area_reprojected_polygon(fvcom_dataset):
 
 def test_run_query_area_unstructured():
     """An end to end area query returns a ``(t, pts)`` CoverageJSON coverage."""
+    pytest.importorskip("xugrid")
     ds = make_fvcom_dataset()
     ds.attrs[DATASET_ID_ATTR_KEY] = "fvcom"
 
@@ -1631,6 +1854,7 @@ def test_collection_metadata_for_raw_fvcom(raw_fvcom_dataset):
 @pytest.mark.parametrize("method", ["nearest", "linear"])
 def test_run_query_position_raw_fvcom(method):
     """An end to end position query works without any UGRID topology variable."""
+    pytest.importorskip("xugrid")
     ds = make_raw_fvcom_dataset()
     ds.attrs[DATASET_ID_ATTR_KEY] = "raw-fvcom"
 
@@ -1654,6 +1878,7 @@ def test_run_query_position_raw_fvcom(method):
 
 def test_run_query_area_raw_fvcom():
     """An end to end area query works without any UGRID topology variable."""
+    pytest.importorskip("xugrid")
     ds = make_raw_fvcom_dataset()
     ds.attrs[DATASET_ID_ATTR_KEY] = "raw-fvcom"
 

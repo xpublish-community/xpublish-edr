@@ -12,6 +12,7 @@ from xpublish_edr.geometry.common import (
     PreparedSpatialGrid,
     project_geometry,
 )
+from xpublish_edr.geometry.ugrid import MeshSelectionError
 from xpublish_edr.logger import logger
 
 from .geom import select_prepared_area
@@ -71,7 +72,7 @@ class EDRAreaQueryPost(BaseEDRQuery):
                 status_code=404,
                 detail="Dataset does not have CF Convention compliant metadata",
             )
-        except ValueError as e:
+        except MeshSelectionError as e:
             logger.error(f"Error selecting by area: {e}")
             raise HTTPException(
                 status_code=404,
