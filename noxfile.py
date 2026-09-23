@@ -19,9 +19,15 @@ python_versions = workflow["jobs"]["run"]["strategy"]["matrix"]["python-version"
 @nox.session(python=python_versions, default=True)
 def tests(session: nox.Session):
     """Run py.test against Github Actions matrix"""
-    session.install("--group", "dev")
-    session.install(".")
-    session.run("pytest", "--verbose")
+    session.run_install(
+        "uv",
+        "sync",
+        "--dev",
+        "--python",
+        str(session.python),
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+    session.run("pytest", "--verbose", *session.posargs)
 
 
 @nox.session

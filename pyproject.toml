@@ -34,6 +34,8 @@ dependencies = [
   "xarray>=2025.8",
   "xpublish>=0.4.1",
 ]
+optional-dependencies.all = [ "xpublish-edr[ugrid]" ]
+optional-dependencies.ugrid = [ "numba-celltree>=0.4.2", "xugrid>=0.15.2" ]
 entry-points."xpublish.plugin".cf_edr = "xpublish_edr.plugin:CfEdrPlugin"
 entry-points.xpublish_edr_area_formats.cf_covjson = "xpublish_edr.formats.to_covjson:to_cf_covjson"
 entry-points.xpublish_edr_area_formats.csv = "xpublish_edr.formats.to_csv:to_csv"
@@ -76,6 +78,7 @@ dev = [
   "referencing",
   "schemathesis>=4.25",
   "uvicorn",
+  "xpublish-edr[all]",
   "xpublish-ogc-core>=0.1.1",
 ]
 

@@ -2,7 +2,8 @@
 OGC EDR Query param parsing
 """
 
-from typing import TYPE_CHECKING, Literal
+import dataclasses
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 import pandas as pd
 import xarray as xr
@@ -14,19 +15,32 @@ from shapely.errors import GEOSException
 from xpublish_edr.format import area_formats, cube_formats, position_formats
 from xpublish_edr.formats.to_covjson import to_cf_covjson
 from xpublish_edr.geometry.common import (
+    GridKind,
     PreparedSpatialGrid,
+    finalize_unstructured_selection,
     prepare_spatial_grid,
     project_dataset,
     project_geometry,
+    selected_spatial_ref,
 )
+from xpublish_edr.geometry.ugrid import InvalidMeshError, UgridSupportUnavailable, get_mesh_index
 from xpublish_edr.logger import logger
+from xpublish_edr.metadata import indexed_cf_axis
 from xpublish_edr.utils import _load_dataset
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import cachey
 
 
 class BaseEDRQuery(BaseModel):
     """
     Base class for EDR queries
     """
+
+    # Whether this query type can be spatially selected on an unstructured
+    # (UGRID) grid. ``True`` by default; ``EDRCubeQuery`` overrides this to
+    # ``False`` since bbox selection needs a regular X/Y grid.
+    supports_unstructured: ClassVar[bool] = True
 
     format: str | None = Field(
         None,
@@ -65,19 +79,27 @@ class BaseEDRQuery(BaseModel):
         description="Method for the query",
     )
 
-    def _require_indexed_axis(self, ds: xr.Dataset, axis: str) -> None:
-        """Raise ValueError if cf axis ``axis`` (e.g. "T", "Z") is absent or unindexed."""
-        try:
-            coord_names = ds.cf.axes[axis]
-        except KeyError:
-            coord_names = []
-        if not any(name in ds.indexes for name in coord_names):
+    def _require_indexed_axis(self, ds: xr.Dataset, axis: str) -> str:
+        """Return the name of the indexed coordinate for cf axis ``axis`` (e.g. "T", "Z").
+
+        Raises ValueError if the axis is absent, or none of its candidate
+        coordinates are indexed. An axis can have multiple candidate
+        coordinates (e.g. FVCOM declares both ``siglay`` and ``siglev`` as
+        ``Z``) and ``ds.cf.sel``/``ds.cf.interp`` raise a ``KeyError`` as
+        soon as more than one candidate exists, even when only one is
+        actually indexed. Resolving to a concrete name here lets callers
+        select directly by name instead of going through cf_xarray's
+        axis-based selection.
+        """
+        coord = indexed_cf_axis(ds, axis)
+        if coord is None:
             raise ValueError(
                 f"Cannot select on {axis} axis via cf_xarray: "
                 f"no indexed {axis} coordinate found. "
                 f"The {axis} coordinate may not be indexed. "
                 f"Indexed dimensions available for direct selection: {list(ds.indexes.keys())}",
             )
+        return str(coord.name)
 
     def select(self, ds: xr.Dataset, query_params: dict) -> xr.Dataset:
         """Select data from a dataset based on the query"""
@@ -86,11 +108,11 @@ class BaseEDRQuery(BaseModel):
                 z_value = float(self.z)
             except ValueError as e:
                 raise ValueError(f"Invalid z value {self.z!r}: {e}") from e
-            self._require_indexed_axis(ds, "Z")
+            z_name = self._require_indexed_axis(ds, "Z")
             if self.method == "nearest":
-                ds = ds.cf.sel(Z=[z_value], method=self.method)
+                ds = ds.sel({z_name: [z_value]}, method=self.method)
             else:
-                ds = ds.cf.interp(Z=[z_value], method=self.method)
+                ds = ds.interp({z_name: [z_value]}, method=self.method)
 
         if self.datetime:
             datetimes = self.datetime.split("/")
@@ -101,14 +123,14 @@ class BaseEDRQuery(BaseModel):
             except ValueError as e:
                 logger.error("Error with datetime", exc_info=True)
                 raise ValueError(f"Invalid datetime ({e})") from e
-            self._require_indexed_axis(ds, "T")
+            t_name = self._require_indexed_axis(ds, "T")
             if len(parsed_datetimes) == 1:
                 if self.method == "nearest":
-                    ds = ds.cf.sel(T=parsed_datetimes, method=self.method)
+                    ds = ds.sel({t_name: parsed_datetimes}, method=self.method)
                 else:
-                    ds = ds.cf.interp(T=parsed_datetimes, method=self.method)
+                    ds = ds.interp({t_name: parsed_datetimes}, method=self.method)
             else:
-                ds = ds.cf.sel(T=slice(parsed_datetimes[0], parsed_datetimes[1]))
+                ds = ds.sel({t_name: slice(parsed_datetimes[0], parsed_datetimes[1])})
 
         if self.parameters:
             try:
@@ -163,6 +185,7 @@ class BaseEDRQuery(BaseModel):
         dataset: xr.Dataset,
         query_params: dict,
         geometry: Geometry | None = None,
+        cache: "cachey.Cache | None" = None,
     ):
         """Select, spatially filter, project, and format an EDR query.
 
@@ -173,7 +196,8 @@ class BaseEDRQuery(BaseModel):
 
         ``geometry`` is the point(s)/polygon to query (parsed from ``coords`` on
         GET or the request body on POST); cube queries ignore it and use their
-        ``bbox`` field instead.
+        ``bbox`` field instead. ``cache`` is xpublish's application cache, used
+        to keep an unstructured dataset's spatial index between requests.
         """
         try:
             ds = self.select(dataset, query_params)
@@ -186,13 +210,46 @@ class BaseEDRQuery(BaseModel):
 
         logger.debug(f"Dataset filtered by query params {ds}")
 
-        grid = prepare_spatial_grid(ds, require_regular=True)
-        ds = self.spatial_select(grid, geometry)
+        prepared = prepare_spatial_grid(ds, source=dataset, require_selectable=True)
+
+        if prepared.kind is GridKind.UNSTRUCTURED:
+            if not self.supports_unstructured:
+                raise HTTPException(
+                    status_code=501,
+                    detail=(
+                        f"{self.query_label().capitalize()} queries are not supported "
+                        "on unstructured (UGRID) grids"
+                    ),
+                )
+            try:
+                mesh_index = get_mesh_index(dataset, prepared.spatial_ref, cache)
+            except UgridSupportUnavailable as e:
+                logger.error(f"Cannot query UGRID mesh for {self.query_label()} query: {e}")
+                raise HTTPException(status_code=501, detail=str(e))
+            except InvalidMeshError as e:
+                logger.error(f"Invalid UGRID mesh for {self.query_label()} query: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Dataset has an invalid UGRID mesh: {e}",
+                )
+            prepared = dataclasses.replace(prepared, mesh_index=mesh_index)
+
+        ds = self.spatial_select(prepared, geometry)
 
         logger.debug(f"Dataset filtered spatially: {ds}")
 
+        if prepared.kind is GridKind.UNSTRUCTURED:
+            # The mesh's structural variables and its unused coordinate pairs
+            # are not data; the effective X/Y depends on whether the requested
+            # parameters live on nodes or on faces.
+            requested = set(self.parameters.split(",")) if self.parameters else None
+            ds = finalize_unstructured_selection(ds, prepared.spatial_ref, requested)
+            spatial_ref = selected_spatial_ref(ds, prepared.spatial_ref)
+        else:
+            spatial_ref = prepared.spatial_ref
+
         try:
-            ds = project_dataset(ds, self.crs, grid.spatial_ref)
+            ds = project_dataset(ds, self.crs, spatial_ref)
         except Exception as e:
             logger.error(f"Error projecting dataset for {self.query_label()} query: {e}")
             raise HTTPException(
@@ -224,14 +281,15 @@ class BaseEDRQuery(BaseModel):
 
     def spatial_select(
         self,
-        grid: PreparedSpatialGrid,
+        prepared: PreparedSpatialGrid,
         geometry: Geometry | None = None,
     ) -> xr.Dataset:
         """Spatially filter the prepared grid for this query type.
 
         Implemented by subclasses: position/area project ``geometry`` and select
         by it; cube projects its ``bbox`` field. Implementations own their own
-        selection-error to ``HTTPException`` mapping.
+        selection-error to ``HTTPException`` mapping. ``prepared`` already
+        carries a built mesh index when its grid is unstructured.
         """
         raise NotImplementedError
 
