@@ -8,6 +8,7 @@ error messages work even when the optional ``xpublish-edr[ugrid]`` extra
 
 from __future__ import annotations
 
+import itertools
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
@@ -42,6 +43,18 @@ UGRID_TOPOLOGY_ATTRS = (
 
 # Number of vertices per face we support (triangular meshes only).
 TRIANGLE_VERTICES = 3
+
+# Name given to the mesh topology synthesized for raw FVCOM output, which
+# carries no ``mesh_topology`` variable of its own. It never names a variable in
+# the source dataset; :func:`_synthetic_topology_name` keeps it unique.
+FVCOM_TOPOLOGY_NAME = "fvcom_mesh_topology"
+
+# ``long_name`` FVCOM gives its face-node connectivity, the only description of
+# ``nv`` in files that predate (or ignore) the UGRID conventions.
+FVCOM_CONNECTIVITY_LONG_NAME = "nodes surrounding element"
+
+# The variable name FVCOM always uses for its face-node connectivity.
+FVCOM_CONNECTIVITY_NAME = "nv"
 
 
 class UgridSupportUnavailable(ImportError):
@@ -107,10 +120,14 @@ class MeshInfo:
     node_coordinates: tuple[str, str]
     face_coordinates: tuple[str, str] | None
     face_node_connectivity: str
-    #: The connectivity's declared ``start_index``, or ``None`` when it declares
-    #: none; see :func:`resolve_start_index`, which infers it from the values.
+    # The connectivity's declared ``start_index``, or ``None`` when it declares
+    # none; see :func:`resolve_start_index`, which infers it from the values.
     start_index: int | None
     structural_vars: frozenset[str]
+    # Whether ``topology`` names a variable in the dataset (``False``, the
+    # UGRID case) or one this package synthesizes for raw FVCOM output that
+    # declares no ``mesh_topology`` variable at all (``True``).
+    synthetic: bool = False
 
 
 def _coordinate_pair(ds: xr.Dataset, value) -> tuple[str, str] | None:
@@ -160,13 +177,26 @@ def _face_and_vertex_dims(conn: xr.DataArray, declared_face_dim) -> tuple[str, s
     return face_dim, vertex_dim
 
 
-def _structural_vars(ds: xr.Dataset, topology: str, vertex_dim: str) -> frozenset[str]:
-    """Collect the variables that describe the mesh rather than the data on it."""
-    structural = {topology}
-    topology_attrs = ds[topology].attrs
-    for key, value in topology_attrs.items():
-        if key.endswith("_connectivity") and isinstance(value, str) and value in ds.variables:
-            structural.add(str(value))
+def _structural_vars(
+    ds: xr.Dataset,
+    vertex_dim: str,
+    topology: str | None = None,
+    connectivity: str | None = None,
+) -> frozenset[str]:
+    """Collect the variables that describe the mesh rather than the data on it.
+
+    ``topology`` is omitted for a synthesized FVCOM mesh, whose topology is not
+    a variable of the dataset; ``connectivity`` then names the face-node
+    connectivity directly, since no topology variable points at it.
+    """
+    structural: set[str] = set()
+    if topology is not None and topology in ds.variables:
+        structural.add(topology)
+        for key, value in ds[topology].attrs.items():
+            if key.endswith("_connectivity") and isinstance(value, str) and value in ds.variables:
+                structural.add(str(value))
+    if connectivity is not None and connectivity in ds.variables:
+        structural.add(connectivity)
     for name, var in ds.variables.items():
         cf_role = var.attrs.get("cf_role")
         if isinstance(cf_role, str) and cf_role.endswith("_connectivity"):
@@ -226,8 +256,135 @@ def _parse_topology(ds: xr.Dataset, topology: str) -> MeshInfo | None:
         face_coordinates=face_coordinates,
         face_node_connectivity=str(connectivity),
         start_index=start_index,
-        structural_vars=_structural_vars(ds, topology, vertex_dim),
+        structural_vars=_structural_vars(ds, vertex_dim, topology=topology),
     )
+
+
+def _synthetic_topology_name(ds: xr.Dataset) -> str:
+    """A topology name that does not collide with anything already in ``ds``."""
+    name = FVCOM_TOPOLOGY_NAME
+    suffix = 1
+    while name in ds.variables or name in ds.dims:
+        name = f"{FVCOM_TOPOLOGY_NAME}_{suffix}"
+        suffix += 1
+    return name
+
+
+def _is_fvcom_source(ds: xr.Dataset) -> bool:
+    """Whether the dataset's global ``source`` attribute names FVCOM."""
+    return str(ds.attrs.get("source", "")).lower().startswith("fvcom")
+
+
+def _fvcom_connectivity_candidates(ds: xr.Dataset) -> list[str]:
+    """2D integer variables that look like an FVCOM face-node connectivity.
+
+    Raw FVCOM output describes ``nv`` with nothing but a ``long_name``, so both
+    the conventional name and that description are accepted.
+    """
+    candidates = []
+    for name, var in ds.variables.items():
+        if var.ndim != 2 or not np.issubdtype(var.dtype, np.integer):
+            continue
+        long_name = var.attrs.get("long_name")
+        matches_long_name = (
+            isinstance(long_name, str) and long_name.strip().lower() == FVCOM_CONNECTIVITY_LONG_NAME
+        )
+        if str(name) == FVCOM_CONNECTIVITY_NAME or matches_long_name:
+            candidates.append(str(name))
+    return candidates
+
+
+def _fvcom_coordinate_pairs(
+    ds: xr.Dataset,
+    face_dim: str,
+    vertex_dim: str,
+) -> tuple[tuple[str, str] | None, str | None, tuple[str, str] | None]:
+    """Find the node and face longitude/latitude pairs of a raw FVCOM dataset.
+
+    Returns ``(node_coordinates, node_dim, face_coordinates)``. FVCOM carries
+    two CF longitude/latitude pairs (``lon``/``lat`` on the nodes and
+    ``lonc``/``latc`` on the elements) distinguishable only by the dimension
+    they share.
+    """
+    try:
+        coordinates = ds.cf.coordinates
+    except Exception as e:  # pragma: no cover - cf_xarray parsing failure
+        logger.debug(f"Could not inspect cf coordinates for an FVCOM mesh: {e}")
+        return None, None, None
+
+    lons = [str(n) for n in coordinates.get("longitude", []) if n in ds.variables]
+    lats = [str(n) for n in coordinates.get("latitude", []) if n in ds.variables]
+
+    node_coordinates: tuple[str, str] | None = None
+    node_dim: str | None = None
+    face_coordinates: tuple[str, str] | None = None
+    for lon, lat in itertools.product(lons, lats):
+        pair = (lon, lat)
+        dim = _node_dim(ds, pair)
+        if dim is None or dim == vertex_dim:
+            continue
+        if dim == face_dim:
+            if face_coordinates is None:
+                face_coordinates = pair
+        elif node_coordinates is None:
+            node_coordinates, node_dim = pair, dim
+    return node_coordinates, node_dim, face_coordinates
+
+
+def _detect_fvcom(ds: xr.Dataset) -> MeshInfo | None:
+    """Recognize raw FVCOM output that declares no UGRID topology variable.
+
+    FVCOM has always written its mesh as a bare ``nv(three, nele)`` connectivity
+    plus nodal and elemental longitude/latitude, and files from before the model
+    adopted the UGRID conventions (and plenty written since) carry no
+    ``mesh_topology`` variable, no ``cf_role`` attributes and no ``location`` or
+    ``mesh`` attributes on the data variables. There is still enough to build
+    the mesh, so synthesize the topology those files leave out.
+
+    To stay conservative, the dataset must either announce itself as FVCOM in
+    its global ``source`` attribute (what xpublish-wms keys off) or name its
+    connectivity ``nv``.
+    """
+    is_fvcom = _is_fvcom_source(ds)
+    for connectivity in _fvcom_connectivity_candidates(ds):
+        if not is_fvcom and connectivity != FVCOM_CONNECTIVITY_NAME:
+            continue
+
+        dims = _face_and_vertex_dims(ds[connectivity], None)
+        if dims is None:
+            continue
+        face_dim, vertex_dim = dims
+
+        node_coordinates, node_dim, face_coordinates = _fvcom_coordinate_pairs(
+            ds,
+            face_dim,
+            vertex_dim,
+        )
+        if node_coordinates is None or node_dim is None:
+            continue
+
+        topology = _synthetic_topology_name(ds)
+        logger.info(
+            f"Recognized an FVCOM mesh with no UGRID topology variable: "
+            f"{connectivity}({vertex_dim}, {face_dim}) over "
+            f"{node_coordinates[0]}/{node_coordinates[1]}({node_dim}); "
+            f"synthesizing the topology as {topology!r}",
+        )
+        return MeshInfo(
+            topology=topology,
+            node_dim=node_dim,
+            face_dim=face_dim,
+            vertex_dim=vertex_dim,
+            node_coordinates=node_coordinates,
+            face_coordinates=face_coordinates,
+            face_node_connectivity=connectivity,
+            # Raw FVCOM never declares one; the values decide (1-based in
+            # practice). See :func:`resolve_start_index`.
+            start_index=None,
+            structural_vars=_structural_vars(ds, vertex_dim, connectivity=connectivity),
+            synthetic=True,
+        )
+    return None
 
 
 def detect_mesh(ds: xr.Dataset) -> MeshInfo | None:
@@ -236,10 +393,11 @@ def detect_mesh(ds: xr.Dataset) -> MeshInfo | None:
     A UGRID file may declare several topologies (a 1D network alongside a 2D
     mesh, say), and the usable one is not necessarily listed first, so every
     ``mesh_topology`` variable is tried and the first that parses is returned.
-    ``None`` means none of them describes a 2D triangular mesh.
+    When none does, raw FVCOM output (which declares no topology variable at
+    all) is recognized from its connectivity and coordinates
+    (:func:`_detect_fvcom`). ``None`` means neither path found a mesh.
 
-    Only cf_xarray is used, so this works without the optional ``ugrid`` extra,
-    and no data is loaded -- it runs on every metadata request.
+    Only cf_xarray is used, so this works without the optional ``ugrid`` extra.
     """
     ds = restore_ugrid_attrs(ds)
 
@@ -247,7 +405,7 @@ def detect_mesh(ds: xr.Dataset) -> MeshInfo | None:
         topologies = [str(name) for name in ds.cf.cf_roles.get("mesh_topology", [])]
     except Exception as e:
         logger.debug(f"Could not inspect cf_roles for UGRID topologies: {e}")
-        return None
+        topologies = []
 
     for topology in topologies:
         mesh = _parse_topology(ds, topology)
@@ -259,7 +417,8 @@ def detect_mesh(ds: xr.Dataset) -> MeshInfo | None:
                 "(the first that describes a 2D triangular mesh)",
             )
         return mesh
-    return None
+
+    return _detect_fvcom(ds)
 
 
 def resolve_start_index(
@@ -288,6 +447,20 @@ def resolve_start_index(
     return 0
 
 
+def _synthetic_topology_attrs(mesh: MeshInfo) -> dict[str, Any]:
+    """The UGRID topology attributes describing a mesh that declares none."""
+    attrs: dict[str, Any] = {
+        "cf_role": "mesh_topology",
+        "topology_dimension": 2,
+        "node_coordinates": " ".join(mesh.node_coordinates),
+        "face_node_connectivity": mesh.face_node_connectivity,
+        "face_dimension": mesh.face_dim,
+    }
+    if mesh.face_coordinates is not None:
+        attrs["face_coordinates"] = " ".join(mesh.face_coordinates)
+    return attrs
+
+
 def _topology_for_xugrid(ds: xr.Dataset, mesh: MeshInfo) -> tuple[xr.Dataset, int]:
     """Return a dataset xugrid can parse the mesh from, plus the start index.
 
@@ -298,6 +471,10 @@ def _topology_for_xugrid(ds: xr.Dataset, mesh: MeshInfo) -> tuple[xr.Dataset, in
     1-based connectivity at face value and addresses nodes past the end of the
     mesh.
 
+    A raw FVCOM mesh has no topology variable at all
+    (:func:`_detect_fvcom`); the whole thing is written out here, from the
+    :class:`MeshInfo` that detection resolved.
+
     The connectivity is loaded once here and handed to xugrid as an in-memory
     array, so a dask backed dataset is not read twice. Only a shallow copy is
     mutated; the caller's dataset (and its attrs) are left alone.
@@ -305,6 +482,12 @@ def _topology_for_xugrid(ds: xr.Dataset, mesh: MeshInfo) -> tuple[xr.Dataset, in
     out = restore_ugrid_attrs(ds)
     if out is ds:
         out = ds.copy(deep=False)
+
+    if mesh.topology not in out.variables:
+        out[mesh.topology] = xr.DataArray(
+            np.int32(0),
+            attrs=_synthetic_topology_attrs(mesh),
+        )
 
     topology = out[mesh.topology]
     if "face_dimension" not in topology.attrs:

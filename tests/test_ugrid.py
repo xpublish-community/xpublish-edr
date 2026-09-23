@@ -10,7 +10,7 @@ import pyproj
 import pytest
 import shapely
 import xarray as xr
-from conftest import make_fvcom_dataset
+from conftest import make_fvcom_dataset, make_raw_fvcom_dataset
 from xpublish.utils.api import DATASET_ID_ATTR_KEY
 
 from xpublish_edr.area.geom import select_by_area
@@ -184,6 +184,12 @@ def fvcom_dataset() -> xr.Dataset:
 
 
 @pytest.fixture
+def raw_fvcom_dataset() -> xr.Dataset:
+    """The same mesh as raw FVCOM output, with no UGRID topology variable."""
+    return make_raw_fvcom_dataset()
+
+
+@pytest.fixture
 def fvcom_grid(fvcom_dataset) -> IndexedGrid:
     """An :class:`IndexedGrid` built from the default FVCOM fixture."""
     spatial_ref = dataset_spatial_ref(fvcom_dataset)
@@ -231,6 +237,64 @@ def test_detect_mesh(fvcom_dataset):
     assert mesh.face_node_connectivity == "nv"
     assert mesh.start_index == 1
     assert mesh.structural_vars == frozenset({"mesh_topology", "nv", "nbe"})
+    # A declared UGRID topology is used as-is, never synthesized
+    assert mesh.synthetic is False
+
+
+def test_detect_mesh_raw_fvcom(raw_fvcom_dataset, caplog):
+    """Raw FVCOM output with no ``mesh_topology`` variable is still recognized."""
+    assert "mesh_topology" not in raw_fvcom_dataset.variables
+    assert not raw_fvcom_dataset.cf.cf_roles
+    assert raw_fvcom_dataset["nv"].attrs == {"long_name": "nodes surrounding element"}
+
+    with caplog.at_level(logging.INFO, logger="cf_edr"):
+        mesh = detect_mesh(raw_fvcom_dataset)
+
+    assert mesh is not None
+    assert mesh.synthetic is True
+    assert mesh.topology not in raw_fvcom_dataset.variables
+    assert mesh.node_dim == "node"
+    assert mesh.face_dim == "nele"
+    assert mesh.vertex_dim == "three"
+    assert mesh.node_coordinates == ("lon", "lat")
+    assert mesh.face_coordinates == ("lonc", "latc")
+    assert mesh.face_node_connectivity == "nv"
+    # Nothing declares it; ``resolve_start_index`` infers it from the values
+    assert mesh.start_index is None
+    assert mesh.structural_vars == frozenset({"nv", "nbe"})
+
+    assert any("FVCOM" in record.message for record in caplog.records)
+
+
+def test_detect_mesh_raw_fvcom_without_face_coordinates(raw_fvcom_dataset):
+    """Elemental coordinates are optional, as they are for a UGRID mesh."""
+    mesh = detect_mesh(raw_fvcom_dataset.drop_vars(["lonc", "latc"]))
+    assert mesh is not None
+    assert mesh.node_coordinates == ("lon", "lat")
+    assert mesh.face_coordinates is None
+
+
+def test_detect_mesh_raw_fvcom_needs_an_fvcom_hint(raw_fvcom_dataset):
+    """A connectivity neither named ``nv`` nor on an FVCOM dataset is not a mesh."""
+    renamed = raw_fvcom_dataset.rename({"nv": "tri"})
+    # The ``long_name`` alone still identifies it while ``source`` says FVCOM
+    assert detect_mesh(renamed) is not None
+
+    anonymous = renamed.copy()
+    anonymous.attrs = {k: v for k, v in renamed.attrs.items() if k != "source"}
+    assert detect_mesh(anonymous) is None
+
+    # ... and ``nv`` alone is enough without the ``source`` attribute
+    unsourced = raw_fvcom_dataset.copy()
+    unsourced.attrs = {k: v for k, v in raw_fvcom_dataset.attrs.items() if k != "source"}
+    assert detect_mesh(unsourced) is not None
+
+
+def test_detect_mesh_raw_fvcom_returns_none_for_regular_grid():
+    """The FVCOM fallback does not turn a regular CF grid into a mesh."""
+    from cf_xarray.datasets import airds
+
+    assert detect_mesh(airds) is None
 
 
 def test_detect_mesh_zero_based_start_index():
@@ -1507,3 +1571,138 @@ def test_run_query_area_unstructured():
     assert set(covjson["ranges"]) == {"zeta"}
     assert covjson["ranges"]["zeta"]["axisNames"] == ["t", "pts"]
     assert list(covjson["ranges"]["zeta"]["shape"]) == [4, expected.size]
+
+
+def test_dataset_spatial_ref_raw_fvcom(raw_fvcom_dataset):
+    """X/Y resolve to the nodal lon/lat despite the elemental pair being CF too."""
+    spatial_ref = dataset_spatial_ref(raw_fvcom_dataset)
+    assert (spatial_ref.X, spatial_ref.Y) == ("lon", "lat")
+    assert spatial_ref.crs.to_epsg() == 4326
+    assert spatial_ref.mesh is not None
+    assert spatial_ref.mesh.synthetic is True
+    assert grid_kind(raw_fvcom_dataset, spatial_ref) is GridKind.UNSTRUCTURED
+
+
+def test_topology_for_xugrid_synthesizes_the_missing_topology(raw_fvcom_dataset):
+    """The topology a raw FVCOM file omits is written out for xugrid to read."""
+    mesh = detect_mesh(raw_fvcom_dataset)
+    assert mesh is not None
+
+    out, start_index = _topology_for_xugrid(raw_fvcom_dataset, mesh)
+
+    assert start_index == 1
+    attrs = out[mesh.topology].attrs
+    assert attrs["cf_role"] == "mesh_topology"
+    assert attrs["topology_dimension"] == 2
+    assert attrs["node_coordinates"] == "lon lat"
+    assert attrs["face_coordinates"] == "lonc latc"
+    assert attrs["face_node_connectivity"] == "nv"
+    assert attrs["face_dimension"] == "nele"
+    assert out["nv"].attrs["start_index"] == 1
+
+    # The caller's dataset keeps no trace of the synthesized topology
+    assert mesh.topology not in raw_fvcom_dataset.variables
+    assert "start_index" not in raw_fvcom_dataset["nv"].attrs
+
+
+def test_build_grid_raw_fvcom(raw_fvcom_dataset):
+    """xugrid parses the synthesized topology into the same 32-face mesh."""
+    indexed = grid_for(raw_fvcom_dataset)
+    grid = indexed.grid
+    assert grid.n_face == 32
+    assert grid.n_node == 25
+    assert grid.face_node_connectivity.min() == 0
+    assert grid.face_node_connectivity.max() == grid.n_node - 1
+
+    node = 12
+    xy = indexed.project(
+        raw_fvcom_dataset["lon"].values[[node]],
+        raw_fvcom_dataset["lat"].values[[node]],
+    )
+    np.testing.assert_array_equal(indexed.nearest_nodes(xy), [node])
+    np.testing.assert_allclose(indexed.node_xy[node], xy[0], atol=1e-6)
+
+
+def test_variable_location_raw_fvcom(raw_fvcom_dataset):
+    """With no ``location`` attrs anywhere, dimensions decide."""
+    mesh = detect_mesh(raw_fvcom_dataset)
+    assert mesh is not None
+    assert raw_fvcom_dataset["zeta"].attrs.get("location") is None
+    assert variable_location(raw_fvcom_dataset["zeta"], mesh) == "node"
+    assert variable_location(raw_fvcom_dataset["u"], mesh) == "face"
+    assert variable_location(raw_fvcom_dataset["time"], mesh) is None
+
+
+def test_collection_metadata_for_raw_fvcom(raw_fvcom_dataset):
+    """Metadata hides the mesh scaffolding of a synthesized topology too."""
+    metadata = collection_metadata(
+        raw_fvcom_dataset,
+        position_output_formats=["cf_covjson"],
+        area_output_formats=["cf_covjson"],
+        cube_output_formats=["cf_covjson"],
+    )
+
+    bbox = metadata.extent.spatial.bbox[0]
+    assert bbox == pytest.approx(
+        [
+            float(raw_fvcom_dataset["lon"].min()),
+            float(raw_fvcom_dataset["lat"].min()),
+            float(raw_fvcom_dataset["lon"].max()),
+            float(raw_fvcom_dataset["lat"].max()),
+        ],
+    )
+
+    names = set(metadata.parameter_names)
+    assert {"zeta", "u"} <= names
+    assert names.isdisjoint({"nv", "nbe"})
+
+
+@pytest.mark.parametrize("method", ["nearest", "linear"])
+def test_run_query_position_raw_fvcom(method):
+    """An end to end position query works without any UGRID topology variable."""
+    ds = make_raw_fvcom_dataset()
+    ds.attrs[DATASET_ID_ATTR_KEY] = "raw-fvcom"
+
+    query = EDRPositionQueryGet.model_validate(
+        {"coords": "POINT(-69.5 43.5)", "parameter-name": "zeta", "method": method},
+    )
+    covjson = query.run_query(ds, {}, query.geometry, cache=cachey.Cache(1e9))
+
+    assert covjson["type"] == "Coverage"
+    assert set(covjson["ranges"]) == {"zeta"}
+    assert covjson["ranges"]["zeta"]["axisNames"] == ["t", "pts"]
+    assert list(covjson["ranges"]["zeta"]["shape"]) == [4, 1]
+    assert covjson["domain"]["axes"]["x"]["values"] == [-69.5]
+    assert covjson["domain"]["axes"]["y"]["values"] == [43.5]
+    np.testing.assert_allclose(
+        covjson["ranges"]["zeta"]["values"],
+        zeta_at(-69.5, 43.5).ravel(),
+        atol=1e-5,
+    )
+
+
+def test_run_query_area_raw_fvcom():
+    """An end to end area query works without any UGRID topology variable."""
+    ds = make_raw_fvcom_dataset()
+    ds.attrs[DATASET_ID_ATTR_KEY] = "raw-fvcom"
+
+    lon = ds["lon"].values
+    lat = ds["lat"].values
+    minx, miny, maxx, maxy = AREA_POLYGON.bounds
+    expected = np.flatnonzero((lon >= minx) & (lon <= maxx) & (lat >= miny) & (lat <= maxy))
+    assert expected.size > 0
+
+    query = EDRAreaQueryGet.model_validate(
+        {"coords": AREA_POLYGON_WKT, "parameter-name": "zeta"},
+    )
+    covjson = query.run_query(ds, {}, query.geometry, cache=cachey.Cache(1e9))
+
+    assert covjson["type"] == "Coverage"
+    assert set(covjson["ranges"]) == {"zeta"}
+    assert covjson["ranges"]["zeta"]["axisNames"] == ["t", "pts"]
+    assert list(covjson["ranges"]["zeta"]["shape"]) == [4, expected.size]
+    np.testing.assert_allclose(
+        covjson["ranges"]["zeta"]["values"],
+        ds["zeta"].isel(node=expected).values.ravel(),
+        atol=1e-5,
+    )

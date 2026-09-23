@@ -158,6 +158,29 @@ def make_fvcom_dataset(
     return ds
 
 
+def make_raw_fvcom_dataset(**kwargs) -> xr.Dataset:
+    """Build :func:`make_fvcom_dataset` stripped back to raw FVCOM output.
+
+    Real FVCOM NetCDF (``source = "FVCOM_5.1"``, ``Conventions = "CF-1.0"``)
+    carries no ``mesh_topology`` variable, no ``cf_role`` attributes anywhere,
+    and no ``location``/``mesh`` attributes on its data variables. All that is
+    left of the mesh is a 1-based ``nv(three, nele)`` described by a
+    ``long_name``, plus the nodal and elemental lon/lat coordinates.
+    """
+    kwargs.setdefault("start_index", None)
+    ds = make_fvcom_dataset(**kwargs).drop_vars(["mesh_topology"])
+
+    ds["nv"].attrs = {"long_name": "nodes surrounding element"}
+    ds["nbe"].attrs = {"long_name": "elements surrounding each element"}
+    for name in ds.variables:
+        ds[name].attrs = {
+            key: value for key, value in ds[name].attrs.items() if key not in ("location", "mesh")
+        }
+
+    ds.attrs = {"source": "FVCOM_5.1", "Conventions": "CF-1.0"}
+    return ds
+
+
 def build_ogc_app():
     """Compose the xpublish-ogc-core + xpublish-edr app with the CF air dataset.
 

@@ -131,18 +131,27 @@ ds.attrs["spatial:dimensions"] = ["y", "x"]
 Position and area queries support regular 1D X/Y coordinate grids, an affine
 transform that can be materialized into regular 1D X/Y coordinates, and
 [UGRID-1.0](https://ugrid-conventions.github.io/ugrid-conventions/) triangular
-meshes (e.g. FVCOM) when the `ugrid` extra is installed. Both node- and
-face-located variables are supported; `method=nearest` selects the nearest
+meshes (e.g. FVCOM) when the `ugrid` extra is installed.
+
+Both node- and face-located variables are supported; `method=nearest` selects the nearest
 node (or the containing face) and `method=linear` barycentrically interpolates
 node-located variables (face-located variables return the containing face's
-value, since they are piecewise constant). An area query returns a single set
+value, since they are piecewise constant).
+
+FVCOM output that predates the UGRID
+conventions, carrying no `mesh_topology` variable at all, is recognized from its
+`nv` face-node connectivity (or an `nv`-style `long_name` on a dataset whose
+global `source` attribute starts with `FVCOM`) together with its nodal and
+elemental longitude/latitude, and the missing topology is synthesized.
+
+An area query returns a single set
 of points, so on a dataset carrying both node- and face-located variables
 `parameter-name` must select variables from one location; a mixed request
 returns a 404 that lists which parameters are on which location. Position
-queries have no such restriction and may mix the two. The mesh's spatial
-index is kept in xpublish's application cache, so servers publishing large
-meshes should raise `cache_kws={"available_bytes": ...}` on `xpublish.Rest`
--- the default is 1 MB, which is too small for most real meshes.
+queries have no such restriction and may mix the two.
+
+The mesh's spatial index is kept in xpublish's application cache, so servers publishing large
+meshes should raise `cache_kws={"available_bytes": ...}` on `xpublish.Rest`. The default is 1 MB, which is too small for most real meshes.
 
 Still unsupported: cube queries on unstructured meshes, 2D curvilinear grids,
 scattered points without connectivity, `proj:projjson` CRS attrs, and `z`
