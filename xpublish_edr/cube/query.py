@@ -9,7 +9,7 @@ from shapely import Geometry
 
 from xpublish_edr.base_query import BaseEDRQuery
 from xpublish_edr.format import cube_formats
-from xpublish_edr.geometry.bbox import select_by_bbox
+from xpublish_edr.geometry.bbox import select_prepared_bbox
 from xpublish_edr.geometry.common import (
     PreparedSpatialGrid,
     project_bbox,
@@ -62,7 +62,7 @@ class EDRCubeQuery(BaseEDRQuery):
 
     def spatial_select(
         self,
-        grid: PreparedSpatialGrid,
+        prepared: PreparedSpatialGrid,
         geometry: Geometry | None = None,
     ) -> xr.Dataset:
         """Project the query bbox and select the data within it.
@@ -71,8 +71,8 @@ class EDRCubeQuery(BaseEDRQuery):
         field rather than a WKT/body geometry.
         """
         try:
-            bbox = project_bbox(grid.ds, self.crs, self.bbox, grid.spatial_ref)
-            return select_by_bbox(grid.ds, bbox, grid.spatial_ref, grid=grid.grid)
+            bbox = project_bbox(prepared.ds, self.crs, self.bbox, prepared.spatial_ref)
+            return select_prepared_bbox(prepared, bbox)
         except KeyError as e:
             logger.error(f"Error selecting by bbox: {e}")
             raise HTTPException(

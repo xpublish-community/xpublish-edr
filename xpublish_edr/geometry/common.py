@@ -9,7 +9,7 @@ import enum
 import itertools
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, NamedTuple
+from typing import Literal, NamedTuple
 
 import cf_xarray  # noqa: F401  (registers the ``.cf`` dataset accessor)
 import numpy as np
@@ -22,16 +22,8 @@ from rasterix.rioxarray_compat import guess_dims
 from shapely import Geometry
 
 from xpublish_edr.geometry.proj import transformer_from_crs
-from xpublish_edr.geometry.ugrid import (
-    IndexedGrid,
-    MeshInfo,
-    detect_mesh,
-    get_indexed_grid,
-)
+from xpublish_edr.geometry.ugrid import MeshIndex, MeshInfo, detect_mesh
 from xpublish_edr.logger import logger
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    import cachey
 
 VECTORIZED_DIM = "pts"
 
@@ -69,12 +61,19 @@ class GridKind(enum.Enum):
 
 @dataclass
 class PreparedSpatialGrid:
-    """Dataset plus resolved spatial metadata, ready for spatial operations."""
+    """Dataset plus resolved spatial metadata, ready for spatial operations.
+
+    ``mesh_index`` is ``None`` until a caller that can select on an
+    unstructured (UGRID) grid builds it, via
+    :func:`~xpublish_edr.geometry.ugrid.get_mesh_index`, and attaches it with
+    ``dataclasses.replace(prepared, mesh_index=...)``; see
+    :func:`prepare_spatial_grid`.
+    """
 
     ds: xr.Dataset
     spatial_ref: SpatialRef
     kind: GridKind | None = None
-    grid: IndexedGrid | None = None
+    mesh_index: MeshIndex | None = None
 
 
 def _is_rotated_pole(crs: pyproj.CRS) -> bool:
@@ -453,7 +452,7 @@ def selection_targets(ds: xr.Dataset, mesh: MeshInfo) -> list[SelectionTarget]:
 def ensure_xy_coords(
     ds: xr.Dataset,
     target: SelectionTarget,
-    grid: IndexedGrid,
+    mesh_index: MeshIndex,
     idx: np.ndarray,
 ) -> xr.Dataset:
     """Assign the target's X/Y on ``pts`` when the selection did not carry them.
@@ -463,7 +462,7 @@ def ensure_xy_coords(
     can be missing two ways: a face selection on a mesh that declares no UGRID
     ``face_coordinates``, and node coordinates that are stored as data variables
     and so were dropped by the ``parameter-name`` filter. Either way the
-    positions are known from the grid, which holds them in the dataset CRS.
+    positions are known from ``mesh_index``, which holds them in the dataset CRS.
 
     Coordinates already present are left alone, including the (not normally
     reachable, since the ``isel`` moved every ``target.dim`` variable) case of a
@@ -473,8 +472,10 @@ def ensure_xy_coords(
     if not missing:
         return ds
 
-    x, y = grid.xy_for(target.location, idx)
-    attrs = grid.node_coord_attrs if target.location == "node" else grid.face_coord_attrs
+    x, y = mesh_index.xy_for(target.location, idx)
+    attrs = (
+        mesh_index.node_coord_attrs if target.location == "node" else mesh_index.face_coord_attrs
+    )
     values = {target.X: (x, attrs[0]), target.Y: (y, attrs[1])}
     return ds.assign_coords(
         {
@@ -564,9 +565,6 @@ def prepare_spatial_grid(
     *,
     require_selectable: bool = False,
     source: xr.Dataset | None = None,
-    cache: cachey.Cache | None = None,
-    grid: IndexedGrid | None = None,
-    build_index: bool = True,
 ) -> PreparedSpatialGrid:
     """Resolve spatial metadata once and materialize affine coordinates if needed.
 
@@ -575,13 +573,13 @@ def prepare_spatial_grid(
     connectivity variables from ``ds``, so mesh detection has to happen against
     the full dataset.
 
-    For an unstructured (UGRID) dataset a selectable grid also needs a built
-    spatial index; it is built here (via ``cache``, xpublish's application
-    cache) unless an already built ``grid`` is handed in. Metadata-only callers
-    leave ``require_selectable`` False and never need xugrid. ``build_index``
-    lets a caller that cannot use an unstructured grid at all (e.g. cube
-    queries) classify the grid's ``kind`` without paying to build that index;
-    it is ignored when ``grid`` is already provided.
+    This only resolves and classifies the grid (``kind``); it never builds an
+    unstructured mesh index, so metadata-only callers (``require_selectable``
+    left False) never need xugrid. A caller that can select on an unstructured
+    (UGRID) grid builds that index itself, once ``kind`` is
+    :attr:`GridKind.UNSTRUCTURED`, via
+    :func:`~xpublish_edr.geometry.ugrid.get_mesh_index`, and attaches it with
+    ``dataclasses.replace(prepared, mesh_index=...)``.
     """
     if spatial_ref is None:
         mesh = detect_mesh(source) if source is not None else None
@@ -605,13 +603,7 @@ def prepare_spatial_grid(
     if require_selectable and kind is None:
         raise NotImplementedError("Only 1D coordinates are supported")
 
-    if kind is GridKind.UNSTRUCTURED and require_selectable and build_index and grid is None:
-        grid = get_indexed_grid(
-            source if source is not None else ds,
-            spatial_ref,
-            cache,
-        )
-    return PreparedSpatialGrid(ds=ds, spatial_ref=spatial_ref, kind=kind, grid=grid)
+    return PreparedSpatialGrid(ds=ds, spatial_ref=spatial_ref, kind=kind)
 
 
 def is_regular_xy_coords(

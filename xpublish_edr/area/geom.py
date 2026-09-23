@@ -2,6 +2,8 @@
 Handle selection and formatting for area queries
 """
 
+import dataclasses
+
 import numpy as np
 import shapely
 import xarray as xr
@@ -9,39 +11,32 @@ import xarray as xr
 from xpublish_edr.geometry.common import (
     VECTORIZED_DIM,
     GridKind,
+    PreparedSpatialGrid,
     SpatialRef,
     ensure_xy_coords,
     prepare_spatial_grid,
     selection_targets,
 )
-from xpublish_edr.geometry.ugrid import IndexedGrid, MeshInfo, variable_location
+from xpublish_edr.geometry.ugrid import MeshIndex, MeshInfo, get_mesh_index, variable_location
 
 
-def select_by_area(
-    ds: xr.Dataset,
+def select_prepared_area(
+    prepared: PreparedSpatialGrid,
     polygon: shapely.Polygon,
-    spatial_ref: SpatialRef | None = None,
-    grid: IndexedGrid | None = None,
 ) -> xr.Dataset:
     """
     Return a dataset with the area within the given polygon
 
-    ``grid`` is the mesh index for an unstructured dataset
+    ``prepared`` must already carry a built mesh index (``prepared.mesh_index``)
+    when its grid is unstructured; the query pipeline builds it once, before
+    calling this. Use :func:`select_by_area` to select directly from a plain
+    dataset.
     """
-    prepared = prepare_spatial_grid(
-        ds,
-        spatial_ref=spatial_ref,
-        require_selectable=True,
-        grid=grid,
-    )
-
     if prepared.kind is GridKind.UNSTRUCTURED:
-        if prepared.grid is None:
-            raise ValueError("Unstructured grid index was not built")
         return _select_area_unstructured(
             prepared.ds,
             polygon,
-            prepared.grid,
+            prepared.mesh_index,
             prepared.spatial_ref,
         )
 
@@ -51,6 +46,28 @@ def select_by_area(
         prepared.spatial_ref.X,
         prepared.spatial_ref.Y,
     )
+
+
+def select_by_area(
+    ds: xr.Dataset,
+    polygon: shapely.Polygon,
+    spatial_ref: SpatialRef | None = None,
+) -> xr.Dataset:
+    """
+    Prepare ``ds`` and return the area within the given polygon
+
+    Convenience entry point for callers (e.g. tests) that have not already
+    prepared the grid: builds an uncached mesh index when ``ds`` is
+    unstructured. The query pipeline instead prepares once and calls
+    :func:`select_prepared_area` directly with the index it already built.
+    """
+    prepared = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_selectable=True)
+    if prepared.kind is GridKind.UNSTRUCTURED:
+        prepared = dataclasses.replace(
+            prepared,
+            mesh_index=get_mesh_index(ds, prepared.spatial_ref),
+        )
+    return select_prepared_area(prepared, polygon)
 
 
 def _mixed_location_message(ds: xr.Dataset, mesh: MeshInfo) -> str:
@@ -84,18 +101,18 @@ def _mixed_location_message(ds: xr.Dataset, mesh: MeshInfo) -> str:
 def _select_area_unstructured(
     ds: xr.Dataset,
     polygon: shapely.Polygon,
-    grid: IndexedGrid,
+    mesh_index: MeshIndex,
     spatial_ref: SpatialRef,
 ) -> xr.Dataset:
     """
     Return a dataset with the mesh nodes or faces within the given polygon
 
-    The polygon arrives in the dataset's CRS and is projected into the grid's
-    index plane before testing containment. Node-located parameters are
-    tested against the mesh nodes; face-located parameters against xugrid's
-    computed face centroids (not the UGRID ``face_coordinates`` variables).
-    A dataset with both node- and face-located parameters selected is
-    rejected (with a message naming the parameters on each location), since
+    The polygon arrives in the dataset's CRS and is projected into the mesh
+    index's index plane before testing containment. Node-located parameters
+    are tested against the mesh nodes; face-located parameters against
+    xugrid's computed face centroids (not the UGRID ``face_coordinates``
+    variables). A dataset with both node- and face-located parameters selected
+    is rejected (with a message naming the parameters on each location), since
     the two locations would produce ``pts`` of different lengths.
 
     Like the regular-grid path, a polygon that crosses the antimeridian is
@@ -112,8 +129,8 @@ def _select_area_unstructured(
         raise ValueError(_mixed_location_message(ds, mesh))
     (target,) = targets
 
-    polygon_index = grid.project_geometry(polygon)
-    xy = grid.node_xy if target.location == "node" else grid.face_xy
+    polygon_index = mesh_index.project_geometry(polygon)
+    xy = mesh_index.node_xy if target.location == "node" else mesh_index.face_xy
 
     minx, miny, maxx, maxy = polygon_index.bounds
     mask = (xy[:, 0] >= minx) & (xy[:, 0] <= maxx) & (xy[:, 1] >= miny) & (xy[:, 1] <= maxy)
@@ -122,7 +139,7 @@ def _select_area_unstructured(
     idx = cand[inside]
 
     selected = ds.isel({target.dim: xr.Variable(VECTORIZED_DIM, idx)})
-    return ensure_xy_coords(selected, target, grid, idx)
+    return ensure_xy_coords(selected, target, mesh_index, idx)
 
 
 def _select_area_regular_xy_grid(

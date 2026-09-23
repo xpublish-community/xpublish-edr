@@ -2,6 +2,7 @@
 OGC EDR Query param parsing
 """
 
+import dataclasses
 from typing import TYPE_CHECKING, ClassVar, Literal
 
 import pandas as pd
@@ -22,7 +23,7 @@ from xpublish_edr.geometry.common import (
     project_geometry,
     selected_spatial_ref,
 )
-from xpublish_edr.geometry.ugrid import UgridSupportUnavailable
+from xpublish_edr.geometry.ugrid import UgridSupportUnavailable, get_mesh_index
 from xpublish_edr.logger import logger
 from xpublish_edr.metadata import indexed_cf_axis
 from xpublish_edr.utils import _load_dataset
@@ -209,40 +210,37 @@ class BaseEDRQuery(BaseModel):
 
         logger.debug(f"Dataset filtered by query params {ds}")
 
-        try:
-            grid = prepare_spatial_grid(
-                ds,
-                source=dataset,
-                require_selectable=True,
-                cache=cache,
-                build_index=self.supports_unstructured,
-            )
-        except UgridSupportUnavailable as e:
-            logger.error(f"Cannot query UGRID mesh for {self.query_label()} query: {e}")
-            raise HTTPException(status_code=501, detail=str(e))
+        prepared = prepare_spatial_grid(ds, source=dataset, require_selectable=True)
 
-        if grid.kind is GridKind.UNSTRUCTURED and not self.supports_unstructured:
-            raise HTTPException(
-                status_code=501,
-                detail=(
-                    f"{self.query_label().capitalize()} queries are not supported "
-                    "on unstructured (UGRID) grids"
-                ),
-            )
+        if prepared.kind is GridKind.UNSTRUCTURED:
+            if not self.supports_unstructured:
+                raise HTTPException(
+                    status_code=501,
+                    detail=(
+                        f"{self.query_label().capitalize()} queries are not supported "
+                        "on unstructured (UGRID) grids"
+                    ),
+                )
+            try:
+                mesh_index = get_mesh_index(dataset, prepared.spatial_ref, cache)
+            except UgridSupportUnavailable as e:
+                logger.error(f"Cannot query UGRID mesh for {self.query_label()} query: {e}")
+                raise HTTPException(status_code=501, detail=str(e))
+            prepared = dataclasses.replace(prepared, mesh_index=mesh_index)
 
-        ds = self.spatial_select(grid, geometry)
+        ds = self.spatial_select(prepared, geometry)
 
         logger.debug(f"Dataset filtered spatially: {ds}")
 
-        if grid.kind is GridKind.UNSTRUCTURED:
+        if prepared.kind is GridKind.UNSTRUCTURED:
             # The mesh's structural variables and its unused coordinate pairs
             # are not data; the effective X/Y depends on whether the requested
             # parameters live on nodes or on faces.
             requested = set(self.parameters.split(",")) if self.parameters else None
-            ds = finalize_unstructured_selection(ds, grid.spatial_ref, requested)
-            spatial_ref = selected_spatial_ref(ds, grid.spatial_ref)
+            ds = finalize_unstructured_selection(ds, prepared.spatial_ref, requested)
+            spatial_ref = selected_spatial_ref(ds, prepared.spatial_ref)
         else:
-            spatial_ref = grid.spatial_ref
+            spatial_ref = prepared.spatial_ref
 
         try:
             ds = project_dataset(ds, self.crs, spatial_ref)
@@ -277,14 +275,15 @@ class BaseEDRQuery(BaseModel):
 
     def spatial_select(
         self,
-        grid: PreparedSpatialGrid,
+        prepared: PreparedSpatialGrid,
         geometry: Geometry | None = None,
     ) -> xr.Dataset:
         """Spatially filter the prepared grid for this query type.
 
         Implemented by subclasses: position/area project ``geometry`` and select
         by it; cube projects its ``bbox`` field. Implementations own their own
-        selection-error to ``HTTPException`` mapping.
+        selection-error to ``HTTPException`` mapping. ``prepared`` already
+        carries a built mesh index when its grid is unstructured.
         """
         raise NotImplementedError
 

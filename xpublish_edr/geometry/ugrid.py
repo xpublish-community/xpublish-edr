@@ -2,8 +2,8 @@
 
 Mesh detection depends only on cf_xarray, so that collection metadata and
 error messages work even when the optional ``xpublish-edr[ugrid]`` extra
-(xugrid + numba-celltree) is not installed. Anything that actually indexes or queries the mesh goes through
-:func:`_require_xugrid`.
+(xugrid + numba-celltree) is not installed. Anything that actually indexes
+or queries the mesh goes through :func:`_require_xugrid`.
 """
 
 from __future__ import annotations
@@ -524,7 +524,7 @@ def variable_location(
 
 
 @dataclass
-class IndexedGrid:
+class MeshIndex:
     """A xugrid ``Ugrid2d`` mesh with its spatial indexes built and ready to query.
 
     The mesh geometry is held in ``index_crs``, which is not necessarily the
@@ -538,7 +538,7 @@ class IndexedGrid:
     recomputed per access.
     """
 
-    grid: Any  # xugrid.Ugrid2d
+    ugrid: Any  # xugrid.Ugrid2d
     mesh: MeshInfo
     crs: pyproj.CRS
     index_crs: pyproj.CRS
@@ -587,22 +587,22 @@ class IndexedGrid:
 
     def nearest_nodes(self, xy: np.ndarray) -> np.ndarray:
         """Index of the nearest mesh node for each point (KDTree, index plane)."""
-        return self.grid.node_kdtree.query(xy, workers=-1)[1]
+        return self.ugrid.node_kdtree.query(xy, workers=-1)[1]
 
     def containing_faces(self, xy: np.ndarray) -> np.ndarray:
         """Index of the face containing each point, or ``-1`` outside the mesh."""
-        return self.grid.locate_points(xy)
+        return self.ugrid.locate_points(xy)
 
     def nearest_faces(self, xy: np.ndarray) -> np.ndarray:
         """Index of the face whose centroid is nearest to each point."""
-        return self.grid.locate_nearest_face(xy)
+        return self.ugrid.locate_nearest_face(xy)
 
     def barycentric(self, xy: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Containing face and barycentric vertex weights for each point.
 
         Points outside the mesh get a face index of ``-1`` and zero weights.
         """
-        faces, weights = self.grid.compute_barycentric_weights(xy)
+        faces, weights = self.ugrid.compute_barycentric_weights(xy)
         faces = np.asarray(faces)
         weights = np.asarray(weights, dtype="float64").copy()
         weights[faces < 0] = 0.0
@@ -664,7 +664,7 @@ def _coord_attrs(ds: xr.Dataset, names: tuple[str, str] | None) -> tuple[dict, d
     return dict(ds[names[0]].attrs), dict(ds[names[1]].attrs)
 
 
-def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
+def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> MeshIndex:
     """Build (and eagerly index) a xugrid mesh for the dataset.
 
     Node coordinates and connectivity are read into numpy here, so a dask backed
@@ -676,7 +676,7 @@ def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
     The node and face coordinate arrays are materialized here too, in both the
     index plane and the dataset CRS, so that every selection can report where a
     node or face actually is without recomputing them per request; see
-    :class:`IndexedGrid`.
+    :class:`MeshIndex`.
     """
     xugrid = _require_xugrid()
 
@@ -734,8 +734,8 @@ def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
         f"({grid.n_node} nodes, {grid.n_face} faces) in {build_seconds:.3f}s",
     )
 
-    return IndexedGrid(
-        grid=grid,
+    return MeshIndex(
+        ugrid=grid,
         mesh=mesh,
         crs=crs,
         index_crs=index_crs,
@@ -755,12 +755,12 @@ def build_grid(ds: xr.Dataset, mesh: MeshInfo, crs: pyproj.CRS) -> IndexedGrid:
 _CACHE_WARNED_KEYS: set[str] = set()
 
 
-def get_indexed_grid(
+def get_mesh_index(
     ds: xr.Dataset,
     spatial_ref: SpatialRef,
     cache: cachey.Cache | None = None,
-) -> IndexedGrid:
-    """Return the dataset's :class:`IndexedGrid`, via xpublish's cache if possible.
+) -> MeshIndex:
+    """Return the dataset's :class:`MeshIndex`, via xpublish's cache if possible.
 
     Building the index is expensive (the NECOFS mesh is on the order of 20 MB),
     so it is stored in the application cache keyed on the dataset id and the
@@ -783,17 +783,17 @@ def get_indexed_grid(
         f"{dataset_id}/edr/ugrid/{mesh.topology}"
         f"/{ds.sizes.get(mesh.node_dim, 0)}/{ds.sizes.get(mesh.face_dim, 0)}"
     )
-    grid = cache.get(key)
-    if grid is not None:
-        return grid
+    mesh_index = cache.get(key)
+    if mesh_index is not None:
+        return mesh_index
 
-    grid = build_grid(ds, mesh, spatial_ref.crs)
-    cache.put(key, grid, cost=max(grid.build_seconds, 1.0), nbytes=grid.nbytes)
+    mesh_index = build_grid(ds, mesh, spatial_ref.crs)
+    cache.put(key, mesh_index, cost=max(mesh_index.build_seconds, 1.0), nbytes=mesh_index.nbytes)
     if cache.get(key) is None and key not in _CACHE_WARNED_KEYS:
         _CACHE_WARNED_KEYS.add(key)
         logger.warning(
-            f"UGRID grid for {dataset_id} ({grid.nbytes / 1e6:.0f} MB) does not fit in "
+            f"UGRID grid for {dataset_id} ({mesh_index.nbytes / 1e6:.0f} MB) does not fit in "
             "the xpublish cache; raise cache_kws={'available_bytes': ...} on "
             "xpublish.Rest to avoid rebuilding it per request",
         )
-    return grid
+    return mesh_index

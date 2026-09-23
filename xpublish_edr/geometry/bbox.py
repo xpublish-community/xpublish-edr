@@ -4,29 +4,27 @@ Handle selection and formatting for cube queries
 
 import xarray as xr
 
-from xpublish_edr.geometry.common import GridKind, SpatialRef, prepare_spatial_grid
-from xpublish_edr.geometry.ugrid import IndexedGrid
+from xpublish_edr.geometry.common import (
+    GridKind,
+    PreparedSpatialGrid,
+    SpatialRef,
+    prepare_spatial_grid,
+)
 
 
-def select_by_bbox(
-    ds: xr.Dataset,
+def select_prepared_bbox(
+    prepared: PreparedSpatialGrid,
     bbox: tuple[float, float, float, float],
-    spatial_ref: SpatialRef | None = None,
-    grid: IndexedGrid | None = None,
 ) -> xr.Dataset:
     """
     Return a dataset with the data within the given bbox
 
-    Assumes that the dataset is in the same CRS as the bbox. ``grid`` is an
-    already built mesh index, passed through only so that an unstructured
-    dataset is not re-indexed on the way to the error below.
+    Assumes that the dataset is in the same CRS as the bbox. A bbox selection
+    never needs a mesh index: an unstructured grid is simply not selectable
+    this way, so this is a standalone guard, not one the query pipeline
+    reaches (it rejects an unstructured grid earlier). Use
+    :func:`select_by_bbox` to select directly from a plain dataset.
     """
-    prepared = prepare_spatial_grid(
-        ds,
-        spatial_ref=spatial_ref,
-        require_selectable=True,
-        grid=grid,
-    )
     if prepared.kind is not GridKind.REGULAR:
         raise NotImplementedError("Cube queries require a regular X/Y grid")
     ds = prepared.ds
@@ -41,3 +39,18 @@ def select_by_bbox(
     else:
         y_slice = slice(bbox[3], bbox[1])
     return ds.sel({X: x_slice, Y: y_slice})
+
+
+def select_by_bbox(
+    ds: xr.Dataset,
+    bbox: tuple[float, float, float, float],
+    spatial_ref: SpatialRef | None = None,
+) -> xr.Dataset:
+    """
+    Prepare ``ds`` and return the data within the given bbox
+
+    Convenience entry point for callers (e.g. tests) that have not already
+    prepared the grid.
+    """
+    prepared = prepare_spatial_grid(ds, spatial_ref=spatial_ref, require_selectable=True)
+    return select_prepared_bbox(prepared, bbox)

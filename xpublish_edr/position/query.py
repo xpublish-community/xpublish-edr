@@ -14,7 +14,7 @@ from xpublish_edr.geometry.common import (
 )
 from xpublish_edr.logger import logger
 
-from .geom import select_by_position
+from .geom import select_prepared_position
 
 
 class EDRPositionQueryPost(BaseEDRQuery):
@@ -44,24 +44,18 @@ class EDRPositionQueryPost(BaseEDRQuery):
 
     def spatial_select(
         self,
-        grid: PreparedSpatialGrid,
+        prepared: PreparedSpatialGrid,
         geometry: Geometry | None = None,
     ) -> xr.Dataset:
         """Project the query point(s) and select the nearest/interpolated data."""
         try:
             projected_geometry = project_geometry(
-                grid.ds,
+                prepared.ds,
                 self.crs,
                 geometry,
-                grid.spatial_ref,
+                prepared.spatial_ref,
             )
-            return select_by_position(
-                grid.ds,
-                projected_geometry,
-                self.method,
-                grid.spatial_ref,
-                grid=grid.grid,
-            )
+            return select_prepared_position(prepared, projected_geometry, self.method)
         except GEOSException as e:
             logger.error(
                 f"Error parsing coordinates to geometry while selecting by position: {e}",
