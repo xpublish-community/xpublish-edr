@@ -12,9 +12,10 @@ from xpublish_edr.geometry.common import (
     PreparedSpatialGrid,
     project_geometry,
 )
+from xpublish_edr.geometry.ugrid import MeshSelectionError
 from xpublish_edr.logger import logger
 
-from .geom import select_by_area
+from .geom import select_prepared_area
 
 
 class EDRAreaQueryPost(BaseEDRQuery):
@@ -44,18 +45,18 @@ class EDRAreaQueryPost(BaseEDRQuery):
 
     def spatial_select(
         self,
-        grid: PreparedSpatialGrid,
+        prepared: PreparedSpatialGrid,
         geometry: Geometry | None = None,
     ) -> xr.Dataset:
         """Project the query polygon and select the data within it."""
         try:
             projected_geometry = project_geometry(
-                grid.ds,
+                prepared.ds,
                 self.crs,
                 geometry,
-                grid.spatial_ref,
+                prepared.spatial_ref,
             )
-            return select_by_area(grid.ds, projected_geometry, grid.spatial_ref)
+            return select_prepared_area(prepared, projected_geometry)
         except GEOSException as e:
             logger.error(
                 f"Error parsing coordinates to geometry while selecting by area: {e}",
@@ -70,6 +71,12 @@ class EDRAreaQueryPost(BaseEDRQuery):
             raise HTTPException(
                 status_code=404,
                 detail="Dataset does not have CF Convention compliant metadata",
+            )
+        except MeshSelectionError as e:
+            logger.error(f"Error selecting by area: {e}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Error selecting by area: {e}",
             )
 
 

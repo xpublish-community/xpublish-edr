@@ -2,10 +2,14 @@
 Common geometry handling functions
 """
 
+from __future__ import annotations
+
+import dataclasses
+import enum
 import itertools
 from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import lru_cache, partial
+from typing import Literal, NamedTuple
 
 import cf_xarray  # noqa: F401  (registers the ``.cf`` dataset accessor)
 import numpy as np
@@ -17,13 +21,11 @@ import xarray as xr
 from rasterix.rioxarray_compat import guess_dims
 from shapely import Geometry
 
+from xpublish_edr.geometry.proj import transformer_from_crs
+from xpublish_edr.geometry.ugrid import MeshIndex, MeshInfo, detect_mesh
 from xpublish_edr.logger import logger
 
 VECTORIZED_DIM = "pts"
-
-# https://pyproj4.github.io/pyproj/stable/advanced_examples.html#caching-pyproj-objects
-transformer_from_crs = lru_cache(partial(pyproj.Transformer.from_crs, always_xy=True))
-
 
 DEFAULT_CRS = pyproj.CRS.from_epsg(4326)
 
@@ -47,14 +49,31 @@ class SpatialRef:
     crs: pyproj.CRS
     X: str
     Y: str
+    mesh: MeshInfo | None = None
+
+
+class GridKind(enum.Enum):
+    """The kind of spatial grid a dataset can be selected on."""
+
+    REGULAR = "regular"
+    UNSTRUCTURED = "unstructured"
 
 
 @dataclass
 class PreparedSpatialGrid:
-    """Dataset plus resolved spatial metadata, ready for spatial operations."""
+    """Dataset plus resolved spatial metadata, ready for spatial operations.
+
+    ``mesh_index`` is ``None`` until a caller that can select on an
+    unstructured (UGRID) grid builds it, via
+    :func:`~xpublish_edr.geometry.ugrid.get_mesh_index`, and attaches it with
+    ``dataclasses.replace(prepared, mesh_index=...)``; see
+    :func:`prepare_spatial_grid`.
+    """
 
     ds: xr.Dataset
     spatial_ref: SpatialRef
+    kind: GridKind | None = None
+    mesh_index: MeshIndex | None = None
 
 
 def _is_rotated_pole(crs: pyproj.CRS) -> bool:
@@ -162,13 +181,21 @@ def _resolve_xy_names(
     ds: xr.Dataset,
     crs: pyproj.CRS,
     coordinates: tuple[str, ...] | None = None,
+    mesh: MeshInfo | None = None,
 ) -> tuple[str, str]:
     """Resolve the X and Y coordinate variable names for a dataset.
 
-    Priority: grid-mapping coordinates / CF detection, then GeoZarr
-    ``spatial:dimensions``, then a final fall back to cf_xarray's ``X``/``Y``
-    axes (today's behavior).
+    Priority: UGRID node coordinates, then grid-mapping coordinates / CF
+    detection, then GeoZarr ``spatial:dimensions``, then a final fall back to
+    cf_xarray's ``X``/``Y`` axes (today's behavior).
+
+    UGRID comes first because meshes routinely carry both node and face
+    longitude/latitude coordinates (FVCOM's ``lon``/``lonc``), which makes CF
+    detection ambiguous.
     """
+    if mesh is not None:
+        return mesh.node_coordinates
+
     names = _xy_from_cf(ds, crs, restrict=coordinates)
     if names is not None:
         return names
@@ -265,11 +292,16 @@ def _resolve_crs(
     return get_default_grid_mapping(ds), None
 
 
-def dataset_spatial_ref(ds: xr.Dataset) -> SpatialRef:
-    """Resolve the CRS and X/Y coordinate variable names for a dataset."""
+def dataset_spatial_ref(ds: xr.Dataset, mesh: MeshInfo | None = None) -> SpatialRef:
+    """Resolve the CRS and X/Y coordinate variable names for a dataset.
+
+    ``mesh`` is an already detected UGRID mesh, passed in by callers that have
+    run :func:`detect_mesh` themselves so it is not detected twice.
+    """
+    mesh = mesh if mesh is not None else detect_mesh(ds)
     crs, coordinates = _resolve_crs(ds)
-    X, Y = _resolve_xy_names(ds, crs, coordinates=coordinates)
-    return SpatialRef(crs=crs, X=X, Y=Y)
+    X, Y = _resolve_xy_names(ds, crs, coordinates=coordinates, mesh=mesh)
+    return SpatialRef(crs=crs, X=X, Y=Y, mesh=mesh)
 
 
 def dataset_xy_names(ds: xr.Dataset) -> tuple[str, str]:
@@ -366,24 +398,212 @@ def _is_regular_xy_coords(ds: xr.Dataset, spatial_ref: SpatialRef) -> bool:
     return coord_is_regular(ds[X]) and coord_is_regular(ds[Y])
 
 
+def grid_kind(ds: xr.Dataset, spatial_ref: SpatialRef) -> GridKind | None:
+    """Classify the dataset's spatial grid, or ``None`` if it is not selectable.
+
+    2D curvilinear grids and mesh-less scattered points fall through to ``None``.
+    """
+    if _is_regular_xy_coords(ds, spatial_ref):
+        return GridKind.REGULAR
+    if spatial_ref.mesh is not None:
+        return GridKind.UNSTRUCTURED
+    return None
+
+
+class SelectionTarget(NamedTuple):
+    """A mesh dimension that can be selected on, with its coordinate pair.
+
+    A UGRID dataset carries data on mesh nodes, on mesh faces, or both. After
+    the ``parameter-name`` filter a dataset may hold only one of the two, so
+    selection dispatches per target rather than on a single X/Y pair.
+
+    ``X``/``Y`` are the names the selection's coordinates are reported under;
+    they are not necessarily present in the dataset being selected from (see
+    :func:`ensure_xy_coords`).
+    """
+
+    X: str
+    Y: str
+    dim: str
+    location: Literal["node", "face"]
+
+
+def selection_targets(ds: xr.Dataset, mesh: MeshInfo) -> list[SelectionTarget]:
+    """Return the mesh selection targets present in the (possibly filtered) dataset.
+
+    ``ds[["zeta"]]`` keeps only the node dimension, ``ds[["u"]]`` only the face
+    dimension, and ``ds[["zeta", "u"]]`` both.
+
+    UGRID makes ``face_coordinates`` optional, and face selection goes through
+    xugrid's computed centroids anyway, so a mesh without them is not an error:
+    the face target simply reports its coordinates under the node coordinate
+    names, which :func:`ensure_xy_coords` fills in from the grid.
+    """
+    targets: list[SelectionTarget] = []
+    if mesh.node_dim in ds.dims:
+        node_x, node_y = mesh.node_coordinates
+        targets.append(SelectionTarget(node_x, node_y, mesh.node_dim, "node"))
+    if mesh.face_dim in ds.dims:
+        face_x, face_y = mesh.face_coordinates or mesh.node_coordinates
+        targets.append(SelectionTarget(face_x, face_y, mesh.face_dim, "face"))
+    return targets
+
+
+def ensure_xy_coords(
+    ds: xr.Dataset,
+    target: SelectionTarget,
+    mesh_index: MeshIndex,
+    idx: np.ndarray,
+) -> xr.Dataset:
+    """Assign the target's X/Y on ``pts`` when the selection did not carry them.
+
+    Called after an ``isel`` that collapsed ``target.dim`` onto the vectorized
+    ``pts`` dimension, with the index array that ``isel`` used. The coordinates
+    can be missing two ways: a face selection on a mesh that declares no UGRID
+    ``face_coordinates``, and node coordinates that are stored as data variables
+    and so were dropped by the ``parameter-name`` filter. Either way the
+    positions are known from ``mesh_index``, which holds them in the dataset CRS.
+
+    Coordinates already present are left alone, including the (not normally
+    reachable, since the ``isel`` moved every ``target.dim`` variable) case of a
+    name that survived on some other dimension.
+    """
+    missing = [name for name in (target.X, target.Y) if name not in ds.variables]
+    if not missing:
+        return ds
+
+    x, y = mesh_index.xy_for(target.location, idx)
+    attrs = (
+        mesh_index.node_coord_attrs if target.location == "node" else mesh_index.face_coord_attrs
+    )
+    values = {target.X: (x, attrs[0]), target.Y: (y, attrs[1])}
+    return ds.assign_coords(
+        {
+            name: xr.Variable(VECTORIZED_DIM, values[name][0], attrs=dict(values[name][1]))
+            for name in missing
+        },
+    )
+
+
+def selected_spatial_ref(ds: xr.Dataset, spatial_ref: SpatialRef) -> SpatialRef:
+    """Return the spatial reference whose X/Y actually survive in ``ds``.
+
+    The mesh node coordinates are the dataset's canonical X/Y, but a
+    face-located selection (``parameter-name=uwind_speed``) keeps only the face
+    coordinates, so the effective X/Y for projection and export differ. When the
+    mesh declares no ``face_coordinates`` the centroids are reported under the
+    node names instead (:func:`ensure_xy_coords`), and those stay the X/Y.
+    """
+    if spatial_ref.X in ds.variables and spatial_ref.Y in ds.variables:
+        return spatial_ref
+    mesh = spatial_ref.mesh
+    if mesh is not None and mesh.face_coordinates is not None:
+        face_x, face_y = mesh.face_coordinates
+        if face_x in ds.variables and face_y in ds.variables:
+            return dataclasses.replace(spatial_ref, X=face_x, Y=face_y)
+    return spatial_ref
+
+
+def finalize_unstructured_selection(
+    ds: xr.Dataset,
+    spatial_ref: SpatialRef,
+    requested: set[str] | None = None,
+) -> xr.Dataset:
+    """Tidy an unstructured selection result so the formatters can consume it.
+
+    Drops the mesh's structural variables (unless explicitly requested by
+    ``parameter-name``), drops every non X/Y coordinate left on the vectorized
+    ``pts`` dimension (FVCOM's projected ``x``/``y``, the sigma coordinates,
+    and whichever of the node/face coordinate pairs is not the effective X/Y)
+    and tags the surviving X/Y with CF ``axis`` attributes.
+    """
+    mesh = spatial_ref.mesh
+    if mesh is None:
+        return ds
+
+    structural = [
+        name
+        for name in mesh.structural_vars
+        if name in ds.variables and (requested is None or name not in requested)
+    ]
+    if structural:
+        ds = ds.drop_vars(structural)
+
+    effective = selected_spatial_ref(ds, spatial_ref)
+    keep = {effective.X, effective.Y}
+    extra_coords = [
+        name for name in ds.coords if VECTORIZED_DIM in ds[name].dims and name not in keep
+    ]
+    if extra_coords:
+        ds = ds.drop_vars(extra_coords)
+
+    return _ensure_cf_axes(ds, effective, force=True)
+
+
+# Variables that can hold a CF grid mapping written by rioxarray.
+GRID_MAPPING_VARS = ("spatial_ref", "crs")
+
+
+def _carry_grid_mapping(ds: xr.Dataset, source: xr.Dataset) -> xr.Dataset:
+    """Copy a scalar grid mapping variable from ``source`` onto a filtered subset.
+
+    Resolving a CRS materializes a ``spatial_ref`` variable on the dataset it is
+    resolved from (rioxarray's ``write_crs``). When spatial metadata is resolved
+    from the unfiltered ``source`` (which mesh detection requires, since the
+    ``parameter-name`` filter drops the topology variables) carry that variable
+    over so the CRS still travels with the filtered dataset on export.
+    """
+    for name in GRID_MAPPING_VARS:
+        if name in source.coords and name not in ds.variables and source[name].ndim == 0:
+            ds = ds.assign_coords({name: source[name]})
+    return ds
+
+
 def prepare_spatial_grid(
     ds: xr.Dataset,
     spatial_ref: SpatialRef | None = None,
     *,
-    require_regular: bool = False,
+    require_selectable: bool = False,
+    source: xr.Dataset | None = None,
 ) -> PreparedSpatialGrid:
-    """Resolve spatial metadata once and materialize affine coordinates if needed."""
-    try:
-        spatial_ref = spatial_ref or dataset_spatial_ref(ds)
-    except ValueError as e:
-        if require_regular:
-            raise NotImplementedError("Only 1D coordinates are supported") from e
-        raise
+    """Resolve spatial metadata once and materialize affine coordinates if needed.
 
-    ds = with_spatial_coords(ds, spatial_ref)
-    if require_regular and not _is_regular_xy_coords(ds, spatial_ref):
+    ``source`` is the unfiltered dataset, used to resolve spatial metadata for a
+    UGRID mesh: the ``parameter-name`` filter drops the topology and
+    connectivity variables from ``ds``, so mesh detection has to happen against
+    the full dataset.
+
+    This only resolves and classifies the grid (``kind``); it never builds an
+    unstructured mesh index, so metadata-only callers (``require_selectable``
+    left False) never need xugrid. A caller that can select on an unstructured
+    (UGRID) grid builds that index itself, once ``kind`` is
+    :attr:`GridKind.UNSTRUCTURED`, via
+    :func:`~xpublish_edr.geometry.ugrid.get_mesh_index`, and attaches it with
+    ``dataclasses.replace(prepared, mesh_index=...)``.
+    """
+    if spatial_ref is None:
+        mesh = detect_mesh(source) if source is not None else None
+        metadata_source = source if mesh is not None else ds
+        try:
+            spatial_ref = dataset_spatial_ref(metadata_source, mesh=mesh)
+        except ValueError as e:
+            if require_selectable:
+                raise NotImplementedError("Only 1D coordinates are supported") from e
+            raise
+
+    if source is not None and spatial_ref.mesh is not None:
+        # The CRS was resolved from (and materialized on) ``source``
+        ds = _carry_grid_mapping(ds, source)
+
+    if spatial_ref.mesh is None:
+        # Affine materialization only applies to regular X/Y grids
+        ds = with_spatial_coords(ds, spatial_ref)
+
+    kind = grid_kind(ds, spatial_ref)
+    if require_selectable and kind is None:
         raise NotImplementedError("Only 1D coordinates are supported")
-    return PreparedSpatialGrid(ds=ds, spatial_ref=spatial_ref)
+
+    return PreparedSpatialGrid(ds=ds, spatial_ref=spatial_ref, kind=kind)
 
 
 def is_regular_xy_coords(
@@ -513,6 +733,7 @@ def project_bbox(
 def _ensure_cf_axes(
     ds: xr.Dataset,
     spatial_ref: SpatialRef | None = None,
+    force: bool = False,
 ) -> xr.Dataset:
     """Tag the resolved X/Y coordinates with CF ``axis`` attributes if missing.
 
@@ -520,9 +741,14 @@ def _ensure_cf_axes(
     ``proj:``/``spatial:`` conventions, leaving the coordinate variables without
     CF ``axis`` attributes. Downstream formatters use ``ds.cf.axes``; tag the
     coordinates so output works even when no reprojection occurs.
+
+    ``force`` tags the resolved X/Y even when ``ds.cf.axes`` already resolves an
+    X and a Y (which cf_xarray will do from standard names alone). Unstructured
+    results need that: a mesh carries two longitude/latitude pairs, so the pair
+    that survived selection has to be marked unambiguously.
     """
     axes = ds.cf.axes
-    if "X" in axes and "Y" in axes:
+    if not force and "X" in axes and "Y" in axes:
         return ds
     if spatial_ref is None:
         try:

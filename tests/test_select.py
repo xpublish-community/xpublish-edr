@@ -6,16 +6,21 @@ import pyproj
 import pytest
 import xarray as xr
 import xarray.testing as xrt
+import xpublish
+from fastapi.testclient import TestClient
 from shapely import MultiPoint, Point, from_wkt
 
 from xpublish_edr.area.geom import select_by_area
 from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import (
+    GridKind,
     dataset_spatial_ref,
     is_regular_xy_coords,
+    prepare_spatial_grid,
     project_dataset,
     with_spatial_coords,
 )
+from xpublish_edr.plugin import CfEdrPlugin
 from xpublish_edr.position.geom import select_by_position
 from xpublish_edr.area.query import EDRAreaQueryGet
 from xpublish_edr.cube.query import EDRCubeQuery
@@ -660,6 +665,150 @@ def test_z_query_error_non_indexed(dataset_with_non_indexed_axes):
 
 
 @pytest.fixture(scope="function")
+def dataset_with_ambiguous_vertical_coords():
+    """Mimics FVCOM's ambiguous, non-indexed vertical (Z) coordinates.
+
+    ``siglay`` and ``siglev`` are both 2D sigma coordinates sharing
+    ``standard_name="ocean_sigma_coordinate"``, so ``ds.cf["Z"]`` (and
+    ``ds.cf.sel``/``ds.cf.interp``) raise cf_xarray's "multiple variables"
+    ``KeyError`` for the "Z" key. Both are 2D (sigma dim, node), so neither
+    is a dimension coordinate/index either way -- this reproduces the real
+    FVCOM 500 in ``collection_metadata``.
+    """
+    times = pd.date_range("2024-01-01", periods=3, freq="h")
+    n_node = 4
+
+    return xr.Dataset(
+        coords={
+            "time": ("time", times, {"standard_name": "time", "long_name": "time"}),
+            "lat": (
+                "node",
+                np.linspace(43.0, 44.0, n_node),
+                {"standard_name": "latitude", "units": "degrees_north"},
+            ),
+            "lon": (
+                "node",
+                np.linspace(-70.0, -69.0, n_node),
+                {"standard_name": "longitude", "units": "degrees_east"},
+            ),
+            "siglay": (
+                ("siglay", "node"),
+                np.linspace(-1 / 6, -5 / 6, 2 * n_node).reshape(2, n_node),
+                {"standard_name": "ocean_sigma_coordinate", "positive": "up"},
+            ),
+            "siglev": (
+                ("siglev", "node"),
+                np.linspace(0, -1, 3 * n_node).reshape(3, n_node),
+                {"standard_name": "ocean_sigma_coordinate", "positive": "up"},
+            ),
+        },
+        data_vars={
+            "temp": (
+                ("time", "siglay", "node"),
+                np.random.rand(len(times), 2, n_node),
+            ),
+        },
+    )
+
+
+def test_vertical_extent_none_for_ambiguous_non_indexed_z(dataset_with_ambiguous_vertical_coords):
+    """Vertical extent is None when the Z axis has multiple non-indexed candidates"""
+    from xpublish_edr.metadata import vertical_extent
+
+    assert vertical_extent(dataset_with_ambiguous_vertical_coords) is None
+
+
+def test_temporal_extent_for_ambiguous_vertical_dataset(dataset_with_ambiguous_vertical_coords):
+    """Temporal extent still resolves normally when only Z is ambiguous"""
+    from xpublish_edr.metadata import temporal_extent
+
+    extent = temporal_extent(dataset_with_ambiguous_vertical_coords)
+    assert extent is not None
+    assert extent.interval == [["2024-01-01T00:00:00", "2024-01-01T02:00:00"]]
+
+
+def test_cf_axis_is_indexed_false_for_ambiguous_z(dataset_with_ambiguous_vertical_coords):
+    """cf_axis_is_indexed reports False rather than raising for an ambiguous axis"""
+    from xpublish_edr.metadata import cf_axis_is_indexed
+
+    assert cf_axis_is_indexed(dataset_with_ambiguous_vertical_coords, "Z") is False
+
+
+def test_collection_metadata_for_ambiguous_vertical_dataset(dataset_with_ambiguous_vertical_coords):
+    """collection_metadata succeeds (no 500) for an FVCOM-like dataset with two Z candidates"""
+    from xpublish_edr.metadata import collection_metadata
+
+    metadata = collection_metadata(
+        dataset_with_ambiguous_vertical_coords,
+        position_output_formats=["cf_covjson"],
+        area_output_formats=["cf_covjson"],
+        cube_output_formats=["cf_covjson"],
+    )
+    assert metadata.extent.vertical is None
+    assert metadata.extent.temporal is not None
+
+
+@pytest.fixture(scope="function")
+def dataset_with_one_indexed_of_two_z_coords():
+    """Two Z candidates, but only ``depth`` is actually indexed.
+
+    ``sigma(depth, x)`` is a second ``ocean_sigma_coordinate`` Z candidate; it
+    is 2D so it is never indexable itself, but it still makes cf_xarray treat
+    "Z" as ambiguous. ``depth`` is a 1D dimension coordinate and is indexed.
+    """
+    depths = np.array([0.0, 10.0, 20.0])
+    xs = np.array([0.0, 1.0, 2.0, 3.0])
+    ys = np.array([0.0, 1.0])
+
+    return xr.Dataset(
+        coords={
+            "depth": ("depth", depths, {"axis": "Z", "units": "m", "positive": "down"}),
+            "x": ("x", xs, {"axis": "X"}),
+            "y": ("y", ys, {"axis": "Y"}),
+            "sigma": (
+                ("depth", "x"),
+                np.tile(np.linspace(0, -1, len(depths)), (len(xs), 1)).T,
+                {"standard_name": "ocean_sigma_coordinate", "positive": "up"},
+            ),
+        },
+        data_vars={
+            "temp": (("y", "depth", "x"), np.random.rand(len(ys), len(depths), len(xs))),
+        },
+    )
+
+
+def test_indexed_cf_axis_resolves_the_single_indexed_candidate(
+    dataset_with_one_indexed_of_two_z_coords,
+):
+    """indexed_cf_axis resolves Z to depth when sigma is a second, non-indexed candidate"""
+    from xpublish_edr.metadata import indexed_cf_axis
+
+    coord = indexed_cf_axis(dataset_with_one_indexed_of_two_z_coords, "Z")
+    assert coord is not None
+    assert coord.name == "depth"
+
+
+def test_vertical_extent_uses_the_indexed_candidate(dataset_with_one_indexed_of_two_z_coords):
+    """vertical_extent reports depth's range rather than raising on the ambiguous Z axis"""
+    from xpublish_edr.metadata import vertical_extent
+
+    extent = vertical_extent(dataset_with_one_indexed_of_two_z_coords)
+    assert extent is not None
+    assert extent.interval == [["0.0", "20.0"]]
+
+
+def test_select_z_with_one_indexed_of_two_z_candidates(dataset_with_one_indexed_of_two_z_coords):
+    """select() resolves Z to depth by name instead of raising cf_xarray's ambiguous-Z error"""
+    query = EDRPositionQueryGet(
+        coords="POINT(1 0)",
+        z="10.0",
+        parameters="temp",
+    )
+    ds = query.select(dataset_with_one_indexed_of_two_z_coords, {})
+    assert ds["depth"].values.tolist() == [10.0]
+
+
+@pytest.fixture(scope="function")
 def geozarr_proj_code_dataset():
     """A GeoZarr dataset declaring CRS/coords via the proj:/spatial: conventions.
 
@@ -864,3 +1013,62 @@ def test_spatial_resolution_and_position_selection(spatial_selection_case):
     projected = project_dataset(selected, query.crs, sr)
     npt.assert_approx_equal(projected.cf["X"].values.item(), x, significant=5)
     npt.assert_approx_equal(projected.cf["Y"].values.item(), y, significant=5)
+
+
+@pytest.fixture(scope="function")
+def two_grid_dataset():
+    """A regular grid carrying a second, unrelated longitude/latitude pair.
+
+    Neither pair declares a CF ``axis`` attribute, so cf_xarray sees two
+    longitude and two latitude candidates on the full dataset and cannot pick
+    one. ``parameter-name=air`` drops the second grid, which makes the filtered
+    dataset unambiguous -- so spatial metadata for a non-mesh dataset has to be
+    resolved from the filtered dataset rather than from the source.
+    """
+    lon = np.linspace(-70.0, -69.0, 4)
+    lat = np.linspace(43.0, 44.0, 3)
+    lon2 = np.linspace(-70.0, -69.0, 5)
+    lat2 = np.linspace(43.0, 44.0, 6)
+    time = pd.date_range("2024-01-01", periods=2, freq="h")
+    longitude = {"standard_name": "longitude", "units": "degrees_east"}
+    latitude = {"standard_name": "latitude", "units": "degrees_north"}
+
+    return xr.Dataset(
+        {
+            "air": (("time", "lat", "lon"), np.arange(24.0).reshape(2, 3, 4), {"units": "K"}),
+            "sst": (("time", "lat2", "lon2"), np.arange(60.0).reshape(2, 6, 5), {"units": "K"}),
+        },
+        coords={
+            "lon": ("lon", lon, longitude),
+            "lat": ("lat", lat, latitude),
+            "lon2": ("lon2", lon2, longitude),
+            "lat2": ("lat2", lat2, latitude),
+            "time": ("time", time),
+        },
+    )
+
+
+def test_prepare_spatial_grid_resolves_from_the_filtered_dataset(two_grid_dataset):
+    """Without a mesh, spatial metadata comes from the filtered dataset."""
+    prepared = prepare_spatial_grid(
+        two_grid_dataset[["air"]],
+        source=two_grid_dataset,
+        require_selectable=True,
+    )
+
+    assert prepared.spatial_ref.X == "lon"
+    assert prepared.spatial_ref.Y == "lat"
+    assert prepared.spatial_ref.mesh is None
+    assert prepared.kind is GridKind.REGULAR
+
+
+def test_position_query_on_a_dataset_with_two_grids(two_grid_dataset):
+    """End to end, a position query on the filtered parameter still works."""
+    rest = xpublish.Rest({"two": two_grid_dataset}, plugins={"edr": CfEdrPlugin()})
+    client = TestClient(rest.app)
+
+    response = client.get(
+        "/datasets/two/edr/position?parameter-name=air&coords=POINT(-69.5 43.5)",
+    )
+    assert response.status_code == 200, response.text
+    assert set(response.json()["ranges"]) == {"air"}
