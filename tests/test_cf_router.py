@@ -3,10 +3,12 @@ import sys
 from io import BytesIO
 
 import cf_xarray  # noqa: F401
+import numpy as np
 import numpy.testing as npt
 import pandas as pd
 import pyproj
 import pytest
+import xarray as xr
 import xpublish
 from conftest import make_fvcom_dataset
 from fastapi.testclient import TestClient
@@ -189,6 +191,13 @@ def test_cf_position_query_invalid_coords(cf_client):
     response = cf_client.get("/datasets/air/edr/position?coords=(71, 41)")
     assert response.status_code == 422, "Response should have returned a 422"
     assert "Could not parse coordinates to geometry" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("coords", ["POINT(204 91)", "POINT(100 44)", "POINT(-156 44)"])
+def test_cf_position_query_out_of_bounds(cf_client, coords):
+    response = cf_client.get(f"/datasets/air/edr/position?coords={coords}")
+    assert response.status_code == 400, "Response should have returned a 400"
+    assert "outside the dataset's spatial extent" in response.json()["detail"]
 
 
 def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
@@ -506,6 +515,46 @@ def test_cf_position_nc(cf_client):
         "The response should be set as an attachment to trigger download"
     )
     assert "data.nc" in response.headers["content-disposition"], "The file name should be data.nc"
+
+
+@pytest.fixture(scope="module")
+def string_attrs_client():
+    """Client for a dataset with attributes that netCDF3 or h5netcdf can't write as-is"""
+    from cf_xarray.datasets import airds
+
+    ds = airds.copy()
+    ds.attrs["sources"] = ["abcd", "efgh"]
+    ds.attrs["platforms"] = np.array(["buoy", "satellite"])
+    ds.attrs["is_reanalysis"] = True
+    ds["air"].attrs["flags"] = np.array(["good", "bad"])
+
+    rest = xpublish.Rest({"air": ds}, plugins={"edr": CfEdrPlugin()})
+    return TestClient(rest.app)
+
+
+@pytest.mark.parametrize("fmt", ["netcdf", "netcdf4", "nc"])
+@pytest.mark.parametrize("engine", ["h5netcdf", "netcdf4"])
+def test_cf_position_nc_string_array_attrs(string_attrs_client, fmt, engine, tmp_path):
+    x = 204
+    y = 44
+    response = string_attrs_client.get(
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f={fmt}",
+    )
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert response.content.startswith(b"\x89HDF\r\n\x1a\n"), (
+        "The response should be a netCDF4 (HDF5) file"
+    )
+
+    path = tmp_path / "data.nc"
+    path.write_bytes(response.content)
+    with xr.open_dataset(path, engine=engine) as ds:
+        assert list(ds.attrs["sources"]) == ["abcd", "efgh"]
+        assert list(ds.attrs["platforms"]) == ["buoy", "satellite"]
+        assert ds.attrs["is_reanalysis"] == 1
+        assert list(ds["air"].attrs["flags"]) == ["good", "bad"]
+        assert ds["air"].size > 0
+        assert not np.isnan(ds["air"].values).any()
 
 
 def test_percent_encoded_cf_position_nc(cf_client):
@@ -1438,7 +1487,7 @@ def _fvcom_dataset_with_time_only_var(**kwargs):
     return ds
 
 
-def test_fvcom_position_no_mesh_variable_is_404():
+def test_fvcom_position_no_mesh_variable_is_400():
     """A ``parameter-name`` with no mesh dimension is a client error, not a crash."""
     pytest.importorskip("xugrid")
     rest = xpublish.Rest(
@@ -1452,7 +1501,7 @@ def test_fvcom_position_no_mesh_variable_is_404():
         "/datasets/fvcom/edr/position",
         params={"parameter-name": "time_only", "coords": "POINT(-69.5 43.5)"},
     )
-    assert response.status_code == 404, response.text
+    assert response.status_code == 400, response.text
     assert "No mesh-located variables selected" in response.json()["detail"]
 
 

@@ -65,6 +65,11 @@ class EDRPositionQueryPost(BaseEDRQuery):
                 detail="Could not parse coordinates to geometry, "
                 "check the format of the 'coords' query parameter",
             )
+        except ValueError as e:
+            # Out of extent points, mesh selection problems (MeshSelectionError)
+            # and a non-Point/MultiPoint geometry are all request-level errors.
+            logger.error(f"Error selecting by position: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
         except KeyError as e:
             logger.error(f"Error selecting by position: {e}")
             raise HTTPException(
@@ -73,14 +78,6 @@ class EDRPositionQueryPost(BaseEDRQuery):
                     f"Error selecting by position: {e}. "
                     "Ensure that dataset has valid CF metadata and has 1D coordinates."
                 ),
-            )
-        except ValueError as e:
-            # Mesh selection problems (MeshSelectionError) and a non-Point/
-            # MultiPoint geometry are both request-level errors.
-            logger.error(f"Error selecting by position: {e}")
-            raise HTTPException(
-                status_code=404,
-                detail=f"Error selecting by position: {e}",
             )
 
 

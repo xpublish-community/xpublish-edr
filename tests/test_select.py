@@ -23,6 +23,7 @@ from xpublish_edr.geometry.common import (
 from xpublish_edr.plugin import CfEdrPlugin
 from xpublish_edr.position.geom import select_by_position
 from xpublish_edr.area.query import EDRAreaQueryGet
+from xpublish_edr.base_query import _localize
 from xpublish_edr.cube.query import EDRCubeQuery
 from xpublish_edr.position.query import EDRPositionQueryGet
 
@@ -415,6 +416,31 @@ def test_select_position_regular_xy_multi_interpolate(regular_xy_dataset):
         ),
         "Temperature is incorrect",
     )
+
+
+@pytest.mark.parametrize("method", ["nearest", "linear"])
+@pytest.mark.parametrize(
+    "point",
+    [
+        # -180..180 longitude on the 0..360 grid (lon 200..330, lat 15..75)
+        Point(204 - 360, 44),
+        Point(204, 80),
+        Point(204, 10),
+        Point(100, 44),
+        MultiPoint([(204, 44), (204, 91)]),
+    ],
+)
+def test_select_position_out_of_bounds(regular_xy_dataset, point, method):
+    """Out of range points error instead of snapping to the edge of the grid"""
+    with pytest.raises(ValueError, match="outside the dataset's spatial extent"):
+        select_by_position(regular_xy_dataset, point, method=method)
+
+
+def test_select_position_within_edge_cell(regular_xy_dataset):
+    """Points within half a cell (1.25 deg) of the grid edge are still valid"""
+    ds = select_by_position(regular_xy_dataset, MultiPoint([(199, 76), (331, 14)]))
+    npt.assert_array_equal(ds["lon"], [200.0, 330.0])
+    npt.assert_array_equal(ds["lat"], [75.0, 15.0])
 
 
 def test_select_area_regular_xy(regular_xy_dataset):
@@ -1072,3 +1098,64 @@ def test_position_query_on_a_dataset_with_two_grids(two_grid_dataset):
     )
     assert response.status_code == 200, response.text
     assert set(response.json()["ranges"]) == {"air"}
+
+
+def test_position_linear_interp_after_spatial_select(regular_xy_dataset, monkeypatch):
+    """Linear interpolation must not see whole slabs of the dataset (OOM).
+
+    Interpolating on time before the spatial selection loaded the full
+    horizontal grid into memory. Results must match interpolating every
+    dimension at once.
+    """
+    interp = xr.Dataset.interp
+    calls = []
+
+    def spy(self, coords=None, *args, **kwargs):
+        result = interp(self, coords, *args, **kwargs)
+        calls.append((set(coords or kwargs), dict(self.sizes), result))
+        return result
+
+    monkeypatch.setattr(xr.Dataset, "interp", spy)
+
+    query = EDRPositionQueryGet(
+        coords="POINT(204.3 44.2)",
+        datetime="2013-01-01T08:00:00",
+        parameters="air",
+        method="linear",
+    )
+    query.run_query(regular_xy_dataset, {}, query.geometry)
+
+    time_calls = [sizes for dims, sizes, _ in calls if "time" in dims]
+    assert time_calls, "time should be interpolated"
+    assert all(s["lat"] == s["lon"] == 1 for s in time_calls), time_calls
+    expected = interp(
+        regular_xy_dataset[["air"]],
+        time=[pd.Timestamp("2013-01-01T08:00:00")],
+        lat=[44.2],
+        lon=[204.3],
+    )
+    npt.assert_allclose(calls[-1][2]["air"].values, expected["air"].values)
+
+
+@pytest.mark.parametrize("descending", [False, True])
+@pytest.mark.parametrize(
+    "value, expected",
+    [(101.5, [101, 102]), (102, [101, 102]), (99, [100, 101]), (110, [103, 104])],
+)
+def test_localize_brackets_target(value, expected, descending):
+    """Localizing keeps the two points around the target, clamped to the edges."""
+    elevation = np.arange(100, 105)
+    if descending:
+        elevation = elevation[::-1]
+    ds = xr.Dataset(coords={"elevation": elevation})
+    targets = {}
+    localized = _localize(ds, "elevation", [value], targets)
+    assert sorted(localized["elevation"].values.tolist()) == expected
+    assert targets == {"elevation": [value]}
+
+
+def test_localize_non_monotonic_index():
+    """A non-monotonic index can't be bracketed, so reject it."""
+    ds = xr.Dataset(coords={"elevation": [100, 102, 101]})
+    with pytest.raises(ValueError, match="not monotonic"):
+        _localize(ds, "elevation", [101.4], {})

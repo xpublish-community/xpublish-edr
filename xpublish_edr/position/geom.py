@@ -58,13 +58,63 @@ def select_prepared_position(
 
     X, Y = prepared.spatial_ref.X, prepared.spatial_ref.Y
 
-    if isinstance(point, shapely.Point):
-        return _select_by_position_regular_xy_grid(ds, point, X, Y, method)
-    elif isinstance(point, shapely.MultiPoint):
-        return _select_by_multiple_positions_regular_xy_grid(ds, point, X, Y, method)
-    else:
+    if not isinstance(point, (shapely.Point, shapely.MultiPoint)):
         raise ValueError(
             f"Invalid point type {point.geom_type}, must be Point or MultiPoint",
+        )
+
+    _validate_points_in_grid(ds, point, prepared.spatial_ref)
+
+    if isinstance(point, shapely.Point):
+        return _select_by_position_regular_xy_grid(ds, point, X, Y, method)
+    return _select_by_multiple_positions_regular_xy_grid(ds, point, X, Y, method)
+
+
+def _padded_bounds(coord: np.ndarray) -> tuple[float, float]:
+    """
+    Return the (min, max) extent of a sorted 1D coordinate, padded by half the
+    edge cell on each side so points that fall within the edge cells are
+    accepted
+    """
+    first, last = float(coord[0]), float(coord[-1])
+    if coord.size < 2:
+        return min(first, last), max(first, last)
+    pad_first = abs(float(coord[1]) - first) / 2
+    pad_last = abs(last - float(coord[-2])) / 2
+    if first <= last:
+        return first - pad_first, last + pad_last
+    return last - pad_last, first + pad_first
+
+
+def _validate_points_in_grid(
+    ds: xr.Dataset,
+    points: shapely.Point | shapely.MultiPoint,
+    spatial_ref: SpatialRef,
+) -> None:
+    """
+    Ensure the query point(s), already projected to the dataset's CRS, fall
+    within the dataset's spatial extent.
+
+    Raises a ValueError rather than letting nearest neighbor selection
+    silently snap the point(s) to the edge of the grid. No attempt is made to
+    reinterpret out of range coordinates (e.g. wrapping longitudes between
+    -180..180 and 0..360); the caller is asked to convert them instead.
+    """
+    coords = shapely.get_coordinates(points)
+    x, y = coords[:, 0], coords[:, 1]
+
+    X, Y = spatial_ref.X, spatial_ref.Y
+    x_lo, x_hi = _padded_bounds(ds[X].values)
+    y_lo, y_hi = _padded_bounds(ds[Y].values)
+
+    out_of_bounds = (x < x_lo) | (x > x_hi) | (y < y_lo) | (y > y_hi)
+    if out_of_bounds.any():
+        bad = ", ".join(f"({px:g} {py:g})" for px, py in coords[out_of_bounds])
+        raise ValueError(
+            f"Point(s) {bad} fall outside the dataset's spatial extent "
+            f"({X}: [{float(ds[X].min()):g}, {float(ds[X].max()):g}], "
+            f"{Y}: [{float(ds[Y].min()):g}, {float(ds[Y].max()):g}]). "
+            "Convert the coordinates to the dataset's range and try again.",
         )
 
 

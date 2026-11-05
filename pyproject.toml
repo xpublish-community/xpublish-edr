@@ -26,6 +26,7 @@ dynamic = [ "version" ]
 dependencies = [
   "cf-xarray>=0.10.11",
   "geopandas",
+  "h5netcdf[h5py]",
   "pyarrow",
   "rasterix>=0.2.2",
   "rioxarray",
