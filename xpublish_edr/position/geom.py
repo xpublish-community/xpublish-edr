@@ -42,14 +42,18 @@ def select_by_position(
 
 def _padded_bounds(coord: np.ndarray) -> tuple[float, float]:
     """
-    Return the (min, max) extent of a 1D coordinate, padded by half a cell on
-    each side so points that fall within the edge cells are accepted
+    Return the (min, max) extent of a sorted 1D coordinate, padded by half the
+    edge cell on each side so points that fall within the edge cells are
+    accepted
     """
-    lo, hi = float(np.nanmin(coord)), float(np.nanmax(coord))
+    first, last = float(coord[0]), float(coord[-1])
     if coord.size < 2:
-        return lo, hi
-    half_step = float(np.nanmax(np.abs(np.diff(coord)))) / 2
-    return lo - half_step, hi + half_step
+        return min(first, last), max(first, last)
+    pad_first = abs(float(coord[1]) - first) / 2
+    pad_last = abs(last - float(coord[-2])) / 2
+    if first <= last:
+        return first - pad_first, last + pad_last
+    return last - pad_last, first + pad_first
 
 
 def _validate_points_in_grid(
