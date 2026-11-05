@@ -272,34 +272,25 @@ def _localize(
     """Lazily narrow ``dim`` to the points bracketing ``values`` for interpolation.
 
     Records ``values`` in ``interp_targets`` so :func:`_interpolate` can finish
-    the job. If the targets cannot be located on the index (e.g. a value whose
-    type doesn't match the index), fall back to nearest selection right away.
+    the job once the data has been cut down.
     """
-    index = ds.indexes.get(dim)
-    try:
-        if index is None:
-            raise ValueError(f"{dim} has no index")
-        n = len(index)
-        decreasing = index.is_monotonic_decreasing and not index.is_monotonic_increasing
-        search = index[::-1] if decreasing else index
-        if not search.is_monotonic_increasing:
-            raise ValueError(f"{dim} index is not monotonic")
-        positions = set()
-        for value in values:
-            i = int(search.searchsorted(value))
-            positions.update({min(max(i - 1, 0), n - 1), min(i, n - 1)})
-        if len(positions) == 1 and n > 1:
-            # Interpolation needs at least two points, even out of bounds
-            (i,) = positions
-            positions.add(i - 1 if i == n - 1 else i + 1)
-        positions = sorted(positions)
-        if decreasing:
-            positions = sorted(n - 1 - i for i in positions)
-    except (TypeError, ValueError) as e:
-        logger.warning(
-            f"Could not localize {dim} for interpolation: {e}, falling back to selection",
-        )
-        return ds.sel({dim: values}, method="nearest")
+    index = ds.indexes[dim]
+    n = len(index)
+    decreasing = index.is_monotonic_decreasing and not index.is_monotonic_increasing
+    search = index[::-1] if decreasing else index
+    if not search.is_monotonic_increasing:
+        raise ValueError(f"Cannot interpolate on {dim}: its index is not monotonic")
+    positions = set()
+    for value in values:
+        i = int(search.searchsorted(value))
+        positions.update({min(max(i - 1, 0), n - 1), min(i, n - 1)})
+    if len(positions) == 1 and n > 1:
+        # Interpolation needs at least two points, even out of bounds
+        (i,) = positions
+        positions.add(i - 1 if i == n - 1 else i + 1)
+    positions = sorted(positions)
+    if decreasing:
+        positions = sorted(n - 1 - i for i in positions)
 
     interp_targets[dim] = values
     return ds.isel({dim: positions})

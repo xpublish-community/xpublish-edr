@@ -13,13 +13,12 @@ from xpublish_edr.geometry.bbox import select_by_bbox
 from xpublish_edr.geometry.common import (
     dataset_spatial_ref,
     is_regular_xy_coords,
-    prepare_spatial_grid,
     project_dataset,
     with_spatial_coords,
 )
 from xpublish_edr.position.geom import select_by_position
 from xpublish_edr.area.query import EDRAreaQueryGet
-from xpublish_edr.base_query import _interpolate, _localize
+from xpublish_edr.base_query import _localize
 from xpublish_edr.cube.query import EDRCubeQuery
 from xpublish_edr.position.query import EDRPositionQueryGet
 
@@ -893,107 +892,41 @@ def test_spatial_resolution_and_position_selection(spatial_selection_case):
     npt.assert_approx_equal(projected.cf["Y"].values.item(), y, significant=5)
 
 
-class _CountingBackendArray(xr.backends.BackendArray):
-    """Lazy backend array that records the largest single read."""
+def test_position_linear_interp_after_spatial_select(regular_xy_dataset, monkeypatch):
+    """Linear interpolation must not see whole slabs of the dataset (OOM).
 
-    def __init__(self, data, reads):
-        self.data = data
-        self.shape = data.shape
-        self.dtype = data.dtype
-        self.reads = reads
+    Interpolating on time before the spatial selection loaded the full
+    horizontal grid into memory. Results must match interpolating every
+    dimension at once.
+    """
+    interp = xr.Dataset.interp
+    calls = []
 
-    def __deepcopy__(self, memo):
-        # Share the read log with copies made during the query pipeline
-        return self
-
-    def __getitem__(self, key):
-        return xr.core.indexing.explicit_indexing_adapter(
-            key,
-            self.shape,
-            xr.core.indexing.IndexingSupport.BASIC,
-            self._raw_indexing_method,
-        )
-
-    def _raw_indexing_method(self, key):
-        result = self.data[key]
-        self.reads.append(result.size)
+    def spy(self, coords=None, *args, **kwargs):
+        result = interp(self, coords, *args, **kwargs)
+        calls.append((set(coords or kwargs), dict(self.sizes), result))
         return result
 
+    monkeypatch.setattr(xr.Dataset, "interp", spy)
 
-@pytest.fixture(scope="function")
-def lazy_4d_dataset():
-    """A 4D (time, z, lat, lon) dataset backed by a lazy, read-counting array."""
-    rng = np.random.default_rng(0)
-    data = rng.random((24, 10, 40, 50))
-    coords = {
-        "time": (
-            "time",
-            pd.date_range("2026-10-21", periods=24, freq="1h"),
-            {"axis": "T", "standard_name": "time"},
-        ),
-        "z": ("z", np.arange(100.0, 600.0, 50.0), {"axis": "Z", "units": "m"}),
-        "lat": ("lat", np.linspace(30, 40, 40), {"standard_name": "latitude"}),
-        "lon": ("lon", np.linspace(-100, -90, 50), {"standard_name": "longitude"}),
-    }
-    dims = ("time", "z", "lat", "lon")
-    in_memory = xr.Dataset({"u": (dims, data)}, coords=coords)
-
-    reads = []
-    lazy = xr.Variable(
-        dims,
-        xr.core.indexing.LazilyIndexedArray(_CountingBackendArray(data, reads)),
-    )
-    ds = xr.Dataset({"u": lazy}, coords=coords)
-    return ds, in_memory, reads
-
-
-def test_position_linear_interp_only_reads_neighbors(lazy_4d_dataset):
-    """Linear interpolation must not load whole slabs of the dataset (OOM).
-
-    Interpolating on z/time before the spatial selection used to load every
-    other dimension, including the full horizontal grid, into memory.
-    """
-    ds, _, reads = lazy_4d_dataset
     query = EDRPositionQueryGet(
-        coords="POINT(-97.27 33.03)",
-        z="255",
-        datetime="2026-10-21T12:30:00",
-        parameters="u",
-        method="linear",
-        f="csv",
-    )
-    query.run_query(ds, {}, query.geometry)
-
-    # 2 neighbors along time and z; xarray localizes lat/lon itself with a
-    # small pad. The old eager ordering read the full 40x50 grid (8000 values).
-    assert max(reads) <= 2 * 2 * 4 * 4, f"Read {max(reads)} values for a single point"
-
-
-def test_position_linear_interp_matches_eager(lazy_4d_dataset):
-    """Deferring interpolation until after spatial selection keeps the same result."""
-    ds, in_memory, _ = lazy_4d_dataset
-    query = EDRPositionQueryGet(
-        coords="POINT(-97.27 33.03)",
-        z="255",
-        datetime="2026-10-21T12:30:00",
-        parameters="u",
+        coords="POINT(204.3 44.2)",
+        datetime="2013-01-01T08:00:00",
+        parameters="air",
         method="linear",
     )
-    ds_localized, interp_targets = query._select_localized(ds, {})
-    assert ds_localized.sizes["z"] == 2
-    assert ds_localized.sizes["time"] == 2
+    query.run_query(regular_xy_dataset, {}, query.geometry)
 
-    grid = prepare_spatial_grid(ds_localized, require_regular=True)
-    result = query.spatial_select(grid, query.geometry)
-    result = _interpolate(result, interp_targets)
-
-    expected = in_memory.interp(
-        time=[pd.Timestamp("2026-10-21T12:30:00")],
-        z=[255.0],
-        lat=[33.03],
-        lon=[-97.27],
+    time_calls = [sizes for dims, sizes, _ in calls if "time" in dims]
+    assert time_calls, "time should be interpolated"
+    assert all(s["lat"] == s["lon"] == 1 for s in time_calls), time_calls
+    expected = interp(
+        regular_xy_dataset[["air"]],
+        time=[pd.Timestamp("2013-01-01T08:00:00")],
+        lat=[44.2],
+        lon=[204.3],
     )
-    npt.assert_allclose(result["u"].values, expected["u"].values)
+    npt.assert_allclose(calls[-1][2]["air"].values, expected["air"].values)
 
 
 @pytest.mark.parametrize("descending", [False, True])
@@ -1011,3 +944,10 @@ def test_localize_brackets_target(value, expected, descending):
     localized = _localize(ds, "elevation", [value], targets)
     assert sorted(localized["elevation"].values.tolist()) == expected
     assert targets == {"elevation": [value]}
+
+
+def test_localize_non_monotonic_index():
+    """A non-monotonic index can't be bracketed, so reject it."""
+    ds = xr.Dataset(coords={"elevation": [100, 102, 101]})
+    with pytest.raises(ValueError, match="not monotonic"):
+        _localize(ds, "elevation", [101.4], {})
