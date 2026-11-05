@@ -81,6 +81,24 @@ class BaseEDRQuery(BaseModel):
 
     def select(self, ds: xr.Dataset, query_params: dict) -> xr.Dataset:
         """Select data from a dataset based on the query"""
+        ds, interp_targets = self._select_localized(ds, query_params)
+        return _interpolate(ds, interp_targets)
+
+    def _select_localized(
+        self,
+        ds: xr.Dataset,
+        query_params: dict,
+    ) -> tuple[xr.Dataset, dict]:
+        """Select data from a dataset, deferring any interpolation.
+
+        With ``method="linear"`` each interpolated dimension is only narrowed
+        (lazily) to the points bracketing its target, and the targets are
+        returned so the caller can interpolate once the spatial selection has
+        cut the data down. Interpolating eagerly here would load every other
+        dimension (including the full horizontal grid) into memory.
+        """
+        interp_targets = {}
+
         if self.z:
             try:
                 z_value = float(self.z)
@@ -90,7 +108,7 @@ class BaseEDRQuery(BaseModel):
             if self.method == "nearest":
                 ds = ds.cf.sel(Z=[z_value], method=self.method)
             else:
-                ds = ds.cf.interp(Z=[z_value], method=self.method)
+                ds = _localize(ds, ds.cf["Z"].name, [z_value], interp_targets)
 
         if self.datetime:
             datetimes = self.datetime.split("/")
@@ -106,7 +124,12 @@ class BaseEDRQuery(BaseModel):
                 if self.method == "nearest":
                     ds = ds.cf.sel(T=parsed_datetimes, method=self.method)
                 else:
-                    ds = ds.cf.interp(T=parsed_datetimes, method=self.method)
+                    ds = _localize(
+                        ds,
+                        ds.cf["T"].name,
+                        parsed_datetimes,
+                        interp_targets,
+                    )
             else:
                 ds = ds.cf.sel(T=slice(parsed_datetimes[0], parsed_datetimes[1]))
 
@@ -148,15 +171,10 @@ class BaseEDRQuery(BaseModel):
         if self.method == "nearest":
             ds = ds.sel(sel_params, method=self.method)
         else:
-            # Interpolation may not be supported for all possible selection
-            # parameters, so we provide a fallback to xarray's nearest selection
-            try:
-                ds = ds.interp(sel_params, method=self.method)
-            except Exception as e:
-                logger.warning(f"Interpolation failed: {e}, falling back to selection")
-                ds = ds.sel(sel_params, method="nearest")
+            for key, values in sel_params.items():
+                ds = _localize(ds, key, values, interp_targets)
 
-        return ds
+        return ds, interp_targets
 
     def run_query(
         self,
@@ -176,7 +194,7 @@ class BaseEDRQuery(BaseModel):
         ``bbox`` field instead.
         """
         try:
-            ds = self.select(dataset, query_params)
+            ds, interp_targets = self._select_localized(dataset, query_params)
         except ValueError as e:
             logger.error(f"Error selecting from query for {self.query_label()} query: {e}")
             raise HTTPException(
@@ -188,6 +206,7 @@ class BaseEDRQuery(BaseModel):
 
         grid = prepare_spatial_grid(ds, require_regular=True)
         ds = self.spatial_select(grid, geometry)
+        ds = _interpolate(ds, interp_targets)
 
         logger.debug(f"Dataset filtered spatially: {ds}")
 
@@ -242,6 +261,69 @@ class BaseEDRQuery(BaseModel):
     def query_label(self) -> str:
         """Return the query-type label (``position``/``area``/``cube``)."""
         raise NotImplementedError
+
+
+def _localize(
+    ds: xr.Dataset,
+    dim: str,
+    values: list,
+    interp_targets: dict,
+) -> xr.Dataset:
+    """Lazily narrow ``dim`` to the points bracketing ``values`` for interpolation.
+
+    Records ``values`` in ``interp_targets`` so :func:`_interpolate` can finish
+    the job. If the targets cannot be located on the index (e.g. a value whose
+    type doesn't match the index), fall back to nearest selection right away.
+    """
+    index = ds.indexes.get(dim)
+    try:
+        if index is None:
+            raise ValueError(f"{dim} has no index")
+        n = len(index)
+        decreasing = index.is_monotonic_decreasing and not index.is_monotonic_increasing
+        search = index[::-1] if decreasing else index
+        if not search.is_monotonic_increasing:
+            raise ValueError(f"{dim} index is not monotonic")
+        positions = set()
+        for value in values:
+            i = int(search.searchsorted(value))
+            positions.update({min(max(i - 1, 0), n - 1), min(i, n - 1)})
+        if len(positions) == 1 and n > 1:
+            # Interpolation needs at least two points, even out of bounds
+            (i,) = positions
+            positions.add(i - 1 if i == n - 1 else i + 1)
+        positions = sorted(positions)
+        if decreasing:
+            positions = sorted(n - 1 - i for i in positions)
+    except (TypeError, ValueError) as e:
+        logger.warning(
+            f"Could not localize {dim} for interpolation: {e}, falling back to selection",
+        )
+        return ds.sel({dim: values}, method="nearest")
+
+    interp_targets[dim] = values
+    return ds.isel({dim: positions})
+
+
+def _interpolate(ds: xr.Dataset, interp_targets: dict) -> xr.Dataset:
+    """Interpolate ``ds`` to the targets deferred by :func:`_localize`.
+
+    Interpolation may not be supported for all possible selection parameters,
+    so each dimension falls back to xarray's nearest selection on its own.
+    """
+    if not interp_targets:
+        return ds
+    try:
+        return ds.interp(interp_targets, method="linear")
+    except Exception:
+        pass
+    for dim, values in interp_targets.items():
+        try:
+            ds = ds.interp({dim: values}, method="linear")
+        except Exception as e:
+            logger.warning(f"Interpolation failed: {e}, falling back to selection")
+            ds = ds.sel({dim: values}, method="nearest")
+    return ds
 
 
 def load_wkt(value: str) -> Geometry:
