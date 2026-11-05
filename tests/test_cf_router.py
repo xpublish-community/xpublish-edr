@@ -2,9 +2,11 @@ import json
 from io import BytesIO
 
 import cf_xarray  # noqa: F401
+import numpy as np
 import numpy.testing as npt
 import pandas as pd
 import pytest
+import xarray as xr
 import xpublish
 from fastapi.testclient import TestClient
 
@@ -503,6 +505,46 @@ def test_cf_position_nc(cf_client):
         "The response should be set as an attachment to trigger download"
     )
     assert "data.nc" in response.headers["content-disposition"], "The file name should be data.nc"
+
+
+@pytest.fixture(scope="module")
+def string_attrs_client():
+    """Client for a dataset with attributes that netCDF3 or h5netcdf can't write as-is"""
+    from cf_xarray.datasets import airds
+
+    ds = airds.copy()
+    ds.attrs["sources"] = ["abcd", "efgh"]
+    ds.attrs["platforms"] = np.array(["buoy", "satellite"])
+    ds.attrs["is_reanalysis"] = True
+    ds["air"].attrs["flags"] = np.array(["good", "bad"])
+
+    rest = xpublish.Rest({"air": ds}, plugins={"edr": CfEdrPlugin()})
+    return TestClient(rest.app)
+
+
+@pytest.mark.parametrize("fmt", ["netcdf", "netcdf4", "nc"])
+@pytest.mark.parametrize("engine", ["h5netcdf", "netcdf4"])
+def test_cf_position_nc_string_array_attrs(string_attrs_client, fmt, engine, tmp_path):
+    x = 204
+    y = 44
+    response = string_attrs_client.get(
+        f"/datasets/air/edr/position?coords=POINT({x} {y})&f={fmt}",
+    )
+
+    assert response.status_code == 200, "Response did not return successfully"
+    assert response.content.startswith(b"\x89HDF\r\n\x1a\n"), (
+        "The response should be a netCDF4 (HDF5) file"
+    )
+
+    path = tmp_path / "data.nc"
+    path.write_bytes(response.content)
+    with xr.open_dataset(path, engine=engine) as ds:
+        assert list(ds.attrs["sources"]) == ["abcd", "efgh"]
+        assert list(ds.attrs["platforms"]) == ["buoy", "satellite"]
+        assert ds.attrs["is_reanalysis"] == 1
+        assert list(ds["air"].attrs["flags"]) == ["good", "bad"]
+        assert ds["air"].size > 0
+        assert not np.isnan(ds["air"].values).any()
 
 
 def test_percent_encoded_cf_position_nc(cf_client):
