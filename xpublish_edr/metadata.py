@@ -37,6 +37,37 @@ EDR_CONFORMANCE_CLASSES = [
 ]
 
 
+def indexed_cf_axis(ds: xr.Dataset, axis: str) -> xr.DataArray | None:
+    """Return the single indexed coordinate for a CF axis, if there is one.
+
+    A CF axis (e.g. "Z") can have multiple candidate coordinates (FVCOM
+    declares both ``siglay(siglay, node)`` and ``siglev(siglev, node)`` as
+    ``ocean_sigma_coordinate``). ``ds.cf[axis]``/``ds.cf.sel(axis=...)`` raise a
+    ``KeyError`` as soon as more than one candidate exists, even when none (or
+    only one) of them is actually indexed and thus selectable. This looks at
+    all of the axis's candidates via ``ds.cf.axes`` (which lists names rather
+    than raising) and returns the one that is indexed, so callers can key off
+    a concrete coordinate name instead of the ambiguous ``ds.cf[axis]``.
+
+    Args:
+        ds: The dataset to check
+        axis: The CF axis name (e.g., "X", "Y", "Z", "T")
+
+    Returns:
+        The indexed coordinate as a DataArray if exactly one of the axis's
+        candidate coordinates is indexed, otherwise None (no candidates, or
+        more than one indexed candidate).
+    """
+    try:
+        names = ds.cf.axes.get(axis, [])
+    except Exception:
+        return None
+    indexed = [name for name in names if name in ds.indexes]
+    if len(indexed) == 1:
+        return ds[indexed[0]]
+    return None
+
+
 def cf_axis_is_indexed(ds: xr.Dataset, axis: str) -> bool:
     """Check if a CF axis coordinate is indexed (queryable via selection).
 
@@ -47,12 +78,7 @@ def cf_axis_is_indexed(ds: xr.Dataset, axis: str) -> bool:
     Returns:
         True if the axis exists and is indexed, False otherwise
     """
-    if axis not in ds.cf:
-        return False
-    coord = ds.cf[axis]
-    if isinstance(coord, xr.DataArray):
-        return coord.name in ds.indexes
-    return False
+    return indexed_cf_axis(ds, axis) is not None
 
 
 class CRSDetails(BaseModel):
@@ -342,10 +368,11 @@ def spatial_extent(
 
 def temporal_extent(ds: xr.Dataset) -> TemporalExtent | None:
     """Extract the temporal extent from the dataset into collection metadata specific format"""
-    if not cf_axis_is_indexed(ds, "T"):
+    t_coord = indexed_cf_axis(ds, "T")
+    if t_coord is None:
         return None
 
-    t = pd.to_datetime(ds.cf["T"])  # type: ignore[index]
+    t = pd.to_datetime(t_coord)
     time_min = t.min().strftime("%Y-%m-%dT%H:%M:%S")
     time_max = t.max().strftime("%Y-%m-%dT%H:%M:%S")
     return TemporalExtent(
@@ -357,10 +384,10 @@ def temporal_extent(ds: xr.Dataset) -> TemporalExtent | None:
 
 def vertical_extent(ds: xr.Dataset) -> VerticalExtent | None:
     """Extract the vertical extent from the dataset into collection metadata specific format"""
-    if not cf_axis_is_indexed(ds, "Z"):
+    z = indexed_cf_axis(ds, "Z")
+    if z is None:
         return None
 
-    z = ds.cf["Z"]  # type: ignore[index]
     elevations = z.values
     units = z.attrs.get("units", "unknown")
     positive = z.attrs.get("positive", "up")
@@ -513,14 +540,27 @@ def extent(
     )
 
 
-def extract_parameters(ds: xr.Dataset, *, extents: Extent) -> dict[str, Parameter]:
+def extract_parameters(
+    ds: xr.Dataset,
+    *,
+    extents: Extent,
+    spatial_ref: SpatialRef | None = None,
+) -> dict[str, Parameter]:
     """
     Extract the parameters from the dataset into collection metadata specific format
+
+    UGRID structural variables (the topology variable and the connectivity arrays
+    such as FVCOM's ``nv``/``nbe``/``aw*``) describe the mesh rather than data on
+    it, so they are never advertised as queryable parameters.
     """
+    mesh = spatial_ref.mesh if spatial_ref is not None else None
+    structural: frozenset[str] = mesh.structural_vars if mesh is not None else frozenset()
     return {
         str(k): parameter(v, extents=extents)
         for k, v in ds.data_vars.items()
-        if "axis" not in v.attrs and v.ndim >= 2  # always 2 spatial dims
+        if "axis" not in v.attrs
+        and v.ndim >= 2  # always 2 spatial dims
+        and str(k) not in structural
     }
 
 
@@ -645,10 +685,11 @@ def dataset_height_units(ds: xr.Dataset) -> list[str]:
     """
     Return the units that cube query vertical values can be specified in
     """
-    if "Z" not in ds.cf:
+    z = indexed_cf_axis(ds, "Z")
+    if z is None:
         return []
 
-    units = ds.cf["Z"].attrs.get("units")
+    units = z.attrs.get("units")
     return [units] if units else []
 
 
@@ -675,7 +716,7 @@ def collection_metadata(
 
     extents = extent(ds, spatial_ref)
 
-    parameters = extract_parameters(ds, extents=extents)
+    parameters = extract_parameters(ds, extents=extents, spatial_ref=spatial_ref)
 
     supported_crs = supported_crs_details(ds)
 

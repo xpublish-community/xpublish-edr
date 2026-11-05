@@ -4,6 +4,7 @@ OGC EDR router for datasets with CF convention metadata
 
 from typing import Annotated
 
+import cachey
 import xarray as xr
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from shapely.errors import GEOSException
@@ -110,7 +111,12 @@ class CfEdrPlugin(Plugin):
                     "check the format of the 'coords' query parameter",
                 )
             dataset = deps.dataset(collection_id)
-            return query.run_query(dataset, dict(request.query_params), geometry)
+            return query.run_query(
+                dataset,
+                dict(request.query_params),
+                geometry,
+                cache=deps.cache(),
+            )
 
         @router.post(
             "/collections/{collection_id}/position",
@@ -141,7 +147,12 @@ class CfEdrPlugin(Plugin):
                 raise HTTPException(status_code=422, detail=str(e))
 
             dataset = deps.dataset(collection_id)
-            return query.run_query(dataset, dict(request.query_params), geometry)
+            return query.run_query(
+                dataset,
+                dict(request.query_params),
+                geometry,
+                cache=deps.cache(),
+            )
 
         @router.get(
             "/collections/{collection_id}/area",
@@ -167,7 +178,12 @@ class CfEdrPlugin(Plugin):
                     "check the format of the 'coords' query parameter",
                 )
             dataset = deps.dataset(collection_id)
-            return query.run_query(dataset, dict(request.query_params), geometry)
+            return query.run_query(
+                dataset,
+                dict(request.query_params),
+                geometry,
+                cache=deps.cache(),
+            )
 
         @router.post(
             "/collections/{collection_id}/area",
@@ -198,7 +214,12 @@ class CfEdrPlugin(Plugin):
                 raise HTTPException(status_code=422, detail=str(e))
 
             dataset = deps.dataset(collection_id)
-            return query.run_query(dataset, dict(request.query_params), geometry)
+            return query.run_query(
+                dataset,
+                dict(request.query_params),
+                geometry,
+                cache=deps.cache(),
+            )
 
         @router.get(
             "/collections/{collection_id}/cube",
@@ -216,7 +237,11 @@ class CfEdrPlugin(Plugin):
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
             dataset = deps.dataset(collection_id)
-            return query.run_query(dataset, dict(request.query_params))
+            return query.run_query(
+                dataset,
+                dict(request.query_params),
+                cache=deps.cache(),
+            )
 
         return router
 
@@ -330,6 +355,7 @@ class CfEdrPlugin(Plugin):
             request: Request,
             query: Annotated[position.EDRPositionQueryGet, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
+            cache: cachey.Cache = Depends(deps.cache),
         ):
             """
             Returns vectorized position data for one or more points passed as
@@ -351,7 +377,12 @@ class CfEdrPlugin(Plugin):
                     detail="Could not parse coordinates to geometry, "
                     "check the format of the 'coords' query parameter",
                 )
-            return query.run_query(dataset, dict(request.query_params), geometry)
+            return query.run_query(
+                dataset,
+                dict(request.query_params),
+                geometry,
+                cache=cache,
+            )
 
         @router.post("/position", summary="Position query (POST)")
         def post_position(
@@ -359,6 +390,7 @@ class CfEdrPlugin(Plugin):
             query: Annotated[position.EDRPositionQueryPost, Query()],
             body: Annotated[bytes, Depends(_raw_body)],
             dataset: xr.Dataset = Depends(deps.dataset),
+            cache: cachey.Cache = Depends(deps.cache),
         ):
             """
             Returns vectorized position data for one or more points submitted in
@@ -386,13 +418,19 @@ class CfEdrPlugin(Plugin):
                 logger.error(f"Error parsing position body: {e}")
                 raise HTTPException(status_code=422, detail=str(e))
 
-            return query.run_query(dataset, dict(request.query_params), geometry)
+            return query.run_query(
+                dataset,
+                dict(request.query_params),
+                geometry,
+                cache=cache,
+            )
 
         @router.get("/area", summary="Area query")
         def get_area(
             request: Request,
             query: Annotated[area.EDRAreaQueryGet, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
+            cache: cachey.Cache = Depends(deps.cache),
         ):
             """
             Returns vectorized area data for a Polygon or MultiPolygon passed as
@@ -411,7 +449,12 @@ class CfEdrPlugin(Plugin):
                     detail="Could not parse coordinates to geometry, "
                     "check the format of the 'coords' query parameter",
                 )
-            return query.run_query(dataset, dict(request.query_params), geometry)
+            return query.run_query(
+                dataset,
+                dict(request.query_params),
+                geometry,
+                cache=cache,
+            )
 
         @router.post("/area", summary="Area query (POST)")
         def post_area(
@@ -419,6 +462,7 @@ class CfEdrPlugin(Plugin):
             query: Annotated[area.EDRAreaQueryPost, Query()],
             body: Annotated[bytes, Depends(_raw_body)],
             dataset: xr.Dataset = Depends(deps.dataset),
+            cache: cachey.Cache = Depends(deps.cache),
         ):
             """
             Returns vectorized area data for a polygon submitted in the request
@@ -446,19 +490,29 @@ class CfEdrPlugin(Plugin):
                 logger.error(f"Error parsing area body: {e}")
                 raise HTTPException(status_code=422, detail=str(e))
 
-            return query.run_query(dataset, dict(request.query_params), geometry)
+            return query.run_query(
+                dataset,
+                dict(request.query_params),
+                geometry,
+                cache=cache,
+            )
 
         @router.get("/cube", summary="Cube query")
         def get_cube(
             request: Request,
             query: Annotated[cube.EDRCubeQuery, Query()],
             dataset: xr.Dataset = Depends(deps.dataset),
+            cache: cachey.Cache = Depends(deps.cache),
         ):
             """
             Returns gridded cube data based on bbox coordinates and optional elevation
 
             Extra selecting/slicing parameters can be provided as extra query parameters
             """
-            return query.run_query(dataset, dict(request.query_params))
+            return query.run_query(
+                dataset,
+                dict(request.query_params),
+                cache=cache,
+            )
 
         return router
