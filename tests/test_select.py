@@ -412,6 +412,31 @@ def test_select_position_regular_xy_multi_interpolate(regular_xy_dataset):
     )
 
 
+@pytest.mark.parametrize("method", ["nearest", "linear"])
+@pytest.mark.parametrize(
+    "point",
+    [
+        # -180..180 longitude on the 0..360 grid (lon 200..330, lat 15..75)
+        Point(204 - 360, 44),
+        Point(204, 80),
+        Point(204, 10),
+        Point(100, 44),
+        MultiPoint([(204, 44), (204, 91)]),
+    ],
+)
+def test_select_position_out_of_bounds(regular_xy_dataset, point, method):
+    """Out of range points error instead of snapping to the edge of the grid"""
+    with pytest.raises(ValueError, match="outside the dataset's spatial extent"):
+        select_by_position(regular_xy_dataset, point, method=method)
+
+
+def test_select_position_within_edge_cell(regular_xy_dataset):
+    """Points within half a cell (1.25 deg) of the grid edge are still valid"""
+    ds = select_by_position(regular_xy_dataset, MultiPoint([(199, 76), (331, 14)]))
+    npt.assert_array_equal(ds["lon"], [200.0, 330.0])
+    npt.assert_array_equal(ds["lat"], [75.0, 15.0])
+
+
 def test_select_area_regular_xy(regular_xy_dataset):
     polygon = Point(204, 44).buffer(5)
     ds = select_by_area(regular_xy_dataset, polygon)
