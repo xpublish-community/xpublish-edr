@@ -188,6 +188,13 @@ def test_cf_position_query_invalid_coords(cf_client):
     assert "Could not parse coordinates to geometry" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("coords", ["POINT(204 91)", "POINT(100 44)", "POINT(-156 44)"])
+def test_cf_position_query_out_of_bounds(cf_client, coords):
+    response = cf_client.get(f"/datasets/air/edr/position?coords={coords}")
+    assert response.status_code == 400, "Response should have returned a 400"
+    assert "outside the dataset's spatial extent" in response.json()["detail"]
+
+
 def test_cf_position_query(cf_client, cf_air_dataset, cf_temp_dataset):
     x = 204
     y = 44

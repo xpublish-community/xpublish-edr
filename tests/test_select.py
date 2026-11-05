@@ -412,6 +412,86 @@ def test_select_position_regular_xy_multi_interpolate(regular_xy_dataset):
     )
 
 
+@pytest.fixture(scope="function")
+def global_dataset():
+    """A global 0.25 degree grid with -180..180 longitudes"""
+    lon = np.arange(-180, 180, 0.25)
+    lat = np.arange(-90, 90.25, 0.25)
+    return xr.Dataset(
+        {"foo": (("lat", "lon"), np.broadcast_to(lon, (lat.size, lon.size)))},
+        coords={
+            "lat": ("lat", lat, {"standard_name": "latitude", "units": "degrees_north"}),
+            "lon": ("lon", lon, {"standard_name": "longitude", "units": "degrees_east"}),
+        },
+    )
+
+
+@pytest.mark.parametrize("method", ["nearest", "linear"])
+@pytest.mark.parametrize(
+    "point",
+    [
+        # 0..360 longitude on a -180..180 grid
+        Point(359.9, 10),
+        # Longitude more than one revolution out of range
+        Point(-540, 10),
+    ],
+)
+def test_select_position_wrong_longitude_convention(global_dataset, point, method):
+    """Longitudes in another convention error instead of being wrapped or clamped"""
+    with pytest.raises(ValueError, match="Convert the coordinates"):
+        select_by_position(global_dataset, point, method=method)
+
+
+def test_select_position_wrong_longitude_convention_0_360(regular_xy_dataset):
+    with pytest.raises(ValueError, match="outside the dataset's spatial extent"):
+        select_by_position(regular_xy_dataset, Point(204 - 360, 44))
+
+    with pytest.raises(ValueError, match=r"\(-158 45\)"):
+        select_by_position(regular_xy_dataset, MultiPoint([(202 - 360, 45), (205, 48)]))
+
+
+def test_select_position_global_edges(global_dataset):
+    """Points within half a cell of either longitude edge are valid"""
+    ds = select_by_position(global_dataset, Point(179.8, 10))
+    npt.assert_allclose(ds["lon"].values, [179.75])
+    ds = select_by_position(global_dataset, Point(-180.1, 10))
+    npt.assert_allclose(ds["lon"].values, [-180.0])
+
+
+@pytest.mark.parametrize("method", ["nearest", "linear"])
+@pytest.mark.parametrize(
+    "point",
+    [
+        Point(0, 91),
+        Point(0, -90.2),
+        MultiPoint([(0, 10), (0, 95)]),
+    ],
+)
+def test_select_position_out_of_bounds_global(global_dataset, point, method):
+    with pytest.raises(ValueError, match="outside the dataset's spatial extent"):
+        select_by_position(global_dataset, point, method=method)
+
+
+@pytest.mark.parametrize(
+    "point",
+    [
+        Point(204, 80),
+        Point(100, 44),
+        Point(-20, 44),
+    ],
+)
+def test_select_position_out_of_bounds_regional(regular_xy_dataset, point):
+    with pytest.raises(ValueError, match="outside the dataset's spatial extent"):
+        select_by_position(regular_xy_dataset, point)
+
+
+def test_select_position_within_edge_cell(regular_xy_dataset):
+    """Points within half a cell of the grid edge are still valid"""
+    # lat spans 15..75 with 2.5 degree spacing
+    ds = select_by_position(regular_xy_dataset, Point(204, 76))
+    npt.assert_array_equal(ds["lat"], 75.0)
+
+
 def test_select_area_regular_xy(regular_xy_dataset):
     polygon = Point(204, 44).buffer(5)
     ds = select_by_area(regular_xy_dataset, polygon)

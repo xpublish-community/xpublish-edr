@@ -70,6 +70,9 @@ class EDRPositionQueryPost(BaseEDRQuery):
                 detail="Could not parse coordinates to geometry, "
                 "check the format of the 'coords' query parameter",
             )
+        except ValueError as e:
+            logger.error(f"Error selecting by position: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
         except KeyError as e:
             logger.error(f"Error selecting by position: {e}")
             raise HTTPException(
