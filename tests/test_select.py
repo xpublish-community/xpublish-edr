@@ -18,6 +18,7 @@ from xpublish_edr.geometry.common import (
 )
 from xpublish_edr.position.geom import select_by_position
 from xpublish_edr.area.query import EDRAreaQueryGet
+from xpublish_edr.base_query import _localize
 from xpublish_edr.cube.query import EDRCubeQuery
 from xpublish_edr.position.query import EDRPositionQueryGet
 
@@ -889,3 +890,64 @@ def test_spatial_resolution_and_position_selection(spatial_selection_case):
     projected = project_dataset(selected, query.crs, sr)
     npt.assert_approx_equal(projected.cf["X"].values.item(), x, significant=5)
     npt.assert_approx_equal(projected.cf["Y"].values.item(), y, significant=5)
+
+
+def test_position_linear_interp_after_spatial_select(regular_xy_dataset, monkeypatch):
+    """Linear interpolation must not see whole slabs of the dataset (OOM).
+
+    Interpolating on time before the spatial selection loaded the full
+    horizontal grid into memory. Results must match interpolating every
+    dimension at once.
+    """
+    interp = xr.Dataset.interp
+    calls = []
+
+    def spy(self, coords=None, *args, **kwargs):
+        result = interp(self, coords, *args, **kwargs)
+        calls.append((set(coords or kwargs), dict(self.sizes), result))
+        return result
+
+    monkeypatch.setattr(xr.Dataset, "interp", spy)
+
+    query = EDRPositionQueryGet(
+        coords="POINT(204.3 44.2)",
+        datetime="2013-01-01T08:00:00",
+        parameters="air",
+        method="linear",
+    )
+    query.run_query(regular_xy_dataset, {}, query.geometry)
+
+    time_calls = [sizes for dims, sizes, _ in calls if "time" in dims]
+    assert time_calls, "time should be interpolated"
+    assert all(s["lat"] == s["lon"] == 1 for s in time_calls), time_calls
+    expected = interp(
+        regular_xy_dataset[["air"]],
+        time=[pd.Timestamp("2013-01-01T08:00:00")],
+        lat=[44.2],
+        lon=[204.3],
+    )
+    npt.assert_allclose(calls[-1][2]["air"].values, expected["air"].values)
+
+
+@pytest.mark.parametrize("descending", [False, True])
+@pytest.mark.parametrize(
+    "value, expected",
+    [(101.5, [101, 102]), (102, [101, 102]), (99, [100, 101]), (110, [103, 104])],
+)
+def test_localize_brackets_target(value, expected, descending):
+    """Localizing keeps the two points around the target, clamped to the edges."""
+    elevation = np.arange(100, 105)
+    if descending:
+        elevation = elevation[::-1]
+    ds = xr.Dataset(coords={"elevation": elevation})
+    targets = {}
+    localized = _localize(ds, "elevation", [value], targets)
+    assert sorted(localized["elevation"].values.tolist()) == expected
+    assert targets == {"elevation": [value]}
+
+
+def test_localize_non_monotonic_index():
+    """A non-monotonic index can't be bracketed, so reject it."""
+    ds = xr.Dataset(coords={"elevation": [100, 102, 101]})
+    with pytest.raises(ValueError, match="not monotonic"):
+        _localize(ds, "elevation", [101.4], {})
